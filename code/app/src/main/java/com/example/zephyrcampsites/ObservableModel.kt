@@ -11,18 +11,22 @@ open class ObservableModel<M> {
 
     // Adds observer to model
     fun addObserver(o: ViewObserver<M>) {
-        observers.add(o)
+        if (o !in observers) {
+            observers.add(o)
+        }
     }
 
     // Removes observer from model
     fun removeObserver(o: ViewObserver<M>) {
-        observers.remove(o)
+        if (o in observers) {
+            observers.remove(o)
+        }
     }
 
     // Tells the model to notify the observers
     protected fun notifyObservers(model: M) {
-        for (i in observers) {
-            i.update(model)
+        observers.forEach{ observer ->
+            observer.update(model)
         }
     }
 }
