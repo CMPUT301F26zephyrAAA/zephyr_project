@@ -1,5 +1,5 @@
 package com.example.zephyrcampsites
 
-data class DataHolder(val id: Int) {
-    val name : String = ""
+open class DataHolder(open val id: String) {
+    open val name : String = ""
 }
