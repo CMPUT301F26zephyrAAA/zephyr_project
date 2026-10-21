@@ -19,29 +19,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ZephyrCampsitesTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                val campsite1 = Campsite(1)
+                campsite1.name = "test1"
+                val campsite2 = Campsite(2)
+                campsite2.name = "test2"
+                var CampsiteList = listOf(campsite1, campsite2)
+                val view = CampsiteView()
+                view.SummaryView(CampsiteList)
             }
         }
-    }
-}
-
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    ZephyrCampsitesTheme {
-        Greeting("Android")
     }
 }
