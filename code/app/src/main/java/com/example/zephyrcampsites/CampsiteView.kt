@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.sp
  */
 class CampsiteView : ViewObserver<CampsiteModel> {
     /**
-     * Update function for MVC? But doesn't seem to be needed if the items to display are set as mutableStateOf (see declaration of displayingList in SummaryView).
+     * Update function for MVC? But doesn't seem to be needed because of how Jetpack Compose works.
      */
     override fun update(model: CampsiteModel) {
         // ?
@@ -45,7 +45,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         campsiteList : List<Campsite>,
         onClick: () -> Unit
     ) {
-        var displayingList by remember {mutableStateOf(campsiteList)}
+        //var displayingList by remember {mutableStateOf(campsiteList)}
         Column(modifier = Modifier.fillMaxSize()) {
             Spacer(modifier = Modifier.size(30.dp))
             Row(
@@ -71,7 +71,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 }
             }
             LazyColumn(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                itemsIndexed(displayingList) { _, campsite ->
+                itemsIndexed(campsiteList) { _, campsite ->
                     CampsiteRow(campsite)
                 }
             }
