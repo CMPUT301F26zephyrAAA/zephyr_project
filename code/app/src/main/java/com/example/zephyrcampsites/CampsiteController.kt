@@ -14,4 +14,14 @@ class CampsiteController(val model: CampsiteModel) {
             println(campsite.id)
         }
     }
+
+    /**
+     * Retrieve campsite entry based on ID.
+     *
+     * @param id ID of campsite to retrieve
+     * @return Full campsite object
+     */
+    fun retrieveId(id: Int) : Campsite? {
+        return model.campsites.find { it.id.toInt() == id }
+    }
 }
