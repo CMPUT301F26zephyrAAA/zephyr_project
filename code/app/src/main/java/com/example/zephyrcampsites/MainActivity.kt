@@ -19,13 +19,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             ZephyrCampsitesTheme {
-                val campsite1 = Campsite(1)
-                campsite1.name = "test1"
-                val campsite2 = Campsite(2)
-                campsite2.name = "test2"
-                var CampsiteList = listOf(campsite1, campsite2)
-                val view = CampsiteView()
-                view.SummaryView(CampsiteList)
+                val campsiteModel = CampsiteModel()
+                val campsiteView = CampsiteView()
+                val campsiteController = CampsiteController(campsiteModel)
+                campsiteModel.addObserver(campsiteView)
+                campsiteView.SummaryView(campsiteModel.campsites, { campsiteController.onClick() })
             }
         }
     }
