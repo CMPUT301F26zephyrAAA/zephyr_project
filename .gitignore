@@ -19,6 +19,7 @@ code/output-metadata.json
 # IntelliJ
 code/*.iml
 code/.idea/
+.idea/
 code/misc.xml
 code/deploymentTargetDropDown.xml
 code/render.experimental.xml
@@ -28,7 +29,7 @@ code/*.jks
 code/*.keystore
 
 # Google Services (e.g. APIs or Firebase)
-code/google-services.json
+code/app/google-services.json
 
 # Android Profiling
 code/*.hprof
