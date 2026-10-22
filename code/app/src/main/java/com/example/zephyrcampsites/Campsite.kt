@@ -1,7 +1,3 @@
-/**
- * This file only contains the data class for campsites.
- */
-
 package com.example.zephyrcampsites
 
 import java.util.Date
@@ -9,12 +5,12 @@ import java.util.Date
 /**
  * Data class for an individual campsite.
  *
- * No methods, only data holder. ID is temporarily given to create, and everything is var so owners can modify.
+ * No methods, only data holder. ID is given to create, and everything is var so owners can modify.
  *
  * @param id the campsite id to assign to this instance.
  */
-data class Campsite (val id: Int) {
-    var name: String = ""
+data class Campsite (override val id: String = "0") : DataHolder(id) {
+    override var name: String = ""
     var location: String = ""
     var description: String = ""
     var maxOccupancy: Int = 0
