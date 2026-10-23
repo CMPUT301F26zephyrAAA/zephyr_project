@@ -1,12 +1,9 @@
 package com.example.zephyrcampsites
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.app.ActivityCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -38,7 +35,6 @@ class MainActivity : ComponentActivity() {
                 val campsiteView = CampsiteView()
                 val campsiteModel = CampsiteModel()
                 val campsiteController = CampsiteController(campsiteModel)
-                var activeCampsiteFilters : MutableList<Any> = mutableListOf()
                 NavHost(
                     navController = navHostController,
                     startDestination = CampsiteScreen.SummaryView.route
@@ -47,13 +43,15 @@ class MainActivity : ComponentActivity() {
                         campsiteView.SummaryView(
                             onClick = { campsiteController.addCampsite() },
                             openDetail = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id))},
-                            locationGetter = locationClient,
                             filterPage = { navHostController.navigate(CampsiteScreen.FilterPage.route) },
                             searchHandler = { devLocation, locationLimit, startDate, endDate, guests, search -> campsiteController.search(devLocation, locationLimit, startDate, endDate, guests, search) }
                             )
                     }
                     composable(route = CampsiteScreen.FilterPage.route) {
-                        campsiteView.FilterSettings { navHostController.navigate(CampsiteScreen.SummaryView.route) }
+                        campsiteView.FilterSettings (
+                            locationClient = locationClient,
+                            toParent = {navHostController.navigate(CampsiteScreen.SummaryView.route)}
+                        )
                     }
                     composable(route = GeneralScreen.QRScan.route) {
                         qrHandler.QRScan(
