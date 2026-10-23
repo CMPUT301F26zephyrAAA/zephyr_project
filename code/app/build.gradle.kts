@@ -45,6 +45,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.material3)
     implementation(libs.androidx.navigation.compose)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -57,4 +58,6 @@ dependencies {
     implementation(libs.firebase.firestore)
     implementation("io.github.g0dkar:qrcode-kotlin:4.5.0")
     implementation("io.github.kalinjul.easyqrscan:scanner:0.7.2")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("com.google.android.gms:play-services-location:21.4.0")
 }
