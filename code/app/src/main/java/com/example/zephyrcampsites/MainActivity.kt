@@ -1,9 +1,12 @@
 package com.example.zephyrcampsites
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.core.app.ActivityCompat
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -11,6 +14,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -23,6 +28,7 @@ sealed class GeneralScreen(val route: String) {
 }
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        val locationClient : FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
@@ -32,16 +38,22 @@ class MainActivity : ComponentActivity() {
                 val campsiteView = CampsiteView()
                 val campsiteModel = CampsiteModel()
                 val campsiteController = CampsiteController(campsiteModel)
+                var activeCampsiteFilters : MutableList<Any> = mutableListOf()
                 NavHost(
                     navController = navHostController,
                     startDestination = CampsiteScreen.SummaryView.route
                 ) { // Start of routes definitions, information on how to use arguments taken from here: https://levelup.gitconnected.com/navigation-in-android-jetpack-compose-a-practical-guide-4d8037b07a87
                     composable(route = CampsiteScreen.SummaryView.route) {
                         campsiteView.SummaryView(
-                            campsiteList = campsiteModel.campsites,
-                            onClick = { navHostController.navigate(GeneralScreen.QRScan.route) },
-                            openDetail = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id))
-                        })
+                            onClick = { campsiteController.addCampsite() },
+                            openDetail = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id))},
+                            locationGetter = locationClient,
+                            filterPage = { navHostController.navigate(CampsiteScreen.FilterPage.route) },
+                            searchHandler = { devLocation, locationLimit, startDate, endDate, guests, search -> campsiteController.search(devLocation, locationLimit, startDate, endDate, guests, search) }
+                            )
+                    }
+                    composable(route = CampsiteScreen.FilterPage.route) {
+                        campsiteView.FilterSettings { navHostController.navigate(CampsiteScreen.SummaryView.route) }
                     }
                     composable(route = GeneralScreen.QRScan.route) {
                         qrHandler.QRScan(
