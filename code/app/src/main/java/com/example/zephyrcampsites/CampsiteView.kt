@@ -30,7 +30,9 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePickerDialog
@@ -132,9 +134,11 @@ class CampsiteView : ViewObserver<CampsiteModel> {
 
         currentUserFilters[0] = searchString.text // For syncing currentUserFilters when user enters search string on summary page
 
-        var expandedId by remember { mutableStateOf<Int?>(null) }
+        var expandedId by remember { mutableStateOf<Int?>(null) } // Saves ID that is currently displaying the summary popup
 
-        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)) {
             Spacer(modifier = Modifier.size(50.dp))
             Row(modifier = Modifier
                 .fillMaxWidth()
@@ -183,9 +187,9 @@ class CampsiteView : ViewObserver<CampsiteModel> {
             LazyColumn(modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)) {
-                itemsIndexed(displayList) { id, campsite -> // id looks weird because itemsIndexed is 0 start, but campsite id is 1 start. That's reason for the "random" +1s.
+                itemsIndexed(displayList) { _ , campsite -> // Not using lazy column index because that only counts items displaying.
                     var isExpanded = false
-                    if (expandedId == (id+1)) {
+                    if (expandedId == (campsite.id.toInt())) {
                         isExpanded = true
                     }
                     Column(modifier = Modifier.fillMaxWidth()) {
@@ -199,8 +203,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                         AnimatedVisibility(
                             visible = (isExpanded)
                         ) {
-                            println("visible")
-                            CampsiteCard(campsite = campsite, onClick = { expandedId = null }, detailsClick = { openDetail(id+1) })
+                            CampsiteCard(campsite = campsite, onClick = { expandedId = null }, detailsClick = { openDetail(campsite.id.toInt()) })
                         }
                     }
                 }
@@ -216,7 +219,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
     }
 
     /**
-     * Shows a mini "card" containing the summary information of given campsite.
+     * Private helper function to show a mini "card" containing the summary information of given campsite.
      *
      * @param campsite Campsite to show summary about
      * @param onClick Method that responds when "Close Summary" button is clicked
@@ -228,8 +231,10 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         onClick: () -> Unit,
         detailsClick: () -> Unit
     ) {
-        //name, location, max occupants, rating
-        Box(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).background(color = MaterialTheme.colorScheme.primary)) {
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .background(color = MaterialTheme.colorScheme.primary)) {
             Column(modifier = Modifier
                 .fillMaxSize()
                 .padding(20.dp)) {
@@ -255,7 +260,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     if (average.isNaN()) {
                         Text(text = "No ratings", color = MaterialTheme.colorScheme.onBackground)
                     } else {
-                        Text(text = "Rating: ${average}⭐", color = MaterialTheme.colorScheme.onBackground)
+                        Text(text = "Rating: ${"%.2f".format(average)}⭐", color = MaterialTheme.colorScheme.onBackground)
                     }
                 }
                 Spacer(modifier = Modifier.size(30.dp))
@@ -335,6 +340,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         }
         var complete by remember { mutableStateOf(false) } // Flag to track if user is done setting filters
         var datesTriggered by remember { mutableStateOf(false) } // Flag to track if user has selected date at least once during this time opening the filters page
+        var alertTriggered by remember { mutableStateOf(false) } // Flag to track if an alert is being triggered (for invalid input)
 
         Column(modifier = Modifier
             .fillMaxSize()
@@ -450,7 +456,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextField(
                     state = guests,
-                    label = { Text("Enter amount of guests") },
+                    label = { Text("Enter amount of guests (max: 10)") },
                     modifier = Modifier
                         .fillMaxWidth(),
                     lineLimits = TextFieldLineLimits.SingleLine,
@@ -488,21 +494,31 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 }
             }
         }
+        if (alertTriggered) {
+            ErrorDialog(title = "Max guests exceeded!",
+                text = "You have entered a guest amount more than the maximum allowed (10). Please try again.",
+                dismiss = { alertTriggered = false })
+        }
         BackHandler(enabled = true) { // Catches system back button/gesture and also applies filters
             complete = true
         }
         if (complete) { // Updates currentUserFilters whenever filter page is closed or system back is used
-            currentUserFilters[0] = searchString.text.toString()
-            currentUserFilters[1] = deviceLocation
-            currentUserFilters[2] = distanceLimit
-            currentUserFilters[3] = startDate
-            currentUserFilters[4] = endDate
-            if (guests.text.toString() == "") {
-                currentUserFilters[5] = null
+            if (guests.text.toString().toInt() > 10) { // Triggers error dialog (by setting flag) if anything entered is not allowed
+                alertTriggered = true
+                complete = false
             } else {
-                currentUserFilters[5] = guests.text.toString().toInt()
+                currentUserFilters[0] = searchString.text.toString()
+                currentUserFilters[1] = deviceLocation
+                currentUserFilters[2] = distanceLimit
+                currentUserFilters[3] = startDate
+                currentUserFilters[4] = endDate
+                if (guests.text.toString() == "") {
+                    currentUserFilters[5] = null
+                } else {
+                    currentUserFilters[5] = guests.text.toString().toInt()
+                }
+                toParent()
             }
-            toParent()
         }
     }
 
@@ -522,7 +538,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         var codeShow by remember {mutableStateOf(false)}
         val code = codeGenerator("campsite", campsite!!.id.toInt())
         val launcher = rememberLauncherForActivityResult( // Launcher to save QR code (Opens destination picker)
-            ActivityResultContracts.StartActivityForResult()
+            contract = ActivityResultContracts.StartActivityForResult()
         ) { result ->
             val image = code.asAndroidBitmap()
             val data = result.data
@@ -539,7 +555,10 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 }
             }
         }
-        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 20.dp, vertical = 16.dp)) {
             Spacer(modifier = Modifier.size(30.dp))
             Row(modifier = Modifier
                 .fillMaxWidth()
@@ -607,6 +626,29 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 color = MaterialTheme.colorScheme.onBackground
             )
         }
+    }
+
+    /**
+     * Private helper function to generate error dialogs.
+     *
+     * @param title Title of the dialog
+     * @param text Main body text of the dialog
+     * @param dismiss Method that responds when dialog is dismissed
+     */
+    @Composable
+    private fun ErrorDialog(title : String, text: String, dismiss: () -> Unit) {
+        AlertDialog(
+            icon = { Icon(Icons.Default.Error, contentDescription = "Error Icon") },
+            title = { Text(text = title) },
+            text = { Text(text = text) },
+            onDismissRequest = { dismiss() },
+            confirmButton = { },
+            dismissButton = { TextButton(
+                onClick = { dismiss() }
+            ) {
+                Text("Dismiss")
+            } }
+        )
     }
 }
 
