@@ -52,7 +52,10 @@ class CampsiteController(val model: CampsiteModel) {
     fun search(userLocation: Location?, distanceLimit : Int?, startDate : Date?, endDate : Date?, persons : Int?, string: String) : List<Campsite> {
         val resultList : MutableList<Campsite> = mutableListOf()
         model.campsites.forEach { campsite ->
-            println(campsite.id)
+            if (campsite.id.toInt() == 1) {
+                println(campsite.bookingPeriodStart)
+                println(startDate)
+            }
             val campsiteDate : Pair<Date, Date> = Pair(campsite.bookingPeriodStart, campsite.bookingPeriodEnd)
             val campsiteLocConvert = Location("manual").apply {
                 latitude = campsite.geolocation.latitude
@@ -118,7 +121,7 @@ class CampsiteController(val model: CampsiteModel) {
         if (startDate == null || endDate == null) {
             return true
         }
-        return (campsiteDate.first < startDate && campsiteDate.second > endDate)
+        return (campsiteDate.first <= startDate && campsiteDate.second >= endDate)
     }
 
     /**
