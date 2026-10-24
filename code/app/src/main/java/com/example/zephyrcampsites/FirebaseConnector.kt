@@ -2,6 +2,7 @@ package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
+import com.google.firebase.storage.storage
 import kotlin.jvm.java
 
 /**
@@ -62,5 +63,15 @@ class FirebaseConnector(target: String) {
                 }
             }
         }
+    }
+
+    fun resourceGetter(path: String) : String {
+        val storageRef = Firebase.storage.reference
+        val resource =  storageRef.child(path)
+        var imageUrl = ""
+        resource.downloadUrl.addOnSuccessListener {uri ->
+            imageUrl = uri.toString()
+        }
+        return imageUrl
     }
 }
