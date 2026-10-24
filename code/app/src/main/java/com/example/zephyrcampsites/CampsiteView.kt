@@ -2,12 +2,17 @@ package com.example.zephyrcampsites
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.graphics.Bitmap
 import android.location.Location
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,6 +23,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
@@ -25,6 +32,7 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.DropdownMenuItem
@@ -33,6 +41,7 @@ import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -42,13 +51,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.text.isDigitsOnly
 import com.google.android.gms.location.FusedLocationProviderClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -116,7 +132,9 @@ class CampsiteView : ViewObserver<CampsiteModel> {
 
         currentUserFilters[0] = searchString.text // For syncing currentUserFilters when user enters search string on summary page
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        var expandedId by remember { mutableStateOf<Int?>(null) }
+
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             Spacer(modifier = Modifier.size(50.dp))
             Row(modifier = Modifier
                 .fillMaxWidth()
@@ -147,6 +165,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     Text(
                         text = "Name",
                         fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 }
                 Column(
@@ -156,6 +175,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     Text(
                         text = "Max Occupant",
                         fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
                 }
             }
@@ -163,10 +183,26 @@ class CampsiteView : ViewObserver<CampsiteModel> {
             LazyColumn(modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)) {
-                itemsIndexed(displayList) { _, campsite ->
-                    CampsiteRow(item = campsite, onClick = { id ->
-                        openDetail(id) // TODO: make rectangular popup that opens with summary and pushes down other rows?
-                    })
+                itemsIndexed(displayList) { id, campsite -> // id looks weird because itemsIndexed is 0 start, but campsite id is 1 start. That's reason for the "random" +1s.
+                    var isExpanded = false
+                    if (expandedId == (id+1)) {
+                        isExpanded = true
+                    }
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        CampsiteRow(item = campsite, onClick = { id ->
+                            expandedId = if (isExpanded) {
+                                null
+                            } else {
+                                id
+                            }
+                        })
+                        AnimatedVisibility(
+                            visible = (isExpanded)
+                        ) {
+                            println("visible")
+                            CampsiteCard(campsite = campsite, onClick = { expandedId = null }, detailsClick = { openDetail(id+1) })
+                        }
+                    }
                 }
             }
             Row(modifier = Modifier
@@ -174,6 +210,67 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 .padding(horizontal = 20.dp, vertical = 30.dp)) {
                 Button(onClick = onClick) {
                     Text("testing button")
+                }
+            }
+        }
+    }
+
+    /**
+     * Shows a mini "card" containing the summary information of given campsite.
+     *
+     * @param campsite Campsite to show summary about
+     * @param onClick Method that responds when "Close Summary" button is clicked
+     * @param detailsClick Method that responds when "Open Details" button is clicked
+     */
+    @Composable
+    private fun CampsiteCard(
+        campsite: Campsite,
+        onClick: () -> Unit,
+        detailsClick: () -> Unit
+    ) {
+        //name, location, max occupants, rating
+        Box(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).background(color = MaterialTheme.colorScheme.primary)) {
+            Column(modifier = Modifier
+                .fillMaxSize()
+                .padding(20.dp)) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = campsite.name, fontSize = 30.sp, color = MaterialTheme.colorScheme.onBackground)
+                    }
+                    Column(modifier = Modifier) {
+                        // Place main promo image here
+                    }
+                }
+                Spacer(modifier = Modifier.size(30.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "At ${campsite.location}", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
+                }
+                Spacer(modifier = Modifier.size(30.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Text(text = "Max Occupancy: ${campsite.maxOccupancy}", color = MaterialTheme.colorScheme.onBackground)
+                }
+                Spacer(modifier = Modifier.size(30.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    val average = campsite.rating.average()
+                    if (average.isNaN()) {
+                        Text(text = "No ratings", color = MaterialTheme.colorScheme.onBackground)
+                    } else {
+                        Text(text = "Rating: ${average}⭐", color = MaterialTheme.colorScheme.onBackground)
+                    }
+                }
+                Spacer(modifier = Modifier.size(30.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column() {
+                        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary)) {
+                            Text(text = "Close Summary", color = MaterialTheme.colorScheme.onSecondary)
+                        }
+                    }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Column() {
+                        Button(onClick = detailsClick, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary)) {
+                            Text(text = "Open Details", color = MaterialTheme.colorScheme.onSecondary)
+                        }
+                    }
                 }
             }
         }
@@ -241,7 +338,9 @@ class CampsiteView : ViewObserver<CampsiteModel> {
 
         Column(modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 20.dp, vertical = 16.dp)) {
+            .background(MaterialTheme.colorScheme.background)
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+            ) {
             Spacer(modifier = Modifier.size(50.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 TextField(
@@ -255,7 +354,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
             }
             Spacer(modifier = Modifier.size(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
-                Text(text = "Choose maximum distance for campsite: ")
+                Text(text = "Choose maximum distance for campsite: ", color = MaterialTheme.colorScheme.onBackground)
             }
             Row(modifier = Modifier.fillMaxWidth()) {
                 ExposedDropdownMenuBox(
@@ -298,18 +397,18 @@ class CampsiteView : ViewObserver<CampsiteModel> {
             Spacer(modifier = Modifier.size(20.dp))
             Row(modifier = Modifier.fillMaxWidth()) {
                 if (dateSelected || datesTriggered) { // If not first time setting date overall or not first time setting date within this filter page opening, show previously selected date
-                    Text("Current selected date: ")
+                    Text(text = "Current selected date: ", color = MaterialTheme.colorScheme.onBackground)
                 }
             }
             Row(modifier = Modifier.fillMaxWidth()) {
                 if (dateSelected || datesTriggered) {
                     val formatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-                    Text("${formatter.format(startDate)} to ${formatter.format(endDate)}")
+                    Text(text = "${formatter.format(startDate)} to ${formatter.format(endDate)}", color = MaterialTheme.colorScheme.onBackground)
                 }
             }
             Row(modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = { dateSelect = true }) {
-                    Text("Click to select dates you want to stay...")
+                    Text(text = "Click to select dates you want to stay...")
                 }
                 if (dateSelect) {
                     DatePickerDialog(
@@ -355,7 +454,8 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     modifier = Modifier
                         .fillMaxWidth(),
                     lineLimits = TextFieldLineLimits.SingleLine,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number) // TODO: Filter for only numbers in field
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    inputTransformation = DigitOnlyInputTransformation()
                 )
             }
             Spacer(modifier = Modifier.size(20.dp))
@@ -417,19 +517,39 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         campsite: Campsite?,
         codeGenerator: (String, Int) -> ImageBitmap
     ) {
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
         var codeShow by remember {mutableStateOf(false)}
         val code = codeGenerator("campsite", campsite!!.id.toInt())
-        Column(modifier = Modifier.fillMaxSize()) {
+        val launcher = rememberLauncherForActivityResult( // Launcher to save QR code (Opens destination picker)
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            val image = code.asAndroidBitmap()
+            val data = result.data
+            val uri = data?.data
+            if (uri != null) {
+                context.contentResolver.openOutputStream(uri)?.let { outputStream ->
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            image.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                            outputStream.flush()
+                            outputStream.close()
+                        }
+                    }
+                }
+            }
+        }
+        Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(horizontal = 20.dp, vertical = 16.dp)) {
             Spacer(modifier = Modifier.size(30.dp))
             Row(modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 16.dp)) {
-                Text(text = campsite.name, fontSize = 30.sp)
+                Text(text = campsite.name, fontSize = 30.sp, color = MaterialTheme.colorScheme.onBackground)
             }
             Row(modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 16.dp)) {
-                Text(text = campsite.maxOccupancy.toString(), fontSize = 20.sp)
+                Text(text = campsite.maxOccupancy.toString(), fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
             }
             Row(modifier = Modifier.fillMaxWidth()) {
                 if (codeShow) {
@@ -438,8 +558,22 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                         contentDescription = "Generated QR code of user"
                     )
                 }
+            }
+            Spacer(modifier = Modifier.size(20.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
                 Button(onClick = { codeShow = !codeShow }) {
                     Text(text = "Generate/Hide QR")
+                }
+                Spacer(modifier = Modifier.weight(1f))
+                if (codeShow) {
+                    Button(onClick = {
+                        launcher.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "image/png"
+                            putExtra(Intent.EXTRA_TITLE, "campsite-qr.png")
+                        }) }) {
+                        Text(text = "Download/Save QR")
+                    }
                 }
             }
         }
@@ -463,16 +597,29 @@ class CampsiteView : ViewObserver<CampsiteModel> {
             Text(
                 text = item.name,
                 fontSize = 15.sp,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onBackground
             )
             Text(
                 text = item.maxOccupancy.toString(),
                 fontSize = 15.sp,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onBackground
             )
         }
     }
+}
 
+/**
+ * Helper class for transforming inputs to digits only.
+ * Use in TextField composables by setting parameter "inputtransformation" to an instance of this class.
+ */
+class DigitOnlyInputTransformation : InputTransformation {
+    override fun TextFieldBuffer.transformInput() {
+        if (!asCharSequence().isDigitsOnly()) {
+            revertAllChanges()
+        }
+    }
 }
 
 //@Preview
