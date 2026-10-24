@@ -60,4 +60,7 @@ dependencies {
     implementation("io.github.kalinjul.easyqrscan:scanner:0.7.2")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.android.gms:play-services-location:21.4.0")
+    implementation("com.google.firebase:firebase-storage")
+    implementation("io.coil-kt:coil-compose:1.3.2")
+
 }
