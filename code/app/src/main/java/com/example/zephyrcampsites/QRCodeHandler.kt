@@ -12,6 +12,7 @@ import org.publicvalue.multiplatform.qrcode.CameraPosition
 import org.publicvalue.multiplatform.qrcode.CodeType
 import org.publicvalue.multiplatform.qrcode.ScannerWithPermissions
 import qrcode.QRCode
+import qrcode.color.Colors
 
 /**
  * Class to handle anything related to an actual QR code, such as generating or scanning.
@@ -24,7 +25,7 @@ class QRCodeHandler {
      * @param id The id of the entry to open of set type.
      */
     fun qRGenerate(type: String, id: Int) : ImageBitmap {
-        val targetQRCode = QRCode.ofRoundedSquares().build("$type://$id")
+        val targetQRCode = QRCode.ofRoundedSquares().withBackgroundColor(Colors.WHITE).build("$type://$id")
         val pngBytes = targetQRCode.render().nativeImage() as Bitmap
         val image = pngBytes.asImageBitmap()
         return image
