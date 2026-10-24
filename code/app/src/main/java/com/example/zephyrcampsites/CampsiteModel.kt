@@ -68,6 +68,12 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         notifyObservers(this)
     }
 
+    fun getCampsiteImage(
+        path: String
+    ) : String {
+        return connector.resourceGetter(path)
+    }
+
     init {
         connector.initializeListener(campsites, Campsite::class.java)
     }
