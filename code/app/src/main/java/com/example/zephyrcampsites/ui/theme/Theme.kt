@@ -1,6 +1,5 @@
 package com.example.zephyrcampsites.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -12,15 +11,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = GreenDark,
+    secondary = SecondaryGreenDark,
+    tertiary = Pink80,
+    onPrimary = DarkText,
+    onSecondary = LightText
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = GreenLight,
+    secondary = SecondaryGreenLight,
+    tertiary = Pink40,
+    onPrimary = LightText,
+    onSecondary = DarkText
 
     /* Other default colors to override
     background = Color(0xFFFFFBFE),
@@ -37,7 +40,7 @@ private val LightColorScheme = lightColorScheme(
 fun ZephyrCampsitesTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {
