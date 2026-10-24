@@ -8,11 +8,10 @@ import android.location.Location
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -34,10 +33,11 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -58,11 +58,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.text.isDigitsOnly
+import coil.annotation.ExperimentalCoilApi
+import coil.compose.rememberImagePainter
 import com.google.android.gms.location.FusedLocationProviderClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -124,6 +128,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         openDetail: (Int) -> Unit,
         searchHandler: (Location?, Int, Date, Date, Int, String) -> List<Campsite>,
         filterPage: () -> Unit,
+        imageLoader: (Int) -> String
     ) {
         // Acquires current filters from currentUserFilters
         val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters[0] as String)
@@ -133,8 +138,6 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         var guests by remember { mutableIntStateOf(currentUserFilters[5] as Int) }
 
         currentUserFilters[0] = searchString.text // For syncing currentUserFilters when user enters search string on summary page
-
-        var expandedId by remember { mutableStateOf<Int?>(null) } // Saves ID that is currently displaying the summary popup
 
         Column(modifier = Modifier
             .fillMaxSize()
@@ -157,54 +160,13 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 }
             }
             Spacer(modifier = Modifier.size(30.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 16.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                ) {
-                    Text(
-                        text = "Name",
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                ) {
-                    Text(
-                        text = "Location",
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-            }
             val displayList = searchHandler(currentUserFilters[1] as Location?, distanceLimit, startDate, endDate, guests, searchString.text.toString()) // Search function can handle any nulls
             LazyColumn(modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)) {
-                itemsIndexed(displayList) { _ , campsite -> // Not using lazy column index because that only counts items displaying.
-                    var isExpanded = false
-                    if (expandedId == (campsite.id.toInt())) {
-                        isExpanded = true
-                    }
+                itemsIndexed(displayList) { _ , campsite ->
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        CampsiteRow(item = campsite, onClick = { id ->
-                            expandedId = if (isExpanded) {
-                                null
-                            } else {
-                                id
-                            }
-                        })
-                        AnimatedVisibility(
-                            visible = (isExpanded)
-                        ) {
-                            CampsiteCard(campsite = campsite, onClick = { expandedId = null }, detailsClick = { openDetail(campsite.id.toInt()) })
-                        }
+                        CampsiteRow(item = campsite, onClick = { id -> openDetail(id) }, imageGrabber = imageLoader)
                     }
                 }
             }
@@ -213,69 +175,6 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 .padding(horizontal = 20.dp, vertical = 30.dp)) {
                 Button(onClick = onClick) {
                     Text("testing button")
-                }
-            }
-        }
-    }
-
-    /**
-     * Private helper function to show a mini "card" containing the summary information of given campsite.
-     *
-     * @param campsite Campsite to show summary about
-     * @param onClick Method that responds when "Close Summary" button is clicked
-     * @param detailsClick Method that responds when "Open Details" button is clicked
-     */
-    @Composable
-    private fun CampsiteCard(
-        campsite: Campsite,
-        onClick: () -> Unit,
-        detailsClick: () -> Unit
-    ) {
-        Box(modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .background(color = MaterialTheme.colorScheme.primary)) {
-            Column(modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp)) {
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = campsite.name, fontSize = 30.sp, color = MaterialTheme.colorScheme.onBackground)
-                    }
-                    Column(modifier = Modifier) {
-                        // Place main promo image here
-                    }
-                }
-                Spacer(modifier = Modifier.size(30.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "At ${campsite.location}", fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
-                }
-                Spacer(modifier = Modifier.size(30.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Text(text = "Max Occupancy: ${campsite.maxOccupancy}", color = MaterialTheme.colorScheme.onBackground)
-                }
-                Spacer(modifier = Modifier.size(30.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    val average = campsite.rating.average()
-                    if (average.isNaN()) {
-                        Text(text = "No ratings", color = MaterialTheme.colorScheme.onBackground)
-                    } else {
-                        Text(text = "Rating: ${"%.2f".format(average)}⭐", color = MaterialTheme.colorScheme.onBackground)
-                    }
-                }
-                Spacer(modifier = Modifier.size(30.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    Column() {
-                        Button(onClick = onClick, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary)) {
-                            Text(text = "Close Summary", color = MaterialTheme.colorScheme.onSecondary)
-                        }
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    Column() {
-                        Button(onClick = detailsClick, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.secondary)) {
-                            Text(text = "Open Details", color = MaterialTheme.colorScheme.onSecondary)
-                        }
-                    }
                 }
             }
         }
@@ -605,26 +504,74 @@ class CampsiteView : ViewObserver<CampsiteModel> {
      * @param item Campsite to display
      * @param onClick Function passed in to trigger when row is clicked
      */
+    @OptIn(ExperimentalCoilApi::class) // For image loader
     @Composable
-    private fun CampsiteRow(item: Campsite, onClick: (Int) -> Unit) {
-        Row(
+    private fun CampsiteRow(item: Campsite, onClick: (Int) -> Unit, imageGrabber: (Int) -> String) {
+        ElevatedCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
-                .clickable { onClick(item.id.toInt()) }
+                .padding(horizontal = 40.dp, vertical = 16.dp)
+                .clickable { onClick(item.id.toInt()) },
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = 5.dp
+            )
         ) {
-            Text(
-                text = item.name,
-                fontSize = 15.sp,
-                modifier = Modifier.weight(1f),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Text(
-                text = item.location,
-                fontSize = 15.sp,
-                modifier = Modifier.weight(1f),
-                color = MaterialTheme.colorScheme.onBackground
-            )
+            // For loading campsite main image
+            // TODO: set up cloud firebase storage. do not use rn
+            if (item.imagePath != "") {
+                Row() {
+                    Image(
+                        painter = rememberImagePainter(
+                            data = imageGrabber(item.id.toInt()),
+                            builder = {
+                                crossfade(false)
+                            }
+                        ),
+                        contentDescription = "Campsite ${item.id} main image",
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
+            Row() {
+                Column(modifier = Modifier.fillMaxSize().padding(vertical = 20.dp, horizontal = 15.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = item.name,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    Spacer(modifier = Modifier.size(5.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "\uD83D\uDCCD ${item.location}",
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    Spacer(modifier = Modifier.size(20.dp))
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "\uD83D\uDC65 Max Occupancy: ${item.maxOccupancy}",
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            text = "⭐ Rating: ${"%.2f".format(item.rating.average())}",
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                    Spacer(modifier = Modifier.size(30.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        Button(onClick = { onClick(item.id.toInt()) }) {
+                            Text("View Details")
+                        }
+                    }
+                }
+            }
         }
     }
 

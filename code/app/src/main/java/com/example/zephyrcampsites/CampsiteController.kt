@@ -74,6 +74,10 @@ class CampsiteController(val model: CampsiteModel) {
         return resultList
     }
 
+    fun imageGetter(id: Int) : String {
+        return model.getCampsiteImage("campsite/$id.png")
+    }
+
     /**
      * Private helper function to check for partial, case-insensitive match.
      * Will return true if search is completely empty.

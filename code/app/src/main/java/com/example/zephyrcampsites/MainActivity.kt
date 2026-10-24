@@ -44,7 +44,8 @@ class MainActivity : ComponentActivity() {
                             onClick = { campsiteController.addCampsite() },
                             openDetail = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id))},
                             filterPage = { navHostController.navigate(CampsiteScreen.FilterPage.route) },
-                            searchHandler = { devLocation, locationLimit, startDate, endDate, guests, search -> campsiteController.search(devLocation, locationLimit, startDate, endDate, guests, search) }
+                            searchHandler = { devLocation, locationLimit, startDate, endDate, guests, search -> campsiteController.search(devLocation, locationLimit, startDate, endDate, guests, search) },
+                            imageLoader = { id -> campsiteController.imageGetter(id) }
                             )
                     }
                     composable(route = CampsiteScreen.FilterPage.route) {
