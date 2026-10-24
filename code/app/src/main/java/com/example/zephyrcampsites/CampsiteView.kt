@@ -173,7 +173,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                         .weight(1f)
                 ) {
                     Text(
-                        text = "Max Occupant",
+                        text = "Location",
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onBackground
                     )
@@ -601,7 +601,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 color = MaterialTheme.colorScheme.onBackground
             )
             Text(
-                text = item.maxOccupancy.toString(),
+                text = item.location,
                 fontSize = 15.sp,
                 modifier = Modifier.weight(1f),
                 color = MaterialTheme.colorScheme.onBackground
