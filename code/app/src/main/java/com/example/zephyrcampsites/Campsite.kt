@@ -1,6 +1,5 @@
 package com.example.zephyrcampsites
 
-import android.location.Location
 import com.google.firebase.firestore.GeoPoint
 import java.util.Date
 
@@ -22,7 +21,7 @@ data class Campsite (override val id: String = "0") : DataHolder(id) {
     var ownerID: String = ""
     var bookingPeriodStart: Date = Date(1)
     var bookingPeriodEnd: Date = Date(1793723395)
-    var rating: Float = 0.0f
+    var rating: MutableList<Int> = mutableListOf()
     var rulesPolicies: List<String> = listOf("")
     var promoImagePaths: List<String> = listOf("")
 }
