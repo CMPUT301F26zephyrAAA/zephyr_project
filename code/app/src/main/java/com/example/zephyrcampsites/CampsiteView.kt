@@ -5,12 +5,12 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.location.Location
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,7 +31,6 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -52,7 +51,6 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,17 +58,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.text.isDigitsOnly
 import coil.annotation.ExperimentalCoilApi
 import coil.compose.rememberAsyncImagePainter
-import coil.compose.rememberImagePainter
-import coil.request.ImageRequest
 import coil.request.ImageRequest.Builder
 import com.google.android.gms.location.FusedLocationProviderClient
 import kotlinx.coroutines.Dispatchers
@@ -131,29 +130,29 @@ class CampsiteView : ViewObserver<CampsiteModel> {
     fun SummaryView(
         onClick: () -> Unit,
         openDetail: (Int) -> Unit,
-        searchHandler: (Location?, Int, Date, Date, Int, String) -> List<Campsite>,
+        searchHandler: (Location?, Int?, Date?, Date?, Int?, String) -> List<Campsite>,
         filterPage: () -> Unit,
         imageLoader: (Int) -> String,
         locationClient: FusedLocationProviderClient
     ) {
-        // Acquires current filters from currentUserFilters
-        val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters[0] as String)
-        var distanceLimit by remember { mutableIntStateOf(currentUserFilters[2] as Int) }
-        var startDate by remember { mutableStateOf(currentUserFilters[3] as Date) }
-        var endDate by remember { mutableStateOf(currentUserFilters[4] as Date) }
-        var guests by remember { mutableIntStateOf(currentUserFilters[5] as Int) }
+        val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters[0] as String) // Creates text field state based on existing search query
 
-        var filterOpen by remember {mutableStateOf(false)}
+        var filterOpen by remember {mutableStateOf(false)} // For tracking if the filter dialog is open
 
         currentUserFilters[0] = searchString.text // For syncing currentUserFilters when user enters search string on summary page
 
+        val focusManager = LocalFocusManager.current
+
         Column(modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)) {
+            .background(MaterialTheme.colorScheme.background)
+            .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
+        ) {
             Spacer(modifier = Modifier.size(50.dp))
             Row(modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)) {
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly) {
                 TextField(
                     state = searchString,
                     label = { Text("Campsite Search (Name/Location) ") },
@@ -161,6 +160,13 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                         .fillMaxWidth()
                         .weight(1f),
                     lineLimits = TextFieldLineLimits.SingleLine,
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Done
+                    ),
+                    onKeyboardAction = { performDefaultAction ->
+                        focusManager.clearFocus()
+                        performDefaultAction()
+                    }
                 )
                 TextButton(onClick = {
                     filterOpen = !filterOpen }) {
@@ -177,7 +183,8 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     })
             }
             Spacer(modifier = Modifier.size(30.dp))
-            val displayList = searchHandler(currentUserFilters[1] as Location?, distanceLimit, startDate, endDate, guests, searchString.text.toString()) // Search function can handle any nulls
+            val displayList = searchHandler(currentUserFilters[1] as Location?,
+                currentUserFilters[2] as Int?, currentUserFilters[3] as Date?, currentUserFilters[4] as Date?, currentUserFilters[5] as Int?, searchString.text.toString()) // Search function can handle any nulls
             LazyColumn(modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)) {
@@ -233,15 +240,13 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         }
 
         // Acquires current filters from currentUserFilters
-//        val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters[0] as String)
-//        var distanceLimit by remember { mutableIntStateOf(currentUserFilters[2] as Int) }
         var startDate by remember { mutableStateOf(currentUserFilters[3] as Date) }
         var endDate by remember { mutableStateOf(currentUserFilters[4] as Date) }
         val guests : TextFieldState = rememberTextFieldState(initialText = currentUserFilters[5].toString())
 
         // Configurations for filter options
         val distanceOptions = listOf(15, 30, 50, 100) // List of selectable distances (in km)
-        var distanceDropdownMenuText by remember { mutableStateOf("Select a distance (default: unlimited)") }
+        var distanceDropdownMenuText by remember { mutableStateOf("Select distance (default: unlimited)") }
         if (currentUserFilters[2] != Int.MAX_VALUE) { // For setting what is displayed as text when dropdown is closed
             distanceDropdownMenuText = "${currentUserFilters[2]}km"
         }
@@ -256,14 +261,17 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         if (distanceSelect) { // If user is selecting distance, check for permission and request if needed
             permissionLauncher.launch(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION))
         }
-//        var complete by remember { mutableStateOf(false) } // Flag to track if user is done setting filters
         var datesTriggered by remember { mutableStateOf(false) } // Flag to track if user has selected date at least once during this time opening the filters page
         var alertTriggered by remember { mutableStateOf(false) } // Flag to track if an alert is being triggered (for invalid input)
 
-        Card(modifier = Modifier) {
+        val focusManager = LocalFocusManager.current
+
+        Card(modifier = Modifier
+            .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
+            .padding(horizontal = 10.dp)) {
             Column(
                 modifier = Modifier
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(MaterialTheme.colorScheme.tertiary)
                     .padding(horizontal = 20.dp, vertical = 16.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -384,14 +392,19 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                         modifier = Modifier
                             .fillMaxWidth(),
                         lineLimits = TextFieldLineLimits.SingleLine,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        inputTransformation = DigitOnlyInputTransformation()
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        inputTransformation = DigitOnlyInputTransformation(),
+                        onKeyboardAction = { performDefaultAction ->
+                            focusManager.clearFocus()
+                            if (guests.text.toString().toInt() > 10) { // Triggers error dialog (by setting flag) if anything entered is not allowed
+                                alertTriggered = true
+                            }
+                            performDefaultAction()
+                        }
                     )
                 }
                 if (guests.text.toString() == "") {
                     currentUserFilters[5] = null
-                } else if (guests.text.toString().toInt() > 10) { // Triggers error dialog (by setting flag) if anything entered is not allowed
-                        alertTriggered = true
                 } else {
                     currentUserFilters[5] = guests.text.toString().toInt()
                 }
@@ -405,10 +418,11 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                             endDate = Date()
                             guests.edit { replace(0, length, "1") }
                             datesTriggered = false
-                            distanceDropdownMenuText = "Select a distance (default: unlimited)"
+                            distanceDropdownMenuText = "Select distance (default: unlimited)"
                             currentUserFilters =
                                 mutableListOf("", null, Int.MAX_VALUE, Date(), Date(), 1)
                             dateSelected = false
+                            clearFilter()
                         }
                     ) {
                         Text("Reset filters")
@@ -419,7 +433,10 @@ class CampsiteView : ViewObserver<CampsiteModel> {
         if (alertTriggered) {
             ErrorDialog(title = "Max guests exceeded!",
                 text = "You have entered a guest amount more than the maximum allowed (10). Please try again.",
-                dismiss = { alertTriggered = false })
+                dismiss = {
+                    alertTriggered = false
+                    guests.edit { replace(0, length, "10") }
+                })
         }
 //        BackHandler(enabled = true) { // Catches system back button/gesture and also applies filters
 //            complete = true
@@ -547,7 +564,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                         painter = rememberAsyncImagePainter(
                             Builder(LocalContext.current).data(
                             data = imageGrabber(item.id.toInt())
-                        ).apply(block = { -> crossfade(false) }).build()
+                        ).apply(block = { crossfade(false) }).build()
                         ),
                         contentDescription = "Campsite ${item.id} main image",
                         contentScale = ContentScale.Crop

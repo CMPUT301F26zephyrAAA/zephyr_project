@@ -49,12 +49,6 @@ class MainActivity : ComponentActivity() {
                             locationClient = locationClient
                             )
                     }
-//                    composable(route = CampsiteScreen.FilterPage.route) {
-//                        campsiteView.FilterSettings (
-//                            locationClient = locationClient,
-//                            toParent = {navHostController.navigate(CampsiteScreen.SummaryView.route)}
-//                        )
-//                    }
                     composable(route = GeneralScreen.QRScan.route) {
                         qrHandler.QRScan(
                             campsiteNav = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id)) },
