@@ -45,14 +45,9 @@ class MainActivity : ComponentActivity() {
                             openDetail = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id))},
                             filterPage = { navHostController.navigate(CampsiteScreen.FilterPage.route) },
                             searchHandler = { devLocation, locationLimit, startDate, endDate, guests, search -> campsiteController.search(devLocation, locationLimit, startDate, endDate, guests, search) },
-                            imageLoader = { id -> campsiteController.imageGetter(id) }
+                            imageLoader = { id -> campsiteController.imageGetter(id) },
+                            locationClient = locationClient
                             )
-                    }
-                    composable(route = CampsiteScreen.FilterPage.route) {
-                        campsiteView.FilterSettings (
-                            locationClient = locationClient,
-                            toParent = {navHostController.navigate(CampsiteScreen.SummaryView.route)}
-                        )
                     }
                     composable(route = GeneralScreen.QRScan.route) {
                         qrHandler.QRScan(
