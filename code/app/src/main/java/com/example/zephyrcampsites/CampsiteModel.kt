@@ -1,6 +1,7 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf
+import com.google.firebase.firestore.GeoPoint
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
@@ -35,6 +36,40 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         newCampsite.location = location
         newCampsite.description = description
         newCampsite.maxOccupancy = maxOccupancy
+        connector.add(newCampsite)
+        notifyObservers(this)
+    }
+
+    /**
+     * Registers a new campsite for an owner
+     *
+     * @param ownerId ID of the owner registering the campsite
+     * @param name Name of the campsite
+     * @param location Location of the campsite
+     * @param longitude Longitude of the campsite
+     * @param latitude Latitude of the campsite
+     * @param description Description of the campsite
+     * @param maxOccupancy Maximum occupancy of the campsite
+     * @param tags Tags for the campsite
+     */
+    fun registerCampsite(
+        ownerId: String,
+        name: String,
+        location: String,
+        longitude: Double,
+        latitude: Double,
+        description: String,
+        maxOccupancy: Int,
+        tags: List<String>
+    ) {
+        val newCampsite = Campsite((campsites.size + 1).toString())
+        newCampsite.ownerID = ownerId
+        newCampsite.name = name
+        newCampsite.location = location
+        newCampsite.geolocation = GeoPoint(latitude, longitude)
+        newCampsite.description = description
+        newCampsite.maxOccupancy = maxOccupancy
+        newCampsite.tags = tags
         connector.add(newCampsite)
         notifyObservers(this)
     }
