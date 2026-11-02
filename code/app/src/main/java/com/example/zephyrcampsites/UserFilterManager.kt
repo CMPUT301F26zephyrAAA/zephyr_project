@@ -36,9 +36,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.text.isDigitsOnly
 import com.google.android.gms.location.FusedLocationProviderClient
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -128,7 +130,7 @@ class UserFilterManager {
                             modifier = Modifier.menuAnchor(
                                 type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
                                 enabled = true
-                            ),
+                            ).testTag("DistanceLimitMenu"),
                             colors = ExposedDropdownMenuDefaults.textFieldColors(),
                         )
 
@@ -143,7 +145,8 @@ class UserFilterManager {
                                         distanceDropdownMenuText = "${selection}km"
                                         distanceSelect = false
                                     },
-                                    text = { Text(text = "${selection}km") }
+                                    text = { Text(text = "${selection}km") },
+                                    modifier = Modifier.testTag("DistanceOption${selection}")
                                 )
                             }
                         }
@@ -168,7 +171,7 @@ class UserFilterManager {
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    Button(onClick = { dateSelect = true }) {
+                    Button(onClick = { dateSelect = true }, modifier = Modifier.testTag("DateSelectButton")) {
                         Text(text = "Click to select dates you want to stay...")
                     }
                     if (dateSelect) {
@@ -179,7 +182,6 @@ class UserFilterManager {
                                     onClick = {
                                         val start = dateRangePickerState.selectedStartDateMillis
                                         val end = dateRangePickerState.selectedEndDateMillis
-                                        println("filter date select")
                                         if (start != null) {
                                             currentUserFilters.startDate =
                                                 Date(helpers.timezoneConvert(start)) // Sets startDate to chosen date in local time
@@ -188,18 +190,18 @@ class UserFilterManager {
                                             currentUserFilters.endDate =
                                                 Date(helpers.timezoneConvert(end)) // Sets endDate to chosen date in local time
                                         }
-                                        println("filter date select end")
                                         dateSelect = false
                                         dateSelected = true
                                         datesTriggered = true
-                                    }
+                                    }, modifier = Modifier.testTag("DateSelectConfirm")
                                 ) { Text("Confirm") }
                             },
                             dismissButton = {
                                 TextButton(
                                     onClick = {
                                         dateSelect = false
-                                    } // Closes menu without saving/changing anything
+                                    }, // Closes menu without saving/changing anything
+                                    modifier = Modifier.testTag("DateSelectDismiss")
                                 ) { Text("Cancel") }
                             }
                         ) {
@@ -218,7 +220,7 @@ class UserFilterManager {
                         state = guests,
                         label = { Text("Enter amount of guests (max: 10)") },
                         modifier = Modifier
-                            .fillMaxWidth(),
+                            .fillMaxWidth().testTag("GuestsEntry"),
                         lineLimits = TextFieldLineLimits.SingleLine,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                         inputTransformation = DigitOnlyInputTransformation(),
@@ -231,9 +233,12 @@ class UserFilterManager {
                         }
                     )
                 }
+                if (guests.text != "" && guests.text.toString().toInt() > 10) { // Triggers error dialog (by setting flag) if anything entered is not allowed
+                    alertTriggered = true
+                }
                 if (guests.text.toString() == "") {
                     currentUserFilters.guests = null
-                } else {
+                } else if (guests.text.isDigitsOnly()){
                     currentUserFilters.guests = guests.text.toString().toInt()
                 }
                 Spacer(modifier = Modifier.size(20.dp))
@@ -250,7 +255,7 @@ class UserFilterManager {
                             currentUserFilters.reset()
                             dateSelected = false
                             clearFilter()
-                        }
+                        }, modifier = Modifier.testTag("ResetFilter")
                     ) {
                         Text("Reset filters")
                     }

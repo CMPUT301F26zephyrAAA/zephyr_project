@@ -19,6 +19,4 @@ data class UserFilter(
         endDate = Date()
         guests = 1
     }
-
-
 }
