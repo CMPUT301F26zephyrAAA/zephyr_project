@@ -32,18 +32,19 @@ class MainActivity : ComponentActivity() {
             ZephyrCampsitesTheme {
                 val navHostController : NavHostController = rememberNavController()
                 val qrHandler = QRCodeHandler()
-                val campsiteView = CampsiteView()
+                val campsiteSummaryView = CampsiteSummaryView()
                 val campsiteModel = CampsiteModel()
                 val campsiteController = CampsiteController(campsiteModel)
+                val campsiteDetailView = CampsiteDetailView()
                 NavHost(
                     navController = navHostController,
-                    startDestination = CampsiteScreen.SummaryView.route
+                    startDestination = CampsiteScreens.SummaryView.route
                 ) { // Start of routes definitions, information on how to use arguments taken from here: https://levelup.gitconnected.com/navigation-in-android-jetpack-compose-a-practical-guide-4d8037b07a87
-                    composable(route = CampsiteScreen.SummaryView.route) {
-                        campsiteView.SummaryView(
+                    composable(route = CampsiteScreens.SummaryView.route) {
+                        campsiteSummaryView.SummaryView(
                             onClick = { campsiteController.addCampsite() },
-                            openDetail = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id))},
-                            filterPage = { navHostController.navigate(CampsiteScreen.FilterPage.route) },
+                            openDetail = { id -> navHostController.navigate(CampsiteScreens.DetailView.createRoute(id))},
+                            filterPage = { navHostController.navigate(CampsiteScreens.FilterPage.route) },
                             searchHandler = { userFilters -> campsiteController.search(userFilters) },
                             imageLoader = { id -> campsiteController.imageGetter(id) },
                             locationClient = locationClient
@@ -51,17 +52,19 @@ class MainActivity : ComponentActivity() {
                     }
                     composable(route = GeneralScreen.QRScan.route) {
                         qrHandler.QRScan(
-                            campsiteNav = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id)) },
+                            campsiteNav = { id -> navHostController.navigate(CampsiteScreens.DetailView.createRoute(id)) },
                             accountNav = { },
                             lotteryNav = { }
                         )
                     }
                     composable(
-                        route = CampsiteScreen.DetailView.route,
+                        route = CampsiteScreens.DetailView.route,
                         arguments = listOf(navArgument("id") {type = NavType.IntType})
                     ) { backStackEntry ->
                         val campsiteId = backStackEntry.arguments?.getInt("id") ?: return@composable
-                        campsiteView.DetailView(campsite = campsiteController.retrieveId(campsiteId), codeGenerator = { type, id -> qrHandler.qRGenerate(type, id)})
+                        campsiteDetailView.DetailView(
+                            campsite = campsiteController.retrieveId(campsiteId),
+                            codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) })
                     }
                 }
             }

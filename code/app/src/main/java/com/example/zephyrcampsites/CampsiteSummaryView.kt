@@ -1,6 +1,5 @@
 package com.example.zephyrcampsites
 
-import android.content.Intent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -40,7 +39,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -57,34 +55,12 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import java.util.Date
 
 /**
- * Sealed class of list of screens related to campsites.
- * Used for navigation in MainActivity (instead of enum class in order to pass arguments).
- *
- * @param route The resulting route, in most cases it'll just be the name itself.
- */
-sealed class CampsiteScreen(val route: String) {
-    data object SummaryView : CampsiteScreen("CampsiteScreen/SummaryView/")
-    data object DetailView : CampsiteScreen("CampsiteScreen/campsite/{id}") {
-        /**
-         * Creates an individual route for provided campsite ID
-         *
-         * @param id ID of campsite to generate route for.
-         */
-        fun createRoute(id: Int) : String {
-            return "CampsiteScreen/campsite/$id"
-        }
-    }
-    data object FilterPage : CampsiteScreen("CampsiteScreen/FilterPage")
-}
-
-/**
  * View class for campsites.
  *
  * Should have all Composable functions related to campsites.
  */
-class CampsiteView : ViewObserver<CampsiteModel> {
+class CampsiteSummaryView : ViewObserver<CampsiteModel> {
     var currentUserFilters = UserFilter("", null, Int.MAX_VALUE, Date(), Date(), 1) // Holds user filters that they have set, in (Search string, device location, distance limit, start date, end date, # of guests)
-
 
     /**
      * Update function for MVC? But doesn't seem to be needed because of how Jetpack Compose works.
@@ -166,7 +142,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
             var displayList: List<Campsite> = listOf()
             try {
                 displayList = searchHandler(currentUserFilters)
-            } catch (e: java.lang.IllegalStateException) {
+            } catch (_: java.lang.IllegalStateException) {
                 errorState = true
             }
             LazyColumn(modifier = Modifier
@@ -195,63 +171,6 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     errorState = false
                 }
             )
-        }
-    }
-
-    /**
-     * Displaying the details of a certain campsite.
-     *
-     * @param campsite The campsite to display the details of
-     * @param codeGenerator Function to generate the QR code to this campsite
-     */
-    @Composable
-    fun DetailView(
-        campsite: Campsite?,
-        codeGenerator: (String, Int) -> ImageBitmap
-    ) {
-        var codeShow by remember {mutableStateOf(false)}
-        val code = codeGenerator("campsite", campsite!!.id.toInt())
-        val fileSaver = PermissionHandlers().imageSaveHandler(code)
-        Column(modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(horizontal = 20.dp, vertical = 16.dp)) {
-            Spacer(modifier = Modifier.size(30.dp))
-            Row(modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)) {
-                Text(text = campsite.name, fontSize = 30.sp, color = MaterialTheme.colorScheme.onBackground)
-            }
-            Row(modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)) {
-                Text(text = campsite.maxOccupancy.toString(), fontSize = 20.sp, color = MaterialTheme.colorScheme.onBackground)
-            }
-            Row(modifier = Modifier.fillMaxWidth()) {
-                if (codeShow) {
-                    Image(
-                        bitmap = code,
-                        contentDescription = "Generated QR code of user"
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.size(20.dp))
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Button(onClick = { codeShow = !codeShow }) {
-                    Text(text = "Generate/Hide QR")
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                if (codeShow) {
-                    Button(onClick = {
-                        fileSaver.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                            addCategory(Intent.CATEGORY_OPENABLE)
-                            type = "image/png"
-                            putExtra(Intent.EXTRA_TITLE, "campsite-qr.png")
-                        }) }) {
-                        Text(text = "Download/Save QR")
-                    }
-                }
-            }
         }
     }
 
