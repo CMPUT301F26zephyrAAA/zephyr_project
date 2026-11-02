@@ -265,35 +265,12 @@ class UserFilterManager {
             }
         }
         if (alertTriggered) {
-            ErrorDialog(title = "Max guests exceeded!",
-                text = "You have entered a guest amount more than the maximum allowed (10). Please try again.",
-                dismiss = {
+            onError("Max guests exceeded!",
+                "You have entered a guest amount more than the maximum allowed (10). Please try again.",
+                {
                     alertTriggered = false
                     guests.edit { replace(0, length, "10") }
                 })
         }
-    }
-
-    /**
-     * Private helper function to generate error dialogs.
-     *
-     * @param title Title of the dialog
-     * @param text Main body text of the dialog
-     * @param dismiss Method that responds when dialog is dismissed
-     */
-    @Composable
-    private fun ErrorDialog(title : String, text: String, dismiss: () -> Unit) {
-        AlertDialog(
-            icon = { Icon(Icons.Default.Error, contentDescription = "Error Icon") },
-            title = { Text(text = title) },
-            text = { Text(text = text) },
-            onDismissRequest = { dismiss() },
-            confirmButton = { },
-            dismissButton = { TextButton(
-                onClick = { dismiss() }
-            ) {
-                Text("Dismiss")
-            } }
-        )
     }
 }

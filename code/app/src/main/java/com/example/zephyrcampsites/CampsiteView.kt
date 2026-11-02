@@ -134,6 +134,8 @@ class CampsiteView : ViewObserver<CampsiteModel> {
 
         val focusManager = LocalFocusManager.current
 
+        var errorState by remember { mutableStateOf(false) }
+
         Column(modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
@@ -176,21 +178,16 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     onError = { title, text, dismiss -> ErrorDialog(title = title, text = text, dismiss = dismiss) })
             }
             Spacer(modifier = Modifier.size(30.dp))
-            var displayList: List<Campsite>? = null
+            var displayList: List<Campsite> = listOf()
             try {
                 displayList = searchHandler(currentUserFilters)
-            } catch (e: IllegalStateException) {
-                ErrorDialog(
-                    title = "Failed to load campsites!",
-                    text = "Fail to acquire list of campsites. Press dismiss to try again.",
-                    dismiss = {
-                        // retry?
-                    })
+            } catch (e: java.lang.IllegalStateException) {
+                errorState = true
             }
             LazyColumn(modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)) {
-                itemsIndexed(displayList!!) { _ , campsite ->
+                itemsIndexed(displayList) { _ , campsite ->
                     Column(modifier = Modifier.fillMaxWidth()) {
                         CampsiteRow(item = campsite, onClick = { id -> openDetail(id) }, imageGrabber = imageLoader)
                     }
@@ -204,9 +201,17 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 }
             }
         }
+        if (errorState) {
+            ErrorDialog(
+                title = "Failed to load campsites!",
+                text = "Fail to acquire list of campsites. Please check your connection and try again later.",
+                dismiss = {
+                    println("dismissed")
+                    errorState = false
+                }
+            )
+        }
     }
-
-
 
     /**
      * Displaying the details of a certain campsite.
