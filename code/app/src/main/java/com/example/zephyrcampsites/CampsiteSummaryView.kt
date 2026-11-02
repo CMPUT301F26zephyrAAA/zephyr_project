@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
+import androidx.compose.foundation.text.input.delete
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Error
@@ -43,6 +44,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -124,7 +126,8 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                 )
                 TextButton(onClick = {
                     println("filter clicked")
-                    filterOpen = !filterOpen }) {
+                    filterOpen = !filterOpen },
+                    modifier = Modifier.testTag("FilterButton")) {
                     Icon(Icons.Filled.FilterList, contentDescription = "Filters")
                 }
             }
@@ -136,7 +139,10 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                         currentUserFilters.searchString = ""
                     },
                     currentUserFilters = currentUserFilters,
-                    onError = { title, text, dismiss -> ErrorDialog(title = title, text = text, dismiss = dismiss) })
+                    onError = {
+                        title, text, dismiss -> ErrorDialog(title = title, text = text, dismiss = dismiss)
+                        filterOpen = true
+                    })
             }
             Spacer(modifier = Modifier.size(30.dp))
             var displayList: List<Campsite> = listOf()
@@ -247,7 +253,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                     }
                     Spacer(modifier = Modifier.size(30.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        Button(onClick = { onClick(item.id.toInt()) }) {
+                        Button(onClick = { onClick(item.id.toInt()) }, modifier = Modifier.testTag("CampsiteDetails${item.id}")) {
                             Text("View Details")
                         }
                     }
@@ -287,7 +293,11 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
 class DigitOnlyInputTransformation : InputTransformation {
     override fun TextFieldBuffer.transformInput() {
         if (!asCharSequence().isDigitsOnly()) {
-            revertAllChanges()
+            for (i in length - 1 downTo 0) {
+                if (!charAt(i).isDigit()) {
+                    delete(i, i+1)
+                }
+            }
         }
     }
 }
