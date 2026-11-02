@@ -1,9 +1,10 @@
 package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import com.google.firebase.storage.storage
-import kotlin.jvm.java
 
 /**
  * Class for firebase connection.
@@ -18,29 +19,47 @@ class FirebaseConnector(target: String) {
 
     /**
      * Adds a document to the target collection.
+     * Throws IllegalStateException if operation failed.
      *
      * @param value Object to add, can be anything that inherits from DataHolder (base class that data classes inherits from).
      */
     fun add(value: DataHolder) {
         db.document(value.id).set(value)
+            .addOnCompleteListener { task ->
+                if (!task.isSuccessful) {
+                    throw IllegalStateException("Database operation failed.")
+                }
+            }
     }
 
     /**
      * Updates document in target collection.
+     * Throws IllegalStateException if operation failed.
      *
      * @param target Object to modify, type DataHolder (base class that data classes inherits from).
      */
     fun update(target: DataHolder, field: String, value: String) {
         db.document(target.id).update(field, value)
+            .addOnCompleteListener { task ->
+                if (!task.isSuccessful) {
+                    throw IllegalStateException("Database operation failed.")
+                }
+            }
     }
 
     /**
      * Removes a document from the target collection.
+     * Throws IllegalStateException if operation failed.
      *
      * @param target Object to add, can be anything that inherits from DataHolder (base class that data classes inherits from).
      */
     fun remove(target: DataHolder) {
         db.document(target.id).delete()
+            .addOnCompleteListener { task ->
+                if (!task.isSuccessful) {
+                    throw IllegalStateException("Database operation failed.")
+                }
+            }
     }
 
     /**
@@ -48,10 +67,18 @@ class FirebaseConnector(target: String) {
      *
      * @param localList List stored locally, ex. _campsites
      * @param type Type of item stored in localList, passed in as class ex. Campsite::class.java
+     * @param onError Method to respond when listener fails
+     * @param onSuccess Method to respond when listener succeeds
      */
-    fun <T> initializeListener(localList: MutableList<T>, type: Class<T>) {
-        db.addSnapshotListener { snapshot, error ->
+    fun <T> initializeListener(
+        localList: MutableList<T>,
+        type: Class<T>,
+        onError: (FirebaseFirestoreException?) -> Unit,
+        onSuccess: () -> Unit
+    ) : ListenerRegistration {
+        return db.addSnapshotListener { snapshot, error ->
             if (error != null) {
+                onError(error)
                 return@addSnapshotListener
             }
             localList.clear()
@@ -62,16 +89,28 @@ class FirebaseConnector(target: String) {
                     localList.add(item)
                 }
             }
+            onSuccess()
         }
     }
 
-    fun resourceGetter(path: String) : String {
+    /**
+     * (Incomplete, probably unusable) Gets resource from Firebase storage.
+     *
+     * @param path File path of resource to get.
+     * @param result Method to respond when operation is a success, used to save the resource.
+     */
+    fun resourceGetter(
+        path: String,
+        result: (String) -> Unit
+    ) {
         val storageRef = Firebase.storage.reference
         val resource =  storageRef.child(path)
-        var imageUrl = ""
         resource.downloadUrl.addOnSuccessListener {uri ->
-            imageUrl = uri.toString()
+            result(uri.toString())
+        }.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                throw IllegalStateException("Database operation failed.")
+            }
         }
-        return imageUrl
     }
 }
