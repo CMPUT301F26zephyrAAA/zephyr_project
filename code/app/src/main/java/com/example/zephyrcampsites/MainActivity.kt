@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
                             onClick = { campsiteController.addCampsite() },
                             openDetail = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id))},
                             filterPage = { navHostController.navigate(CampsiteScreen.FilterPage.route) },
-                            searchHandler = { devLocation, locationLimit, startDate, endDate, guests, search -> campsiteController.search(devLocation, locationLimit, startDate, endDate, guests, search) },
+                            searchHandler = { userFilters -> campsiteController.search(userFilters) },
                             imageLoader = { id -> campsiteController.imageGetter(id) },
                             locationClient = locationClient
                             )

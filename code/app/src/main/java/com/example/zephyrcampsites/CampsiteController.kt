@@ -12,6 +12,9 @@ import java.util.Date
  */
 class CampsiteController(val model: CampsiteModel) {
     fun onClick() {
+        if (model.error != null) {
+            throw IllegalStateException("Unable to reach database.")
+        }
         model.createCampsite("add test", "right here", "the thing", 20)
         model.campsites.forEach { campsite ->
             println(campsite.id)
@@ -25,6 +28,9 @@ class CampsiteController(val model: CampsiteModel) {
      * @return Full campsite object
      */
     fun retrieveId(id: Int) : Campsite? {
+        if (model.error != null) {
+            throw IllegalStateException("Unable to reach database.")
+        }
         return model.campsites.find { it.id.toInt() == id }
     }
 
@@ -33,6 +39,9 @@ class CampsiteController(val model: CampsiteModel) {
      * Should use proper params in the future, but currently just adds placeholders in fields.
      */
     fun addCampsite() {
+        if (model.error != null) {
+            throw IllegalStateException("Unable to reach database.")
+        }
         model.createCampsite("testing", "here", "the thing", 20)
     }
 
@@ -41,21 +50,24 @@ class CampsiteController(val model: CampsiteModel) {
      * All params can be null if filter was not used.
      * Calls on helper functions to do actual checks, this function only checks that all checks were true.
      *
-     * @param userLocation User device location.
-     * @param distanceLimit Distance limit that a campsite can be from user device location
-     * @param startDate User set starting date of range for intended booking
-     * @param endDate User set ending date of range for intended booking
-     * @param persons User set number of guests
-     * @param string User search string for both campsite name and location
+     * @param userFilters List of filters to use.
      * @return List of campsites that meets all criteria that were specified.
      */
-    fun search(userLocation: Location?, distanceLimit : Int?, startDate : Date?, endDate : Date?, persons : Int?, string: String) : List<Campsite> {
+    fun search(
+        userFilters: MutableList<Any?> // (Search string, device location, distance limit, start date, end date, # of guests)
+    ) : List<Campsite> {
+        if (model.error != null) {
+            throw IllegalStateException("Unable to reach database.")
+        }
         val resultList : MutableList<Campsite> = mutableListOf()
+        val searchString = userFilters[0] as String
+        val deviceLocation = userFilters[1] as Location?
+        val distanceLimit = userFilters[2] as Int?
+        val startDate = userFilters[3] as Date?
+        val endDate = userFilters[4] as Date?
+        val guests = userFilters[5] as Int?
+
         model.campsites.forEach { campsite ->
-            if (campsite.id.toInt() == 1) {
-                println(campsite.bookingPeriodStart)
-                println(startDate)
-            }
             val campsiteDate : Pair<Date, Date> = Pair(campsite.bookingPeriodStart, campsite.bookingPeriodEnd)
             val campsiteLocConvert = Location("manual").apply {
                 latitude = campsite.geolocation.latitude
@@ -63,10 +75,10 @@ class CampsiteController(val model: CampsiteModel) {
             }
             // TODO: WHEN BOOKING MODEL IS DONE: Modify logic to check date first, then query for max amount of occupants within date range and pass that to guestsCheck
             if (
-                regexCheck(string, campsite.name, campsite.location) &&
-                locationCheck(campsiteLocConvert, userLocation, distanceLimit) &&
+                regexCheck(searchString, campsite.name, campsite.location) &&
+                locationCheck(campsiteLocConvert, deviceLocation, distanceLimit) &&
                 bookDateCheck(startDate, endDate, campsiteDate) &&
-                guestsCheck(campsite.maxOccupancy, 0, persons) //0 for now, check bookings for total bookers later
+                guestsCheck(campsite.maxOccupancy, 0, guests) //0 for now, check bookings for total bookers later
             ) {
                 resultList.add(campsite)
             }
@@ -75,6 +87,9 @@ class CampsiteController(val model: CampsiteModel) {
     }
 
     fun imageGetter(id: Int) : String {
+        if (model.error != null) {
+            throw IllegalStateException("Unable to reach database.")
+        }
         return model.getCampsiteImage("campsite/$id.png")
     }
 
