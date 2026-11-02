@@ -5,7 +5,6 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import com.google.firebase.storage.storage
-import kotlin.jvm.java
 
 /**
  * Class for firebase connection.
