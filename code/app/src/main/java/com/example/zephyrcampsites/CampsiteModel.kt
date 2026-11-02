@@ -83,7 +83,11 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
     fun getCampsiteImage(
         path: String
     ) : String {
-        return connector.resourceGetter(path)
+        var result : String = ""
+        connector.resourceGetter(path = path, result = { uri ->
+            result = uri
+        })
+        return result
     }
 
     /**

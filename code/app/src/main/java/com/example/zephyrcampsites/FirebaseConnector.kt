@@ -94,13 +94,24 @@ class FirebaseConnector(target: String) {
         }
     }
 
-    fun resourceGetter(path: String) : String {
+    /**
+     * (Incomplete, probably unusable) Gets resource from Firebase storage.
+     *
+     * @param path File path of resource to get.
+     * @param result Method to respond when operation is a success, used to save the resource.
+     */
+    fun resourceGetter(
+        path: String,
+        result: (String) -> Unit
+    ) {
         val storageRef = Firebase.storage.reference
         val resource =  storageRef.child(path)
-        var imageUrl = ""
         resource.downloadUrl.addOnSuccessListener {uri ->
-            imageUrl = uri.toString()
+            result(uri.toString())
+        }.addOnCompleteListener { task ->
+            if (!task.isSuccessful) {
+                throw IllegalStateException("Database operation failed.")
+            }
         }
-        return imageUrl
     }
 }
