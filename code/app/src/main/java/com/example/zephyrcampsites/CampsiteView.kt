@@ -1,9 +1,6 @@
 package com.example.zephyrcampsites
 
-import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Intent
-import android.location.Location
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,22 +27,13 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DateRangePicker
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuAnchorType
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
-import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,7 +47,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.text.isDigitsOnly
@@ -67,9 +54,7 @@ import coil.annotation.ExperimentalCoilApi
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest.Builder
 import com.google.android.gms.location.FusedLocationProviderClient
-import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /**
  * Sealed class of list of screens related to campsites.
@@ -98,7 +83,7 @@ sealed class CampsiteScreen(val route: String) {
  * Should have all Composable functions related to campsites.
  */
 class CampsiteView : ViewObserver<CampsiteModel> {
-    var currentUserFilters : MutableList<Any?> = mutableListOf("", null, Int.MAX_VALUE, Date(), Date(), 1) // Holds user filters that they have set, in (Search string, device location, distance limit, start date, end date, # of guests)
+    var currentUserFilters = UserFilter("", null, Int.MAX_VALUE, Date(), Date(), 1) // Holds user filters that they have set, in (Search string, device location, distance limit, start date, end date, # of guests)
 
 
     /**
@@ -121,16 +106,16 @@ class CampsiteView : ViewObserver<CampsiteModel> {
     fun SummaryView(
         onClick: () -> Unit,
         openDetail: (Int) -> Unit,
-        searchHandler: (MutableList<Any?>) -> List<Campsite>,
+        searchHandler: (UserFilter) -> List<Campsite>,
         filterPage: () -> Unit,
         imageLoader: (Int) -> String,
         locationClient: FusedLocationProviderClient
     ) {
-        val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters[0] as String) // Creates text field state based on existing search query
+        val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters.searchString) // Creates text field state based on existing search query
 
         var filterOpen by remember {mutableStateOf(false)} // For tracking if the filter dialog is open
 
-        currentUserFilters[0] = searchString.text // For syncing currentUserFilters when user enters search string on summary page
+        currentUserFilters.searchString = searchString.text as String // For syncing currentUserFilters when user enters search string on summary page
 
         val focusManager = LocalFocusManager.current
 
@@ -172,7 +157,7 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                     locationClient = locationClient,
                     clearFilter = {
                         searchString.clearText()
-                        currentUserFilters[0] = ""
+                        currentUserFilters.searchString = ""
                     },
                     currentUserFilters = currentUserFilters,
                     onError = { title, text, dismiss -> ErrorDialog(title = title, text = text, dismiss = dismiss) })

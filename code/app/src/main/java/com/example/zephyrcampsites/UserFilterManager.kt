@@ -14,9 +14,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DatePickerDialog
@@ -26,7 +23,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,23 +60,23 @@ class UserFilterManager {
     fun FilterSetter(
         locationClient: FusedLocationProviderClient,
         clearFilter: () -> Unit,
-        onError: @Composable (String, String, () -> Unit) -> Unit,
-        currentUserFilters: MutableList<Any?>
+        onError: @Composable ((String, String, () -> Unit) -> Unit),
+        currentUserFilters: UserFilter
     ) {
         // Helpers for permissions and timezone converts
-        val permissionLauncher = PermissionHandlers().locationHandler(locationClient, { location -> currentUserFilters[1] = location })
+        val permissionLauncher = PermissionHandlers().locationHandler(locationClient, { location -> currentUserFilters.deviceLocation = location })
         val helpers = LocalConverter()
 
         // Acquires current filters from currentUserFilters
-        var startDate by remember { mutableStateOf(currentUserFilters[3] as Date) }
-        var endDate by remember { mutableStateOf(currentUserFilters[4] as Date) }
-        val guests : TextFieldState = rememberTextFieldState(initialText = currentUserFilters[5].toString())
+        var startDate by remember { mutableStateOf(currentUserFilters.startDate as Date) }
+        var endDate by remember { mutableStateOf(currentUserFilters.endDate as Date) }
+        val guests : TextFieldState = rememberTextFieldState(initialText = currentUserFilters.guests.toString())
 
         // Configurations for filter options
         val distanceOptions = listOf(15, 30, 50, 100) // List of selectable distances (in km)
         var distanceDropdownMenuText by remember { mutableStateOf("Select distance (default: unlimited)") }
-        if (currentUserFilters[2] != Int.MAX_VALUE) { // For setting what is displayed as text when dropdown is closed
-            distanceDropdownMenuText = "${currentUserFilters[2]}km"
+        if (currentUserFilters.distanceLimit != Int.MAX_VALUE) { // For setting what is displayed as text when dropdown is closed
+            distanceDropdownMenuText = "${currentUserFilters.distanceLimit}km"
         }
         val dateRangePickerState = rememberDateRangePickerState(
             initialSelectedStartDateMillis = startDate.time,
@@ -143,7 +139,7 @@ class UserFilterManager {
                             distanceOptions.forEach { selection ->
                                 DropdownMenuItem(
                                     onClick = { // Records the chosen limit, changes the dropdown menu text (when closed), and closes menu
-                                        currentUserFilters[2] = selection
+                                        currentUserFilters.distanceLimit = selection
                                         distanceDropdownMenuText = "${selection}km"
                                         distanceSelect = false
                                     },
@@ -166,7 +162,7 @@ class UserFilterManager {
                     if (dateSelected || datesTriggered) {
                         val formatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
                         Text(
-                            text = "${formatter.format(currentUserFilters[3])} to ${formatter.format(currentUserFilters[4])}",
+                            text = "${formatter.format(currentUserFilters.startDate as Date)} to ${formatter.format(currentUserFilters.endDate as Date)}",
                             color = MaterialTheme.colorScheme.onBackground
                         )
                     }
@@ -185,14 +181,12 @@ class UserFilterManager {
                                         val end = dateRangePickerState.selectedEndDateMillis
                                         println("filter date select")
                                         if (start != null) {
-                                            currentUserFilters[3] =
+                                            currentUserFilters.startDate =
                                                 Date(helpers.timezoneConvert(start)) // Sets startDate to chosen date in local time
-                                            println(currentUserFilters[3])
                                         }
                                         if (end != null) {
-                                            currentUserFilters[4] =
+                                            currentUserFilters.endDate =
                                                 Date(helpers.timezoneConvert(end)) // Sets endDate to chosen date in local time
-                                            println(currentUserFilters[4])
                                         }
                                         println("filter date select end")
                                         dateSelect = false
@@ -238,23 +232,22 @@ class UserFilterManager {
                     )
                 }
                 if (guests.text.toString() == "") {
-                    currentUserFilters[5] = null
+                    currentUserFilters.guests = null
                 } else {
-                    currentUserFilters[5] = guests.text.toString().toInt()
+                    currentUserFilters.guests = guests.text.toString().toInt()
                 }
                 Spacer(modifier = Modifier.size(20.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Spacer(modifier = Modifier.weight(1f))
                     Button(
                         onClick = { // Resets all function variables and currentUserFilters, alongside relevant flags
-                            currentUserFilters[2] = Int.MAX_VALUE
+                            currentUserFilters.distanceLimit = Int.MAX_VALUE
                             startDate = Date()
                             endDate = Date()
                             guests.edit { replace(0, length, "1") }
                             datesTriggered = false
                             distanceDropdownMenuText = "Select distance (default: unlimited)"
-                            currentUserFilters.clear()
-                            currentUserFilters.addAll(listOf("", null, Int.MAX_VALUE, Date(), Date(), 1))
+                            currentUserFilters.reset()
                             dateSelected = false
                             clearFilter()
                         }

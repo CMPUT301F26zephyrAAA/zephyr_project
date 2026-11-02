@@ -54,18 +54,18 @@ class CampsiteController(val model: CampsiteModel) {
      * @return List of campsites that meets all criteria that were specified.
      */
     fun search(
-        userFilters: MutableList<Any?> // (Search string, device location, distance limit, start date, end date, # of guests)
+        userFilters: UserFilter
     ) : List<Campsite> {
         if (model.error != null) {
             throw IllegalStateException("Unable to reach database.")
         }
         val resultList : MutableList<Campsite> = mutableListOf()
-        val searchString = userFilters[0] as String
-        val deviceLocation = userFilters[1] as Location?
-        val distanceLimit = userFilters[2] as Int?
-        val startDate = userFilters[3] as Date?
-        val endDate = userFilters[4] as Date?
-        val guests = userFilters[5] as Int?
+        val searchString = userFilters.searchString
+        val deviceLocation = userFilters.deviceLocation
+        val distanceLimit = userFilters.distanceLimit
+        val startDate = userFilters.startDate
+        val endDate = userFilters.endDate
+        val guests = userFilters.guests
 
         model.campsites.forEach { campsite ->
             val campsiteDate : Pair<Date, Date> = Pair(campsite.bookingPeriodStart, campsite.bookingPeriodEnd)
