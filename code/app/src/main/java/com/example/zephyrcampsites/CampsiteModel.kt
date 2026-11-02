@@ -22,6 +22,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
     /**
      * Creates campsite given name, location, description, and max occupancy. (Check required fields?)
      * Uses Campsite data class and adds it using connector.
+     * Caller needs to handle IllegalStateException in case of failure to communicate with Firestore.
      *
      * @param name Name of new campsite
      * @param location Location of new campsite (unsure if redundant if geolocation is a thing?)
@@ -46,6 +47,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
     /**
      * Updates campsite given object of type Campsite.
      * Changes (given) field to (given) value.
+     * Caller needs to handle IllegalStateException in case of failure to communicate with Firestore.
      *
      * @param target Campsite to update
      * @param field Field of campsite to update
@@ -62,6 +64,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
 
     /**
      * Deletes a given campsite.
+     * Caller needs to handle IllegalStateException in case of failure to communicate with Firestore.
      *
      * @param target Campsite to delete.
      */
