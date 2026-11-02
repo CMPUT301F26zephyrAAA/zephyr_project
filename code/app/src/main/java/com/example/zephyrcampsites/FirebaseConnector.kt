@@ -1,6 +1,8 @@
 package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import com.google.firebase.storage.storage
 import kotlin.jvm.java
@@ -49,9 +51,15 @@ class FirebaseConnector(target: String) {
      * @param localList List stored locally, ex. _campsites
      * @param type Type of item stored in localList, passed in as class ex. Campsite::class.java
      */
-    fun <T> initializeListener(localList: MutableList<T>, type: Class<T>) {
-        db.addSnapshotListener { snapshot, error ->
+    fun <T> initializeListener(
+        localList: MutableList<T>,
+        type: Class<T>,
+        onError: (FirebaseFirestoreException?) -> Unit,
+        onSuccess: () -> Unit
+    ) : ListenerRegistration {
+        return db.addSnapshotListener { snapshot, error ->
             if (error != null) {
+                onError(error)
                 return@addSnapshotListener
             }
             localList.clear()
@@ -62,6 +70,7 @@ class FirebaseConnector(target: String) {
                     localList.add(item)
                 }
             }
+            onSuccess()
         }
     }
 
