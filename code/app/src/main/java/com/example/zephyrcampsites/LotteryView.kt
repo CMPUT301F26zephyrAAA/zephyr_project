@@ -21,9 +21,14 @@ import java.util.TimeZone
 class LotteryView (
     private val lotteryController: LotteryController
 ) {
+    /**
+     * Displays the lottery settings for the selected campsite.
+     *
+     * @param campsiteId ID of the campsite being added to the lottery.
+     */
 
     @Composable
-    fun LotterySettingsView() {
+    fun LotterySettingsView(campsiteId: String) {
 
         var registrationStart by remember { mutableStateOf("") }
         var registrationEnd by remember { mutableStateOf("") }
@@ -86,7 +91,8 @@ class LotteryView (
                         }
 
                         lotteryController.createLottery(
-                            campsiteId = "1",
+                            // Use the selected campsite ID instead of a fixed test ID.
+                            campsiteId = campsiteId,
                             registrationStart = start,
                             registrationEnd = end,
                             bookingStart = end + 86_400_000L,

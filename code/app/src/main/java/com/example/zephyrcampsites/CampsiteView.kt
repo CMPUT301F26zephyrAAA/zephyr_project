@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -470,7 +471,8 @@ class CampsiteView : ViewObserver<CampsiteModel> {
     @Composable
     fun DetailView(
         campsite: Campsite?,
-        codeGenerator: (String, Int) -> ImageBitmap
+        codeGenerator: (String, Int) -> ImageBitmap,
+        onManageLottery: (String) -> Unit
     ) {
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
@@ -522,6 +524,9 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                 Button(onClick = { codeShow = !codeShow }) {
                     Text(text = "Generate/Hide QR")
                 }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Spacer(modifier = Modifier.weight(1f))
                 if (codeShow) {
                     Button(onClick = {
@@ -533,6 +538,16 @@ class CampsiteView : ViewObserver<CampsiteModel> {
                         Text(text = "Download/Save QR")
                     }
                 }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = {
+                    onManageLottery(campsite.id)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Manage Lottery")
             }
         }
     }

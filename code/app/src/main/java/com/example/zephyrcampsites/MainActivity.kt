@@ -88,40 +88,52 @@ class MainActivity : ComponentActivity() {
                                 locationClient = locationClient
                             )
 
-                            // Temporary button to test navigation to lottery settings.
-                            Button(
-                                onClick = {
-                                    navHostController.navigate(GeneralScreen.LotterySettings.route)
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .padding(16.dp)
-                            ) {
-                                Text("Lottery Settings")
-                            }
+
                         }
                     }
                     composable(route = GeneralScreen.QRScan.route) {
                         qrHandler.QRScan(
                             campsiteNav = { id -> navHostController.navigate(CampsiteScreen.DetailView.createRoute(id)) },
                             accountNav = { },
-                            // Navigate to the lottery settings screen.
+                            // Lottery settings require a selected campsite.
+                            // QR navigation is not connected to a campsite yet.
                             lotteryNav = {
-                                navHostController.navigate(GeneralScreen.LotterySettings.route)
+                                // Navigation will be added when a campsite ID is available.
                             }
                         )
                     }
-                    // Display the lottery settings screen when the user navigates to it.
-                    composable(GeneralScreen.LotterySettings.route) {
-                        lotteryView.LotterySettingsView()
-                    }
+                    // Opens the lottery settings screen for the selected campsite.
+                    composable(
+                        route = "${GeneralScreen.LotterySettings.route}/{campsiteId}",
+                        arguments = listOf(
+                            navArgument("campsiteId") {
+                                type = NavType.StringType
+                            }
+                        )
+                    ) { backStackEntry ->
+                        val campsiteId = backStackEntry.arguments
+                            ?.getString("campsiteId") ?: return@composable
 
+                        lotteryView.LotterySettingsView(campsiteId)
+                    }
                     composable(
                         route = CampsiteScreen.DetailView.route,
                         arguments = listOf(navArgument("id") {type = NavType.IntType})
                     ) { backStackEntry ->
                         val campsiteId = backStackEntry.arguments?.getInt("id") ?: return@composable
-                        campsiteView.DetailView(campsite = campsiteController.retrieveId(campsiteId), codeGenerator = { type, id -> qrHandler.qRGenerate(type, id)})
+                        campsiteView.DetailView(
+                            campsite = campsiteController.retrieveId(campsiteId),
+                            codeGenerator = { type, id ->
+                                qrHandler.qRGenerate(type, id)
+                            },
+                            onManageLottery = { campsiteId ->
+                                // Open lottery settings for the selected campsite.
+                                navHostController.navigate(
+                                    "${GeneralScreen.LotterySettings.route}/$campsiteId"
+                                )
+                            }
+                        )
+
                     }
                 }
             }
