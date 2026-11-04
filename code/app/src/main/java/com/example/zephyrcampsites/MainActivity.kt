@@ -16,8 +16,12 @@ import com.google.android.gms.location.LocationServices
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -27,6 +31,7 @@ import androidx.compose.material3.Text
  */
 sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
+    data object Profile: GeneralScreen("GeneralScreen/Profile")
 }
 class MainActivity : ComponentActivity() {
     private val accountsController = AccountsController()
@@ -57,63 +62,93 @@ class MainActivity : ComponentActivity() {
                     val campsiteController = CampsiteController(campsiteModel)
                     val campsiteDetailView = CampsiteDetailView()
 
-                    NavHost(
-                        navController = navHostController,
-                        startDestination = CampsiteScreens.SummaryView.route
+                    //Column containing profile button and navigation
+                    Column (modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
                     ) {
-                        composable(route = CampsiteScreens.SummaryView.route) {
-                            campsiteSummaryView.SummaryView(
-                                onClick = { campsiteController.addCampsite() },
-                                openDetail = { id ->
-                                    navHostController.navigate(
-                                        CampsiteScreens.DetailView.createRoute(id)
-                                    )
-                                },
-                                filterPage = {
-                                    navHostController.navigate(
-                                        CampsiteScreens.FilterPage.route
-                                    )
-                                },
-                                searchHandler = { userFilters ->
-                                    campsiteController.search(userFilters)
-                                },
-                                imageLoader = { id ->
-                                    campsiteController.imageGetter(id)
-                                },
-                                locationClient = locationClient
-                            )
+                        //Temporary button for accessing the profile (needs to be changed according to UI mockups)
+                        Button(
+                            onClick = {
+                                navHostController.navigate(GeneralScreen.Profile.route)
+                            }
+                        ) {
+                            Text("My Profile")
                         }
+                        NavHost(
+                            navController = navHostController,
+                            startDestination = CampsiteScreens.SummaryView.route,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            composable(route = CampsiteScreens.SummaryView.route) {
+                                campsiteSummaryView.SummaryView(
+                                    onClick = { campsiteController.addCampsite() },
+                                    openDetail = { id ->
+                                        navHostController.navigate(
+                                            CampsiteScreens.DetailView.createRoute(id)
+                                        )
+                                    },
+                                    filterPage = {
+                                        navHostController.navigate(
+                                            CampsiteScreens.FilterPage.route
+                                        )
+                                    },
+                                    searchHandler = { userFilters ->
+                                        campsiteController.search(userFilters)
+                                    },
+                                    imageLoader = { id ->
+                                        campsiteController.imageGetter(id)
+                                    },
+                                    locationClient = locationClient
+                                )
+                            }
 
-                        composable(route = GeneralScreen.QRScan.route) {
-                            qrHandler.QRScan(
-                                campsiteNav = { id ->
-                                    navHostController.navigate(
-                                        CampsiteScreens.DetailView.createRoute(id)
+                            composable(route = GeneralScreen.QRScan.route) {
+                                qrHandler.QRScan(
+                                    campsiteNav = { id ->
+                                        navHostController.navigate(
+                                            CampsiteScreens.DetailView.createRoute(id)
+                                        )
+                                    },
+                                    accountNav = { },
+                                    lotteryNav = { }
+                                )
+                            }
+
+                            composable(
+                                route = CampsiteScreens.DetailView.route,
+                                arguments = listOf(
+                                    navArgument("id") {
+                                        type = NavType.IntType
+                                    }
+                                )
+                            ) { backStackEntry ->
+                                val campsiteId =
+                                    backStackEntry.arguments?.getInt("id")
+                                        ?: return@composable
+
+                                campsiteDetailView.DetailView(
+                                    campsite = campsiteController.retrieveId(campsiteId),
+                                    codeGenerator = { type, id ->
+                                        qrHandler.qRGenerate(type, id)
+                                    }
+                                )
+                            }
+                            composable(route = GeneralScreen.Profile.route) {
+                                val account = currentAccount.value
+                                if (account != null) {
+                                    AccountsView().ProfileView(
+                                        account = account,
+                                        accountsController = accountsController,
+                                        onSaved = { updatedAccount ->
+                                            currentAccount.value = updatedAccount
+                                        },
+                                        onBack = {
+                                            navHostController.popBackStack()
+                                        }
                                     )
-                                },
-                                accountNav = { },
-                                lotteryNav = { }
-                            )
-                        }
-
-                        composable(
-                            route = CampsiteScreens.DetailView.route,
-                            arguments = listOf(
-                                navArgument("id") {
-                                    type = NavType.IntType
                                 }
-                            )
-                        ) { backStackEntry ->
-                            val campsiteId =
-                                backStackEntry.arguments?.getInt("id")
-                                    ?: return@composable
-
-                            campsiteDetailView.DetailView(
-                                campsite = campsiteController.retrieveId(campsiteId),
-                                codeGenerator = { type, id ->
-                                    qrHandler.qRGenerate(type, id)
-                                }
-                            )
+                            }
                         }
                     }
                 }

@@ -10,7 +10,7 @@ class AccountsModel {
     private val accounts = Firebase.firestore.collection("accounts") //connecting to firestore
 
     /**
-     ** Retrives an account using its device ID
+     ** Retrieves an account using its device ID
      * @param deviceID ID of the device
      * @param onResult Returns the account, or null if not found
      * @param onError Called if Firestore cannot read the document
@@ -21,6 +21,9 @@ class AccountsModel {
             if (document.exists()) {
                 val account = Account(document.id)
                 account.userType = document.getString("userType") ?: "entrant"
+                account.name = document.getString("name") ?: ""
+                account.email = document.getString("email") ?: ""
+                account.phoneNumber = document.getString("phoneNumber") ?: ""
                 onResult(account)
             } else {
                 onResult(null)
@@ -70,4 +73,31 @@ class AccountsModel {
             onError = onError
         )
     }
+
+    /**
+     * Updates personal information of an existing account.
+     * @param account Account containing the updated details
+     * @param onSuccess Called when Firestore saves the changes
+     * @param onError called if the update fails
+     * **/
+    fun updateAccount(
+        account: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val updatedData = hashMapOf<String, Any>(
+            "name" to account.name,
+            "email" to account.email,
+            "phoneNumber" to account.phoneNumber
+        )
+        accounts.document(account.id) //chooses which account to update
+            .update(updatedData) //updates the specified field
+            .addOnSuccessListener{
+                onSuccess()
+            }
+            .addOnFailureListener{exception ->
+                onError(exception)
+            }
+    }
+
 }
