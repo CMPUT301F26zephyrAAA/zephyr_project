@@ -33,6 +33,13 @@ class LotteryView (
         var registrationStart by remember { mutableStateOf("") }
         var registrationEnd by remember { mutableStateOf("") }
 
+        // Find the existing lottery for the selected campsite.
+        val existingLottery = lotteryController.getLotteryByCampsiteId(campsiteId)
+
+        // Check whether the registration period can still be changed.
+        val canEditRegistration = existingLottery != null &&
+                System.currentTimeMillis() < existingLottery.registrationStart
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -52,7 +59,7 @@ class LotteryView (
             OutlinedTextField(
                 value = registrationStart,
                 onValueChange = { registrationStart = it },
-                label = { Text("Registration Start (YYYY-MM-DD)") },
+                label = { Text("Registration Start (YYYY-MM-DD HH:mm)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -61,7 +68,7 @@ class LotteryView (
             OutlinedTextField(
                 value = registrationEnd,
                 onValueChange = { registrationEnd = it },
-                label = { Text("Registration End (YYYY-MM-DD)") },
+                label = { Text("Registration End (YYYY-MM-DD HH:mm)") },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -72,12 +79,18 @@ class LotteryView (
 
             Button(
                 onClick = {
+                    // Prevent creating another lottery for the same campsite.
+                    if (existingLottery != null) {
+                        message = "This campsite already has a lottery. Update its registration period instead."
+                        return@Button
+                    }
                     try {
+                        // Parse registration dates and times using a fixed format.
                         val formatter = SimpleDateFormat(
-                            "yyyy-MM-dd", Locale.US
+                            "yyyy-MM-dd HH:mm", Locale.US
                         ).apply {
                             isLenient = false
-                            timeZone = TimeZone.getTimeZone("UTC")
+                            timeZone = TimeZone.getTimeZone("America/Edmonton")
                         }
 
                         val start = formatter.parse(registrationStart)?.time
@@ -106,7 +119,7 @@ class LotteryView (
                     } catch (e: IllegalArgumentException) {
                         message = e.message ?: "Invalid input."
                     } catch (e: java.text.ParseException) {
-                        message = "Enter dates as YYYY-MM-DD."
+                        message = "Enter dates and times as YYYY-MM-DD HH:mm."
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -116,6 +129,47 @@ class LotteryView (
 
             if (message.isNotEmpty()) {
                 Text(message)
+            }
+
+            // Allow the owner to update dates before registration starts.
+            if (existingLottery != null)  {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Button(
+                    onClick = {
+                        try {
+                            // Convert the entered dates and times to timestamps.
+                            val formatter = SimpleDateFormat(
+                                "yyyy-MM-dd HH:mm", Locale.US
+                            ).apply {
+                                isLenient = false
+                                timeZone = TimeZone.getTimeZone("America/Edmonton")
+                            }
+
+                            val newStart = formatter.parse(registrationStart)?.time
+                                ?: throw IllegalArgumentException("Invalid start date")
+
+                            val newEnd = formatter.parse(registrationEnd)?.time
+                                ?: throw IllegalArgumentException("Invalid end date")
+
+                            // Update the existing lottery through the controller.
+                            lotteryController.updateRegistrationPeriod(
+                                existingLottery.id,
+                                newStart,
+                                newEnd
+                            )
+
+                            message = "Registration period update submitted."
+                        } catch (e: IllegalArgumentException) {
+                            message = e.message ?: "Invalid registration period."
+                        } catch (e: java.text.ParseException) {
+                            message = "Enter dates and times as YYYY-MM-DD HH:mm."
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Update Registration Period")
+                }
             }
 
 
