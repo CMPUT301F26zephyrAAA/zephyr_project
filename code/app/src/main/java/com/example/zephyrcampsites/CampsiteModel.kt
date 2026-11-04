@@ -9,6 +9,8 @@ import com.google.firebase.firestore.ListenerRegistration
  *
  * @property campsites Local list of campsites, will be updated by snapshot listener
  * @property connector Instance of Firebase connector for campsite collection
+ * @property campsiteListener Used to hold listener of Firebase, so listening can be canceled when needed.
+ * @property error Holds error from Firebase if needed.
  */
 class CampsiteModel : ObservableModel<CampsiteModel>() {
     val campsites = mutableStateListOf(
