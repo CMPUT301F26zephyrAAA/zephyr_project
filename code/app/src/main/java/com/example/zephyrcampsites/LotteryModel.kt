@@ -94,8 +94,21 @@ class LotteryModel : ObservableModel<LotteryModel>() {
 
     init {
         connector.initializeListener(
-            lotteries,
-            Lottery::class.java
+            localList = lotteries,
+            type = Lottery::class.java,
+            onError = { error ->
+                android.util.Log.e(
+                    "LotteryModel",
+                    "Failed to load lotteries",
+                    error
+                )
+            },
+            onSuccess = {
+                android.util.Log.d(
+                    "LotteryModel",
+                    "Lotteries loaded successfully"
+                )
+            }
         )
     }
 }
