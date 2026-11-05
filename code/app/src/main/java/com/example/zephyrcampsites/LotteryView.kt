@@ -58,6 +58,7 @@ class LotteryView (
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "Lottery Settings",
                 style = MaterialTheme.typography.headlineMedium
@@ -123,6 +124,7 @@ class LotteryView (
                 onValueChange = { waitlistCapacity = it },
                 label = { Text("Waitlist Capacity (Optional)") },
                 placeholder = { Text("Leave blank for unlimited") },
+                modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number
@@ -321,7 +323,8 @@ class LotteryView (
                         } else {
                             message = "Create a lottery first."
                         }
-                    }
+                    },
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Update Waitlist Capacity")
                 }

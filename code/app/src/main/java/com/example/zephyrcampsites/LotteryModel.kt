@@ -25,15 +25,23 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         numberOfWinners: Int = 1,
         waitlistCapacity: Int? = null
     ) {
-        require(campsiteId.isNotBlank()) {
-            "A campsite must be selected."
-        }
-        require(registrationStart < registrationEnd) {
-            "Invalid registration period."
-        }
-        require(bookingStart < bookingEnd) {
-            "Invalid booking period."
-        }
+        LotteryValidator().validateCampsiteId(campsiteId)
+
+        // Registration must start in the future.
+        LotteryValidator().validateFutureRegistrationStart(
+            registrationStart,
+            System.currentTimeMillis()
+        )
+
+        LotteryValidator().validateRegistrationPeriod(
+            registrationStart,
+            registrationEnd
+        )
+
+        LotteryValidator().validateBookingPeriod(
+            bookingStart,
+            bookingEnd
+        )
 
         // Booking must start after registration ends.
         require(bookingStart > registrationEnd) {
@@ -41,15 +49,18 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         }
 
         // Check for overlapping booking periods for the same campsite.
-        val hasOverlap = lotteries.any { other ->
-            other.campsiteId == campsiteId &&
-                    bookingStart < other.bookingEnd &&
-                    bookingEnd > other.bookingStart
-        }
-
-        require(!hasOverlap) {
-            "Booking period overlaps with another lottery for this campsite."
-        }
+        lotteries
+            .filter { other ->
+                other.campsiteId == campsiteId
+            }
+            .forEach { other ->
+                LotteryValidator().validateNoBookingOverlap(
+                    bookingStart,
+                    bookingEnd,
+                    other.bookingStart,
+                    other.bookingEnd
+                )
+            }
 
         require(numberOfWinners > 0) {
             "Number of winners must be positive."
@@ -58,9 +69,6 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             "Waitlist capacity must be positive."
         }
 
-        require(!hasOverlap) {
-            "This campsite already has a lottery with an overlapping booking period."
-        }
 
         val lottery = Lottery(UUID.randomUUID().toString())
 
@@ -94,15 +102,22 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         val lottery = lotteries.find { it.id == lotteryId }
             ?: throw IllegalArgumentException("Lottery not found.")
 
-        // Registration dates cannot be changed once registration begins.
-        require(System.currentTimeMillis() < lottery.registrationStart) {
-            "Registration has already started. Dates cannot be changed."
-        }
+        // Registration dates can only be updated before registration starts.
+        LotteryValidator().validateRegistrationNotStarted(
+            lottery.registrationStart,
+            System.currentTimeMillis()
+        )
 
         // Make sure the new registration period is valid and in the future.
         require(newStart > System.currentTimeMillis() && newStart < newEnd) {
             "Enter a valid future registration period."
         }
+
+        // Registration must end before the booking period starts.
+        LotteryValidator().validateRegistrationBeforeBooking(
+            newEnd,
+            lottery.bookingStart
+        )
 
         // Update the registration dates.
         lottery.registrationStart = newStart
@@ -124,30 +139,32 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             ?: throw IllegalArgumentException("Lottery not found.")
 
         // Booking dates can only be changed before registration starts.
-        require(System.currentTimeMillis() < lottery.registrationStart) {
-            "Registration has already started. Booking dates cannot be changed."
-        }
+        LotteryValidator().validateRegistrationNotStarted(
+            lottery.registrationStart,
+            System.currentTimeMillis()
+        )
 
         // Check the new booking dates.
         require(newStart > lottery.registrationEnd) {
             "Booking must start after registration ends."
         }
 
-        require(newStart < newEnd) {
-            "Booking end must be after booking start."
-        }
+        LotteryValidator().validateBookingPeriod(newStart, newEnd)
 
-        // Check if another lottery for this campsite has overlapping dates.
-        val hasOverlap = lotteries.any { other ->
-            other.id != lotteryId &&
-                    other.campsiteId == lottery.campsiteId &&
-                    newStart <= other.bookingEnd &&
-                    newEnd >= other.bookingStart
-        }
-
-        require(!hasOverlap) {
-            "Booking period overlaps with another lottery for this campsite."
-        }
+        // Check for overlapping booking periods for the same campsite.
+        lotteries
+            .filter { other ->
+                other.id != lotteryId &&
+                        other.campsiteId == lottery.campsiteId
+            }
+            .forEach { other ->
+                LotteryValidator().validateNoBookingOverlap(
+                    newStart,
+                    newEnd,
+                    other.bookingStart,
+                    other.bookingEnd
+                )
+            }
 
         require(newStart > System.currentTimeMillis()) {
             "Booking start must be in the future."
@@ -167,14 +184,13 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             ?: throw IllegalArgumentException("Lottery not found.")
 
         // Winner count can only be changed before registration starts.
-        require(System.currentTimeMillis() < lottery.registrationStart) {
-            "Registration has already started. Number of winners cannot be changed."
-        }
+        LotteryValidator().validateRegistrationNotStarted(
+            lottery.registrationStart,
+            System.currentTimeMillis()
+        )
 
-        // Number of winners must be positive.
-        require(newCount > 0) {
-            "Number of winners must be positive."
-        }
+        // Check that the winner count is positive.
+        LotteryValidator().validateNumberOfWinners(newCount)
 
         lottery.numberOfWinners = newCount
 
@@ -188,23 +204,15 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         val lottery = lotteries.find { it.id == lotteryId }
             ?: throw IllegalArgumentException("Lottery not found.")
 
-        // Capacity must be positive if a limit is set.
-        require(newCapacity == null || newCapacity > 0) {
-            "Waitlist capacity must be positive."
-        }
-
         val registrationStarted =
             System.currentTimeMillis() >= lottery.registrationStart
 
-        // After registration starts, the capacity can only increase.
-        if (registrationStarted) {
-            val oldCapacity = lottery.waitlistCapacity
-
-            require(newCapacity != null &&
-                    (oldCapacity == null || newCapacity > oldCapacity)) {
-                "Capacity can only be increased after registration starts."
-            }
-        }
+        // Check if the capacity update is allowed.
+        LotteryCapacityValidator.validateCapacityUpdate(
+            oldCapacity = lottery.waitlistCapacity,
+            newCapacity = newCapacity,
+            registrationStarted = registrationStarted
+        )
 
         lottery.waitlistCapacity = newCapacity
 
