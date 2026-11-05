@@ -73,7 +73,7 @@ class CampsiteController(val model: CampsiteModel) {
             name = input.name.trim(),
             location = input.location.trim(),
             description = input.description.trim(),
-            maxOccupancy = input.maxOccupancy.toInt(),
+            maxOccupancy = input.maxOccupancy.trim().toInt(),
             pricePerNight = input.pricePerNight.trim().toDouble(),
             tags = input.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() },
             rules = input.rules.trim(),
