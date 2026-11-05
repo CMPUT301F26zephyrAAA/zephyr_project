@@ -11,6 +11,9 @@ import java.util.Date
  * @param model Model to operate on.
  */
 class CampsiteController(val model: CampsiteModel) {
+    /**
+     * Temporary, testing function. To be removed.
+     */
     fun onClick() {
         if (model.error != null) {
             throw IllegalStateException("Unable to reach database.")
@@ -123,6 +126,12 @@ class CampsiteController(val model: CampsiteModel) {
         return resultList
     }
 
+    /**
+     * (Preliminary) Gets the main image for a campsite.
+     * Currently, does not do anything as image storage has not been set up.
+     *
+     * @param id ID of campsite to retrieve image for.
+     */
     fun imageGetter(id: Int) : String {
         if (model.error != null) {
             throw IllegalStateException("Unable to reach database.")

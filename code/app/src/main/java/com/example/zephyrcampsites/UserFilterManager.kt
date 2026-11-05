@@ -46,6 +46,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Class for managing/editing user filters. Can be instantiated alone to access the FilterSetter method.
+ *
+ * @property dateSelected Tracks if user has ever selected a date across different instances of opening filter settings. Used to display selected date.
+ */
 class UserFilterManager {
     var dateSelected = false
     /**
@@ -246,7 +251,6 @@ class UserFilterManager {
                     Spacer(modifier = Modifier.weight(1f))
                     Button(
                         onClick = { // Resets all function variables and currentUserFilters, alongside relevant flags
-                            currentUserFilters.distanceLimit = Int.MAX_VALUE
                             startDate = Date()
                             endDate = Date()
                             guests.edit { replace(0, length, "1") }
