@@ -13,6 +13,12 @@ import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Column
@@ -27,6 +33,7 @@ import androidx.compose.material3.Text
  */
 sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
+    data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
 }
 class MainActivity : ComponentActivity() {
     private val accountsController = AccountsController()
@@ -56,6 +63,17 @@ class MainActivity : ComponentActivity() {
                     val campsiteModel = CampsiteModel()
                     val campsiteController = CampsiteController(campsiteModel)
                     val campsiteDetailView = CampsiteDetailView()
+
+                    //  Lottery setup and registration management.
+                    val lotteryModel = remember { LotteryModel() }
+
+                    val lotteryController = remember(lotteryModel) {
+                        LotteryController(lotteryModel)
+                    }
+
+                    val lotteryView = remember(lotteryController) {
+                        LotteryView(lotteryController)
+                    }
 
                     NavHost(
                         navController = navHostController,
@@ -96,6 +114,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+
                         composable(
                             route = CampsiteScreens.DetailView.route,
                             arguments = listOf(
@@ -112,8 +131,26 @@ class MainActivity : ComponentActivity() {
                                 campsite = campsiteController.retrieveId(campsiteId),
                                 codeGenerator = { type, id ->
                                     qrHandler.qRGenerate(type, id)
+                                },
+                                onManageLottery = { selectedCampsiteId ->
+                                    navHostController.navigate(
+                                        "${GeneralScreen.LotterySettings.route}/$selectedCampsiteId"
+                                    )
                                 }
                             )
+                        }
+                        composable(
+                            route = "${GeneralScreen.LotterySettings.route}/{campsiteId}",
+                            arguments = listOf(
+                                navArgument("campsiteId") {
+                                    type = NavType.StringType
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val campsiteId = backStackEntry.arguments
+                                ?.getString("campsiteId") ?: return@composable
+
+                            lotteryView.LotterySettingsView(campsiteId)
                         }
                     }
                 }
