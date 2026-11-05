@@ -12,6 +12,8 @@ import androidx.compose.runtime.setValue
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 
 
@@ -33,6 +35,10 @@ class LotteryView (
         var registrationStart by remember { mutableStateOf("") }
         var registrationEnd by remember { mutableStateOf("") }
 
+        // US 02.04.04: Store the booking period entered by the campsite owner.
+        var bookingStart by remember { mutableStateOf("") }
+        var bookingEnd by remember { mutableStateOf("") }
+
         // Find the existing lottery for the selected campsite.
         val existingLottery = lotteryController.getLotteryByCampsiteId(campsiteId)
 
@@ -43,6 +49,7 @@ class LotteryView (
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
             Text(
@@ -72,6 +79,26 @@ class LotteryView (
                 modifier = Modifier.fillMaxWidth()
             )
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Let the owner enter the booking start date.
+            OutlinedTextField(
+                value = bookingStart,
+                onValueChange = { bookingStart = it },
+                label = { Text("Booking Start (YYYY-MM-DD HH:mm)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            //  Let the owner enter the booking end date.
+            OutlinedTextField(
+                value = bookingEnd,
+                onValueChange = { bookingEnd = it },
+                label = { Text("Booking End (YYYY-MM-DD HH:mm)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+
             Spacer(modifier = Modifier.height(24.dp))
 
 
@@ -79,11 +106,6 @@ class LotteryView (
 
             Button(
                 onClick = {
-                    // Prevent creating another lottery for the same campsite.
-                    if (existingLottery != null) {
-                        message = "This campsite already has a lottery. Update its registration period instead."
-                        return@Button
-                    }
                     try {
                         // Parse registration dates and times using a fixed format.
                         val formatter = SimpleDateFormat(
@@ -103,13 +125,29 @@ class LotteryView (
                             "Registration end must be after start."
                         }
 
+                        // Convert the booking dates to timestamps.
+                        val bookingStartTime = formatter.parse(bookingStart)?.time
+                            ?: throw IllegalArgumentException("Invalid booking start date")
+
+                        val bookingEndTime = formatter.parse(bookingEnd)?.time
+                            ?: throw IllegalArgumentException("Invalid booking end date")
+
+                        // Check that the booking period is valid.
+                        require(bookingStartTime > end) {
+                            "Booking must start after registration ends."
+                        }
+
+                        require(bookingStartTime < bookingEndTime) {
+                            "Booking end must be after booking start."
+                        }
+
                         lotteryController.createLottery(
                             // Use the selected campsite ID instead of a fixed test ID.
                             campsiteId = campsiteId,
                             registrationStart = start,
                             registrationEnd = end,
-                            bookingStart = end + 86_400_000L,
-                            bookingEnd = end + 172_800_000L,
+                            bookingStart = bookingStartTime,
+                            bookingEnd = bookingEndTime,
                             numberOfWinners = 1,
                             waitlistCapacity = null
                         )
@@ -170,9 +208,45 @@ class LotteryView (
                 ) {
                     Text("Update Registration Period")
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+
+// Allow the owner to update the booking period.
+                Button(
+                    onClick = {
+                        try {
+                            val formatter = SimpleDateFormat(
+                                "yyyy-MM-dd HH:mm", Locale.US
+                            ).apply {
+                                isLenient = false
+                                timeZone = TimeZone.getTimeZone("America/Edmonton")
+                            }
+
+                            val newStart = formatter.parse(bookingStart)?.time
+                                ?: throw IllegalArgumentException("Invalid booking start date")
+
+                            val newEnd = formatter.parse(bookingEnd)?.time
+                                ?: throw IllegalArgumentException("Invalid booking end date")
+
+                            lotteryController.updateBookingPeriod(
+                                existingLottery.id,
+                                newStart,
+                                newEnd
+                            )
+
+                            message = "Booking period update submitted."
+
+                        } catch (e: IllegalArgumentException) {
+                            message = e.message ?: "Invalid booking period."
+                        } catch (e: java.text.ParseException) {
+                            message = "Enter dates and times as YYYY-MM-DD HH:mm."
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Update Booking Period")
+                }
+
             }
-
-
 
         }
     }

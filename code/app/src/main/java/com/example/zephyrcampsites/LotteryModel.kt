@@ -34,11 +34,32 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         require(bookingStart < bookingEnd) {
             "Invalid booking period."
         }
+
+        // Booking must start after registration ends.
+        require(bookingStart > registrationEnd) {
+            "Booking must start after registration ends."
+        }
+
+        // Check for overlapping booking periods for the same campsite.
+        val hasOverlap = lotteries.any { other ->
+            other.campsiteId == campsiteId &&
+                    bookingStart < other.bookingEnd &&
+                    bookingEnd > other.bookingStart
+        }
+
+        require(!hasOverlap) {
+            "Booking period overlaps with another lottery for this campsite."
+        }
+
         require(numberOfWinners > 0) {
             "Number of winners must be positive."
         }
         require(waitlistCapacity == null || waitlistCapacity > 0) {
             "Waitlist capacity must be positive."
+        }
+
+        require(!hasOverlap) {
+            "This campsite already has a lottery with an overlapping booking period."
         }
 
         val lottery = Lottery(UUID.randomUUID().toString())
@@ -88,6 +109,53 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.registrationEnd = newEnd
 
         // Save the updated registration dates to Firebase.
+        connector.add(lottery)
+    }
+
+    /**
+     * Updates the booking period before booking starts.
+     */
+    fun updateBookingPeriod(
+        lotteryId: String,
+        newStart: Long,
+        newEnd: Long
+    ) {
+        val lottery = lotteries.find { it.id == lotteryId }
+            ?: throw IllegalArgumentException("Lottery not found.")
+
+        // Booking dates can only be changed before registration starts.
+        require(System.currentTimeMillis() < lottery.registrationStart) {
+            "Registration has already started. Booking dates cannot be changed."
+        }
+
+        // Check the new booking dates.
+        require(newStart > lottery.registrationEnd) {
+            "Booking must start after registration ends."
+        }
+
+        require(newStart < newEnd) {
+            "Booking end must be after booking start."
+        }
+
+        // Check if another lottery for this campsite has overlapping dates.
+        val hasOverlap = lotteries.any { other ->
+            other.id != lotteryId &&
+                    other.campsiteId == lottery.campsiteId &&
+                    newStart <= other.bookingEnd &&
+                    newEnd >= other.bookingStart
+        }
+
+        require(!hasOverlap) {
+            "Booking period overlaps with another lottery for this campsite."
+        }
+
+        require(newStart > System.currentTimeMillis()) {
+            "Booking start must be in the future."
+        }
+
+        lottery.bookingStart = newStart
+        lottery.bookingEnd = newEnd
+
         connector.add(lottery)
     }
 
