@@ -159,6 +159,59 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         connector.add(lottery)
     }
 
+    /**
+     * Updates the number of winners before registration starts.
+     */
+    fun updateNumberOfWinners(lotteryId: String, newCount: Int) {
+        val lottery = lotteries.find { it.id == lotteryId }
+            ?: throw IllegalArgumentException("Lottery not found.")
+
+        // Winner count can only be changed before registration starts.
+        require(System.currentTimeMillis() < lottery.registrationStart) {
+            "Registration has already started. Number of winners cannot be changed."
+        }
+
+        // Number of winners must be positive.
+        require(newCount > 0) {
+            "Number of winners must be positive."
+        }
+
+        lottery.numberOfWinners = newCount
+
+        // Save the updated value to Firebase.
+        connector.add(lottery)
+    }
+    /**
+     * Updates the waitlist capacity for a lottery.
+     */
+    fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
+        val lottery = lotteries.find { it.id == lotteryId }
+            ?: throw IllegalArgumentException("Lottery not found.")
+
+        // Capacity must be positive if a limit is set.
+        require(newCapacity == null || newCapacity > 0) {
+            "Waitlist capacity must be positive."
+        }
+
+        val registrationStarted =
+            System.currentTimeMillis() >= lottery.registrationStart
+
+        // After registration starts, the capacity can only increase.
+        if (registrationStarted) {
+            val oldCapacity = lottery.waitlistCapacity
+
+            require(newCapacity != null &&
+                    (oldCapacity == null || newCapacity > oldCapacity)) {
+                "Capacity can only be increased after registration starts."
+            }
+        }
+
+        lottery.waitlistCapacity = newCapacity
+
+        // Save the updated capacity to Firebase.
+        connector.add(lottery)
+    }
+
 
     init {
         connector.initializeListener(

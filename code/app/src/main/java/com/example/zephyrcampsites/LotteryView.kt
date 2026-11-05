@@ -35,6 +35,9 @@ class LotteryView (
         var registrationStart by remember { mutableStateOf("") }
         var registrationEnd by remember { mutableStateOf("") }
 
+        // Store the number of winners entered by the owner.
+        var numberOfWinners by remember { mutableStateOf("1") }
+
         // US 02.04.04: Store the booking period entered by the campsite owner.
         var bookingStart by remember { mutableStateOf("") }
         var bookingEnd by remember { mutableStateOf("") }
@@ -101,6 +104,17 @@ class LotteryView (
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Let the owner enter the number of winners.
+            OutlinedTextField(
+                value = numberOfWinners,
+                onValueChange = { numberOfWinners = it },
+                label = { Text("Number of Winners") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
 
             var message by remember { mutableStateOf("") }
 
@@ -141,6 +155,14 @@ class LotteryView (
                             "Booking end must be after booking start."
                         }
 
+                        // Check that the owner entered a positive whole number.
+                        val winnerCount = numberOfWinners.toIntOrNull()
+                            ?: throw IllegalArgumentException("Enter a valid whole number of winners.")
+
+                        require(winnerCount > 0) {
+                            "Number of winners must be positive."
+                        }
+
                         lotteryController.createLottery(
                             // Use the selected campsite ID instead of a fixed test ID.
                             campsiteId = campsiteId,
@@ -148,7 +170,7 @@ class LotteryView (
                             registrationEnd = end,
                             bookingStart = bookingStartTime,
                             bookingEnd = bookingEndTime,
-                            numberOfWinners = 1,
+                            numberOfWinners = winnerCount,
                             waitlistCapacity = null
                         )
 
@@ -208,9 +230,40 @@ class LotteryView (
                 ) {
                     Text("Update Registration Period")
                 }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
-// Allow the owner to update the booking period.
+                // Allow the owner to update the number of winners.
+                Button(
+                    onClick = {
+                        try {
+                            val newCount = numberOfWinners.toIntOrNull()
+                                ?: throw IllegalArgumentException("Enter a valid whole number of winners.")
+
+                            require(newCount > 0) {
+                                "Number of winners must be positive."
+                            }
+
+                            lotteryController.updateNumberOfWinners(
+                                existingLottery.id,
+                                newCount
+                            )
+
+                            message = "Number of winners update submitted."
+
+                        } catch (e: IllegalArgumentException) {
+                            message = e.message ?: "Invalid number of winners."
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = canEditRegistration
+                ) {
+                    Text("Update Number of Winners")
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+            // Allow the owner to update the booking period.
                 Button(
                     onClick = {
                         try {

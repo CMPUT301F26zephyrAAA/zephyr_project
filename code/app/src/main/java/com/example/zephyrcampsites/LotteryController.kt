@@ -152,4 +152,11 @@ class LotteryController(
             it.campsiteId == campsiteId
         }
     }
+
+    /**
+     * Updates the number of winners for a lottery.
+     */
+    fun updateNumberOfWinners(lotteryId: String, newCount: Int) {
+        lotteryModel.updateNumberOfWinners(lotteryId, newCount)
+    }
 }
