@@ -1,8 +1,6 @@
 package com.example.zephyrcampsites
 
 import android.location.Location
-import androidx.compose.ui.text.TextLayoutInput
-import com.google.apps.card.v1.TextInput
 import java.util.Date
 
 /**
@@ -45,6 +43,43 @@ class CampsiteController(val model: CampsiteModel) {
             throw IllegalStateException("Unable to reach database.")
         }
         model.createCampsite("testing", "here", "the thing", 20)
+    }
+
+    fun validate(input: CampsiteFormInput): CampsiteFormErrors = CampsiteValidator.validate(input)
+
+    /**
+     * Validates the form input, if valid, registers the campsite for the owner.
+     * @param ownerId ID of the owner registering the campsite
+     * @param input text input from the registration form
+     * @param onSuccess This is called after the campsite is successfully created
+     * @param onFailure This is called if there is a problem with registration
+     */
+    fun registerCampsite(
+        ownerId: String,
+        input: CampsiteFormInput,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        if (model.error != null) {
+            onFailure("Unable to reach database.")
+            return
+        }
+        if (validate(input).hasErrors) {
+            onFailure("Please fix highlighted fields.")
+            return
+        }
+        model.registerCampsite(
+            ownerId = ownerId,
+            name = input.name.trim(),
+            location = input.location.trim(),
+            description = input.description.trim(),
+            maxOccupancy = input.maxOccupancy.toInt(),
+            pricePerNight = input.pricePerNight.trim().toDouble(),
+            tags = input.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+            rules = input.rules.trim(),
+            rulesRequired = input.rulesRequired
+        )
+        onSuccess()
     }
 
     /**

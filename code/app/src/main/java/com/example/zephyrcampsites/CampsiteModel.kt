@@ -51,30 +51,35 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
      * @param ownerId ID of the owner registering the campsite
      * @param name Name of the campsite
      * @param location Location of the campsite
-     * @param longitude Longitude of the campsite
-     * @param latitude Latitude of the campsite
      * @param description Description of the campsite
      * @param maxOccupancy Maximum occupancy of the campsite
+     * @param pricePerNight Price per night
      * @param tags Tags for the campsite
+     * @param rules Rules & cancellation policy
+     * @param rulesRequired if entrants must accept rules before reserving
      */
     fun registerCampsite(
         ownerId: String,
         name: String,
         location: String,
-        longitude: Double,
-        latitude: Double,
         description: String,
         maxOccupancy: Int,
-        tags: List<String>
+        pricePerNight: Double,
+        tags: List<String>,
+        rules: String,
+        rulesRequired: Boolean
     ) {
         val newCampsite = Campsite((campsites.size + 1).toString())
         newCampsite.ownerID = ownerId
         newCampsite.name = name
         newCampsite.location = location
-        newCampsite.geolocation = GeoPoint(latitude, longitude)
+        newCampsite.geolocation = GeoPoint(0.0, 0.0)
         newCampsite.description = description
         newCampsite.maxOccupancy = maxOccupancy
+        newCampsite.pricePerNight = pricePerNight
         newCampsite.tags = tags
+        newCampsite.rules = rules
+        newCampsite.rulesRequired = rulesRequired
         connector.add(newCampsite)
         notifyObservers(this)
     }

@@ -24,4 +24,7 @@ data class Campsite (override val id: String = "0") : DataHolder(id) {
     var rating: MutableList<Int> = mutableListOf()
     var rulesPolicies: List<String> = listOf("")
     var promoImagePaths: List<String> = listOf("")
+    var pricePerNight: Double = 0.0
+    var rules: String = ""
+    var rulesRequired: Boolean = false
 }
