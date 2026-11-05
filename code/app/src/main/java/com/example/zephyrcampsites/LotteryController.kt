@@ -159,4 +159,11 @@ class LotteryController(
     fun updateNumberOfWinners(lotteryId: String, newCount: Int) {
         lotteryModel.updateNumberOfWinners(lotteryId, newCount)
     }
+
+    /**
+     * Updates the waitlist capacity for a lottery.
+     */
+    fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
+        lotteryModel.updateWaitlistCapacity(lotteryId, newCapacity)
+    }
 }

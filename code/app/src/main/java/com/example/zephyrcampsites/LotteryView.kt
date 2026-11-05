@@ -13,8 +13,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-
+import androidx.compose.ui.text.input.KeyboardType
 
 
 /**
@@ -37,6 +38,8 @@ class LotteryView (
 
         // Store the number of winners entered by the owner.
         var numberOfWinners by remember { mutableStateOf("1") }
+        // Empty means the waitlist has no capacity limit.
+        var waitlistCapacity by remember { mutableStateOf("") }
 
         // US 02.04.04: Store the booking period entered by the campsite owner.
         var bookingStart by remember { mutableStateOf("") }
@@ -102,8 +105,6 @@ class LotteryView (
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
-
             Spacer(modifier = Modifier.height(12.dp))
 
             // Let the owner enter the number of winners.
@@ -114,6 +115,20 @@ class LotteryView (
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = waitlistCapacity,
+                onValueChange = { waitlistCapacity = it },
+                label = { Text("Waitlist Capacity (Optional)") },
+                placeholder = { Text("Leave blank for unlimited") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Number
+                )
+            )
+            Spacer(modifier = Modifier.height(24.dp))
 
 
             var message by remember { mutableStateOf("") }
@@ -163,18 +178,29 @@ class LotteryView (
                             "Number of winners must be positive."
                         }
 
-                        lotteryController.createLottery(
-                            // Use the selected campsite ID instead of a fixed test ID.
-                            campsiteId = campsiteId,
-                            registrationStart = start,
-                            registrationEnd = end,
-                            bookingStart = bookingStartTime,
-                            bookingEnd = bookingEndTime,
-                            numberOfWinners = winnerCount,
-                            waitlistCapacity = null
-                        )
+                        val capacity = if (waitlistCapacity.isBlank()) {
+                            null
+                        } else {
+                            waitlistCapacity.toIntOrNull()
+                        }
 
-                        message = "Lottery submission sent to Firebase."
+                        if (waitlistCapacity.isNotBlank() && (capacity == null || capacity <= 0)) {
+                            message = "Waitlist capacity must be a positive whole number."
+                        } else {
+                            lotteryController.createLottery(
+                                // Use the selected campsite ID instead of a fixed test ID.
+                                campsiteId = campsiteId,
+                                registrationStart = start,
+                                registrationEnd = end,
+                                bookingStart = bookingStartTime,
+                                bookingEnd = bookingEndTime,
+                                numberOfWinners = winnerCount,
+                                waitlistCapacity = capacity
+                            )
+                            message = "Lottery submission sent to Firebase."
+                        }
+
+
 
                     } catch (e: IllegalArgumentException) {
                         message = e.message ?: "Invalid input."
@@ -259,6 +285,45 @@ class LotteryView (
                     enabled = canEditRegistration
                 ) {
                     Text("Update Number of Winners")
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
+
+                // Allows the owner to update the waitlist capacity.
+                Button(
+                    onClick = {
+                        if (existingLottery != null) {
+
+                            // Convert the input to a number, or null if left blank.
+                            val capacity = if (waitlistCapacity.isBlank()) {
+                                null
+                            } else {
+                                waitlistCapacity.toIntOrNull()
+                            }
+
+                            // Check that the capacity is a positive whole number.
+                            if (waitlistCapacity.isNotBlank() &&
+                                (capacity == null || capacity <= 0)
+                            ) {
+                                message = "Waitlist capacity must be a positive whole number."
+                            } else {
+                                try {
+                                    // The model checks if the capacity change is allowed.
+                                    lotteryController.updateWaitlistCapacity(
+                                        existingLottery.id,
+                                        capacity
+                                    )
+                                    message = "Waitlist capacity update submitted."
+                                } catch (e: IllegalArgumentException) {
+                                    message = e.message ?: "Invalid waitlist capacity."
+                                }
+                            }
+                        } else {
+                            message = "Create a lottery first."
+                        }
+                    }
+                ) {
+                    Text("Update Waitlist Capacity")
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
