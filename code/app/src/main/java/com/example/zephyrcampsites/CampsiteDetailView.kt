@@ -63,7 +63,7 @@ class CampsiteDetailView {
         controller: CampsiteController,
         accountsController: AccountsController,
         account: Account?,
-        showOwnerView: Boolean,
+        showOwnerView: Boolean = false,
         codeGenerator: (String, Int) -> ImageBitmap,
         onBack: () -> Unit,
         onManageLottery: (String) -> Unit,
@@ -155,7 +155,7 @@ class CampsiteDetailView {
 
         onBack: () -> Unit,
         account: Account? = null,
-        showOwnerView: Boolean,
+        showOwnerView: Boolean = false,
         imageUrl: String? = null,
         ownerName: String? = null,
         statusText: String = "Campsite not found.",
@@ -222,7 +222,6 @@ class CampsiteDetailView {
                 if (campsite == null) {
                     Text(statusText, modifier = Modifier.padding(20.dp))
                 } else {
-                    Text("Debug Owner View: $showOwnerView") // test
                     promotionalImage(imageUrl = imageUrl, campsiteName = campsite.name)
 
                     Column(
@@ -377,12 +376,15 @@ class CampsiteDetailView {
 
                         }
 
+                        // Replace preview mode with actual campsite ownership validation
+                        // when account integration is completed. this is just for the testing purpose.
                         if (showOwnerView) {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,
                                 onManageLottery = onManageLottery
                             )
+
                         }
                     }
                 }
@@ -500,7 +502,6 @@ class CampsiteDetailView {
         codeGenerator: (String, Int) -> ImageBitmap,
         onManageLottery: (String) -> Unit
     ) {
-        Text("Debug campsite ID: ${campsite.id}") // test
         val numericId = campsite.id.toIntOrNull() ?: return
         var codeShow by remember(campsite.id) { mutableStateOf(false) }
         val code = remember(campsite.id) { codeGenerator("campsite", numericId) }
@@ -524,7 +525,8 @@ class CampsiteDetailView {
             }
         }
         Button(onClick = { onManageLottery(campsite.id) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Manage Lottery")
+            Text("Create Lottery")
         }
     }
+
 }

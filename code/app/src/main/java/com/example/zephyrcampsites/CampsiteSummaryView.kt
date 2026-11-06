@@ -94,8 +94,8 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
         filterPage: () -> Unit,
         imageLoader: (Int) -> String,
         locationClient: FusedLocationProviderClient,
-        showOwnerView: Boolean,
-        onViewChanged: (Boolean) -> Unit
+        showOwnerView: Boolean = false,
+        onViewChanged: (Boolean) -> Unit = {}
 
     ) {
         val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters.searchString) // Creates text field state based on existing search query

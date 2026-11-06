@@ -346,9 +346,18 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             )
         }
 
-        // Create a copy so the existing lottery is not changed
-        // before all validation is complete.
-        val updatedLottery = lottery.copy()
+
+        // Copy the existing lottery details before applying changes.
+        val updatedLottery = Lottery(lottery.id).apply {
+            this.lotteryName = lottery.lotteryName
+            this.campsiteId = lottery.campsiteId
+            this.registrationStart = lottery.registrationStart
+            this.registrationEnd = lottery.registrationEnd
+            this.bookingStart = lottery.bookingStart
+            this.bookingEnd = lottery.bookingEnd
+            this.numberOfWinners = lottery.numberOfWinners
+            this.waitlistCapacity = lottery.waitlistCapacity
+        }
 
         updatedLottery.lotteryName = lotteryName.trim()
         updatedLottery.registrationStart = registrationStart

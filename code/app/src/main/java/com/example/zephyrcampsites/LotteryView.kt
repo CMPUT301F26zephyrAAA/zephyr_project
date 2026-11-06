@@ -497,6 +497,7 @@ class LotteryView (
             "yyyy-MM-dd HH:mm",
             Locale.US
         ).apply {
+            isLenient = false
             timeZone = TimeZone.getTimeZone("America/Edmonton")
         }
 
@@ -749,7 +750,9 @@ class LotteryView (
 
                         } catch (e: IllegalArgumentException) {
                             message = e.message ?: "Invalid lottery information."
-                        } catch (e: Exception) {
+                        } catch (e: java.text.ParseException) {
+                            message = "Invalid date. Please use YYYY-MM-DD HH:mm and enter a real date."}
+                        catch (e: Exception) {
                             message = e.message ?: "Unable to submit lottery update."
                         }
                     },
