@@ -62,7 +62,7 @@ import java.util.Date
  * @property currentUserFilters Holds user filtering, if they choose to filter list of campsites.
  */
 class CampsiteSummaryView : ViewObserver<CampsiteModel> {
-    var currentUserFilters = UserFilter("", null, Int.MAX_VALUE, Date(), Date(), 1) // Holds user filters that they have set, in (Search string, device location, distance limit, start date, end date, # of guests)
+    var currentUserFilters = UserFilter("", null, Int.MAX_VALUE, null, null, 1) // Holds user filters that they have set, in (Search string, device location, distance limit, start date, end date, # of guests)
     private val userFilterManager = UserFilterManager()
 
     /**

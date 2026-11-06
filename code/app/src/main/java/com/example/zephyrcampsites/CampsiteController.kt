@@ -1,6 +1,7 @@
 package com.example.zephyrcampsites
 
 import android.location.Location
+import com.google.firebase.firestore.GeoPoint
 import java.util.Date
 
 /**
@@ -37,6 +38,9 @@ class CampsiteController(val model: CampsiteModel) {
     fun registerCampsite(
         ownerId: String,
         input: CampsiteFormInput,
+        geolocation: GeoPoint,
+        startDate: Date,
+        endDate: Date,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -58,6 +62,9 @@ class CampsiteController(val model: CampsiteModel) {
             tags = input.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() },
             rules = input.rules.trim(),
             toggle = input.toggle,
+            geolocation = geolocation,
+            startDate = startDate,
+            endDate = endDate,
             onSuccess = onSuccess,
             onFailure = onFailure
         )

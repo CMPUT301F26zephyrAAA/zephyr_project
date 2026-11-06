@@ -140,23 +140,28 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // Campsite summary screen.
-                        composable(route = CampsiteScreens.SummaryView.route) {
-                            campsiteSummaryView.SummaryView(
-                                onClick = {
-                                    navHostController.navigate(GeneralScreen.RegisterCampsite.route)
-                                },
-                                openDetail = { id ->
-                                    navHostController.navigate(CampsiteScreens.DetailView.createRoute(id))
-                                },
-                                filterPage = {
-                                    navHostController.navigate(CampsiteScreens.FilterPage.route)
-                                },
-                                searchHandler = { campsiteController.search(it) },
-                                imageLoader = { campsiteController.imageGetter(it) },
-                                locationClient = locationClient
-                            )
-                        }
+                    composable(route = CampsiteScreens.SummaryView.route) {
+                        campsiteSummaryView.SummaryView(
+                            onClick = { navHostController.navigate(GeneralScreen.RegisterCampsite.route) },
+                            openDetail = { id ->
+                                navHostController.navigate(
+                                    CampsiteScreens.DetailView.createRoute(id)
+                                )
+                            },
+                            filterPage = {
+                                navHostController.navigate(
+                                    CampsiteScreens.FilterPage.route
+                                )
+                            },
+                            searchHandler = { userFilters ->
+                                campsiteController.search(userFilters)
+                            },
+                            imageLoader = { id ->
+                                campsiteController.imageGetter(id)
+                            },
+                            locationClient = locationClient
+                        )
+                    }
 
                         // QR scanning screen.
                         composable(route = GeneralScreen.QRScan.route) {
