@@ -62,7 +62,7 @@ fun CampsiteFormView(
     var description by remember(campsite?.id) { mutableStateOf(campsite?.description ?: "") }
     var maxOccupancy by remember(campsite?.id) { mutableStateOf(campsite?.maxOccupancy.toString() ?: "") }
     var pricePerNight by remember(campsite?.id) { mutableStateOf(campsite?.pricePerNight.toString() ?: "") }
-    var tags by remember(campsite?.id) { mutableStateOf(campsite?.tags.toString() ?: "") }
+    var tags by remember(campsite?.id) { mutableStateOf(campsite?.tags?.joinToString(", ") ?: "") }
     var rules by remember(campsite?.id) { mutableStateOf(campsite?.rules ?:"") }
     var toggle by remember(campsite?.id) { mutableStateOf(campsite?.toggle ?: true) }
     var errors by remember { mutableStateOf(CampsiteFormErrors()) }
