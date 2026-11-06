@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import java.util.Date
-
+import com.google.firebase.firestore.GeoPoint
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
  *

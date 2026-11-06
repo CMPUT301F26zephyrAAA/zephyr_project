@@ -24,6 +24,7 @@ import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.LocationServices
 
+
 /**
  * Sealed class for general screens that could be used across different categories.
  *
@@ -74,6 +75,12 @@ class MainActivity : ComponentActivity() {
                 }
                 val lotteryView = remember(lotteryController) {
                     LotteryView(lotteryController)
+                }
+
+                // Waiting-list registration for entrants.
+                val waitingListModel = remember { WaitingListModel() }
+                val waitingListController = remember(waitingListModel) {
+                    WaitingListController(waitingListModel)
                 }
 
                 // Navigate after account initialization finishes.
@@ -182,6 +189,26 @@ class MainActivity : ComponentActivity() {
                             val campsiteId = backStackEntry.arguments?.getInt("id")
                                 ?: return@composable
 
+                            val now = System.currentTimeMillis()
+
+                            val campsiteLotteries = lotteryModel.lotteries.filter { lottery ->
+                                lottery.campsiteId == campsiteId.toString() &&
+                                        now < lottery.bookingStart
+                            }
+
+                            val campsiteLottery = campsiteLotteries
+                                .filter { lottery ->
+                                    now >= lottery.registrationStart &&
+                                            now < lottery.registrationEnd
+                                }
+                                .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries
+                                    .filter { lottery ->
+                                        now >= lottery.registrationStart
+                                    }
+                                    .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries.minByOrNull { it.registrationStart }
+
                             campsiteDetailView.DetailScreen(
                                 campsiteId = campsiteId,
                                 controller = campsiteController,
@@ -191,7 +218,9 @@ class MainActivity : ComponentActivity() {
                                 onBack = { navHostController.popBackStack() },
                                 onManageLottery = { id ->
                                     navHostController.navigate("${GeneralScreen.LotterySettings.route}/$id")
-                                }
+                                },
+                                lottery = campsiteLottery,
+                                waitingListController = waitingListController
                             )
                         }
 
