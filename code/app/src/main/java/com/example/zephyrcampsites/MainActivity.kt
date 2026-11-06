@@ -24,6 +24,8 @@ import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import androidx.compose.runtime.getValue
+import androidx.navigation.compose.currentBackStackEntryAsState
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -36,6 +38,7 @@ sealed class GeneralScreen(val route: String) {
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
+    data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
 }
 
 class MainActivity : ComponentActivity() {
@@ -109,9 +112,17 @@ class MainActivity : ComponentActivity() {
                         .statusBarsPadding()
                 ) {
 
-                    // Temporary button for accessing the profile.
-                    // Only show it after account identification succeeds.
-                    if (!accountLoading.value && account != null) {
+
+                    val currentBackStackEntry by
+                    navHostController.currentBackStackEntryAsState()
+                    val currentRoute = currentBackStackEntry?.destination?.route
+
+                    // Show the profile button only on the campsite browsing screen.
+                    if (
+                        !accountLoading.value &&
+                        account != null &&
+                        currentRoute == CampsiteScreens.SummaryView.route
+                    ) {
                         Button(
                             onClick = {
                                 navHostController.navigate(
@@ -122,6 +133,7 @@ class MainActivity : ComponentActivity() {
                             Text("My Profile")
                         }
                     }
+
 
                     NavHost(
                         navController = navHostController,
@@ -253,33 +265,39 @@ class MainActivity : ComponentActivity() {
                             lotteryView.LotterySettingsView(campsiteId)
                         }
 
-                        // Entrant profile screen - US 01.07.03.
-                        composable(
-                            route = GeneralScreen.Profile.route
-                        ) {
+                        // Entrant profile screen
+                        composable(route = GeneralScreen.Profile.route) {
+                            val profileAccount = currentAccount.value
+
+                            if (profileAccount != null) {
+                                AccountsView().ProfileOverviewView(
+                                    account = profileAccount,
+                                    onEdit = {navHostController.navigate(GeneralScreen.PersonalInformation.route)},
+                                    onBack = {navHostController.popBackStack()}
+                                )
+                            }
+                        }
+
+                        composable(route = GeneralScreen.PersonalInformation.route) {
                             val profileAccount = currentAccount.value
 
                             if (profileAccount != null) {
                                 AccountsView().ProfileView(
                                     account = profileAccount,
                                     accountsController = accountsController,
-                                    onSaved = { updatedAccount ->
+                                    onSaved = {updatedAccount ->
                                         currentAccount.value = updatedAccount
                                     },
-                                    onBack = {
-                                        navHostController.popBackStack()
+                                    onBack = {navHostController.popBackStack()
                                     }
                                 )
                             }
                         }
-
-                    } // NavHost
-
-                } // Column
-
-            } // ZephyrCampsitesTheme
-        } // setContent
-    } // onCreate
+                    }
+                }
+            }
+        }
+    }
 
     // AI use: ChatGPT
     // https://chatgpt.com/share/6ae95606-2174-83ed-945d-28ed82129f67

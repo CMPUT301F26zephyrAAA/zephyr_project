@@ -1,11 +1,17 @@
 package com.example.zephyrcampsites
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -14,21 +20,90 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 
 /**
- * View responsible for displaying and editing account details.
+ * View class for displaying and editing entrant account details
+ * Uses AccountsController to update personal information in Firestore.
  */
 class AccountsView {
 
+    /***
+     * Displays the main profile page
+     * @param account Current entrants account
+     * @param onEdit opens the personal information editing screen
+     * @param onBack returns to the previous screen
+     */
+
+    @Composable
+    fun ProfileOverviewView(
+        account: Account,
+        onEdit: () -> Unit,
+        onBack: () -> Unit
+    ){
+        Column(modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                text = "PROFILE",
+                style = MaterialTheme.typography.headlineMedium
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = if (account.name.isBlank()){
+                    "FULL NAME"
+                } else {
+                    account.name
+                },
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Text(
+                text = "Device ID Number",
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                text = account.id,
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            OutlinedButton(
+                onClick = onEdit,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("personalInformationButton")
+            ){
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text("Personal Information")
+                    Text("View and change personal information", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            Text("App Policy and Guidelines", style = MaterialTheme.typography.titleMedium)
+            Text("Read terms and agreement")
+            Text("Account and App Settings", style = MaterialTheme.typography.titleMedium)
+            Text("Change settings related to notifications, app themes, etc")
+            Text("DELETE PROFILE", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            OutlinedButton(onClick = onBack) {
+                Text("BACK")
+            }
+        }
+    }
+
     /**
-     * Displays the entrant's editable profile.
+     * Displays the editable personal information form
      *
      * @param account Currently identified account.
-     * @param accountsController Controller for updating the profile.
-     * @param onSaved Called after a successful update.
-     * @param onBack Called when the Back button is pressed.
+     * @param accountsController Controller for validating and saving updates
+     * @param onSaved Called after a successfully saving the updated account.
+     * @param onBack Returns to the profile overview
      */
     @Composable
     fun ProfileView(
@@ -65,60 +140,57 @@ class AccountsView {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            Text(text = "PERSONAL INFORMATION", style = MaterialTheme.typography.headlineMedium)
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Text("My Profile")
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            TextField(
+            OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("Name") },
+                label = { Text("Name:") },
+                singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("profileName")
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            TextField(
+            OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
-                label = { Text("Email") },
+                label = { Text("Email ID:") },
+                singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("profileEmail")
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            TextField(
+            OutlinedTextField(
                 value = phoneNumber,
                 onValueChange = { phoneNumber = it },
                 label = { Text("Phone Number") },
+                singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("profilePhone")
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
             if (errorMessage.isNotEmpty()) {
-                Text(errorMessage)
+                Text(text = errorMessage, color = MaterialTheme.colorScheme.error)
             }
 
             if (successMessage.isNotEmpty()) {
-                Text(successMessage)
+                Text(text = successMessage, color = MaterialTheme.colorScheme.primary)
             }
 
             Button(
-                modifier = Modifier.testTag("saveProfile"),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("saveProfile"),
                 enabled = !saving,
-
                 onClick = {
-
                     errorMessage = ""
                     successMessage = ""
                     saving = true
@@ -128,14 +200,12 @@ class AccountsView {
                         name = name,
                         email = email,
                         phoneNumber = phoneNumber,
-
                         onSuccess = { updatedAccount ->
                             onSaved(updatedAccount)
                             saving = false
                             successMessage =
                                 "Profile updated successfully"
                         },
-
                         onError = { error ->
                             saving = false
                             errorMessage = error
@@ -143,13 +213,14 @@ class AccountsView {
                     )
                 }
             ) {
-                Text(if (saving) "Saving..." else "Save Changes")
+                Text(if (saving) "Saving..." else "SAVE")
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(onClick = onBack) {
-                Text("Back")
+            OutlinedButton(
+                onClick = onBack,
+                enabled = !saving,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("BACK")
             }
         }
     }
