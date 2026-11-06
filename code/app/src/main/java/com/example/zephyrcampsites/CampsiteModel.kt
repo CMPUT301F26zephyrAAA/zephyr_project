@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableStateListOf
 import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import java.util.Date
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
@@ -14,10 +15,7 @@ import com.google.firebase.firestore.ListenerRegistration
  * @property error Holds error from Firebase if needed.
  */
 class CampsiteModel : ObservableModel<CampsiteModel>() {
-    val campsites = mutableStateListOf(
-        Campsite("1"),
-        Campsite("2")
-    )
+    val campsites = mutableStateListOf<Campsite>()
     val connector = FirebaseConnector("campsite")
     private var campsiteListener: ListenerRegistration? = null
     var error : FirebaseFirestoreException? = null
@@ -45,6 +43,9 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         tags: List<String>,
         rules: String,
         toggle: Boolean,
+        geolocation: GeoPoint,
+        startDate: Date,
+        endDate: Date,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -59,6 +60,10 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         newCampsite.tags = tags
         newCampsite.rules = rules
         newCampsite.toggle = toggle
+        newCampsite.geolocation = geolocation
+        newCampsite.bookingPeriodStart = startDate
+        newCampsite.bookingPeriodEnd = endDate
+
         connector.add(newCampsite,
             onSuccess = {
                 notifyObservers(this)
