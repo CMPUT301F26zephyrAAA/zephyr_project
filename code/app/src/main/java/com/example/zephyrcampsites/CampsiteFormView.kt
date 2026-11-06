@@ -62,7 +62,7 @@ fun CampsiteFormView(
     var pricePerNight by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf("") }
     var rules by remember { mutableStateOf("") }
-    var rulesRequired by remember { mutableStateOf(true) }
+    var toggle by remember { mutableStateOf(true) }
     var errors by remember { mutableStateOf(CampsiteFormErrors()) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var registered by remember { mutableStateOf(false) }
@@ -133,7 +133,7 @@ fun CampsiteFormView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) { Text("Entrants must accept rules before reserving", modifier = Modifier.weight(1f))
-                Switch(checked = rulesRequired, onCheckedChange = { rulesRequired = it })
+                Switch(checked = toggle, onCheckedChange = { toggle = it })
             }
             if (feedback != null) {
                 Text(
@@ -157,20 +157,21 @@ fun CampsiteFormView(
                             pricePerNight,
                             tags,
                             rules,
-                            rulesRequired
+                            toggle
                         )
                         errors = controller.validate(input)
                         feedback = null
-                        registered = true
 
-                        controller.registerCampsite(
-                            ownerId,
-                            input,
-                            onSuccess = { onDone() },
-                            onFailure = {
-                                registered = false
-                                feedback = it}
-                        )
+                        if (!errors.hasErrors){
+                            controller.registerCampsite(
+                                ownerId,
+                                input,
+                                onSuccess = { onDone() },
+                                onFailure = {
+                                    registered = false
+                                    feedback = it}
+                            )
+                        }
                     }
                 ) {
                     Text("PUBLISH")

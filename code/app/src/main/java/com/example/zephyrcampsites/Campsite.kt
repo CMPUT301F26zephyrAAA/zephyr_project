@@ -25,6 +25,6 @@ data class Campsite (override val id: String = "0") : DataHolder(id) {
     var rulesPolicies: List<String> = listOf("")
     var promoImagePaths: List<String> = listOf("")
     var pricePerNight: Double = 0.0
-    var rules: String = ""
-    var rulesRequired: Boolean = false
+    var rules: String = "" //holds up the Rules & Cancellation policy for registering a campsite
+    var toggle: Boolean = false // holds the switch for "Entrants must accept rules before reserving"
 }
