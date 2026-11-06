@@ -39,6 +39,7 @@ sealed class GeneralScreen(val route: String) {
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
     data object Policy : GeneralScreen("GeneralScreen/Policy")
+    data object Settings : GeneralScreen("GeneralScreen/Settings")
 }
 
 /**
@@ -244,6 +245,7 @@ class MainActivity : ComponentActivity() {
                                         navHostController.navigate(GeneralScreen.PersonalInformation.route)
                                     },
                                     onPolicy = { navHostController.navigate(GeneralScreen.Policy.route) },
+                                    onSettings = { navHostController.navigate(GeneralScreen.Settings.route) },
                                     onBack = { navHostController.popBackStack() }
                                 )
                             }
@@ -251,6 +253,20 @@ class MainActivity : ComponentActivity() {
 
                         composable(route = GeneralScreen.Policy.route) {
                             PolicyView().PolicyAndGuidelinesView(onBack = { navHostController.popBackStack() })
+                        }
+
+                        composable(route = GeneralScreen.Settings.route) {
+                            val settingsAccount = currentAccount.value ?: return@composable
+                            SettingsView().SettingsScreen(
+                                account = settingsAccount,
+                                accountsController = accountsController,
+                                onSaved = { updated ->
+                                    currentAccount.value = currentAccount.value?.copy(
+                                        notificationsEnabled = updated.notificationsEnabled
+                                    )
+                                },
+                                onBack = { navHostController.popBackStack() }
+                            )
                         }
 
                         composable(route = GeneralScreen.PersonalInformation.route) {

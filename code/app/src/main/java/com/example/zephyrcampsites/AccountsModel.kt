@@ -6,8 +6,8 @@ import com.google.firebase.firestore.firestore
  * Model class for accounts. Reads/Writes the "accounts" Firestore collection.
  * **/
 
-class AccountsModel {
-    private val accounts = Firebase.firestore.collection("accounts") //connecting to firestore
+open class AccountsModel {
+    private val accounts by lazy { Firebase.firestore.collection("accounts") } //connecting to firestore
 
     /**
      ** Retrieves an account using its device ID
@@ -24,6 +24,7 @@ class AccountsModel {
                 account.name = document.getString("name") ?: ""
                 account.email = document.getString("email") ?: ""
                 account.phoneNumber = document.getString("phoneNumber") ?: ""
+                account.notificationsEnabled = document.getBoolean("notificationsEnabled") ?: true
                 onResult(account)
             } else {
                 onResult(null)
@@ -43,7 +44,8 @@ class AccountsModel {
     fun createAccount(account: Account, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
         val accountData = hashMapOf(
             "id" to account.id,
-            "userType" to account.userType
+            "userType" to account.userType,
+            "notificationsEnabled" to account.notificationsEnabled
         ) //AI use: understanding hashMapOf concept (https://chatgpt.com/share/6ae94496-0440-83eb-9305-3b1de9913155)
         accounts.document(account.id).set(accountData).addOnSuccessListener { onSuccess() }
             .addOnFailureListener { exception -> onError(exception) }
@@ -80,7 +82,7 @@ class AccountsModel {
      * @param onSuccess Called when Firestore saves the changes
      * @param onError called if the update fails
      * **/
-    fun updateAccount(
+    open fun updateAccount(
         account: Account,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
@@ -100,4 +102,22 @@ class AccountsModel {
             }
     }
 
+    /**
+     * Saves the notification preference without changing other account fields.
+     *
+     * @param deviceId Device identifier of the account.
+     * @param enabled Whether the account may receive notifications.
+     * @param onSuccess Called after the preference is saved.
+     * @param onError Called if the preference cannot be saved.
+     */
+    open fun updateNotificationPreference(
+        deviceId: String,
+        enabled: Boolean,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        accounts.document(deviceId).update("notificationsEnabled", enabled)
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { onError(it) }
+    }
 }
