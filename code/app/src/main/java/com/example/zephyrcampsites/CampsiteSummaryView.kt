@@ -186,8 +186,9 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                 )
             ) {
                 Text(
-                    if (showOwnerView) "Switch to Entrant View"
-                    else "Switch to Owner View"
+                    if (showOwnerView) "Click to Test Entrant View"
+                    else "Click to Test Owner View",
+                    color = Color.White
                 )
             }
         }
