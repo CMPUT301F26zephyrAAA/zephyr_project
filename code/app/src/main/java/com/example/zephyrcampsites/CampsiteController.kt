@@ -11,18 +11,6 @@ import java.util.Date
  * @param model Model to operate on.
  */
 class CampsiteController(val model: CampsiteModel) {
-    /**
-     * Temporary, testing function. To be removed.
-     */
-    fun onClick() {
-        if (model.error != null) {
-            throw IllegalStateException("Unable to reach database.")
-        }
-        model.createCampsite("add test", "right here", "the thing", 20)
-        model.campsites.forEach { campsite ->
-            println(campsite.id)
-        }
-    }
 
     /**
      * Retrieve campsite entry based on ID.
@@ -37,16 +25,6 @@ class CampsiteController(val model: CampsiteModel) {
         return model.campsites.find { it.id.toInt() == id }
     }
 
-    /**
-     * Adds campsite to model.
-     * Should use proper params in the future, but currently just adds placeholders in fields.
-     */
-    fun addCampsite() {
-        if (model.error != null) {
-            throw IllegalStateException("Unable to reach database.")
-        }
-        model.createCampsite("testing", "here", "the thing", 20)
-    }
 
     fun validate(input: CampsiteFormInput): CampsiteFormErrors = CampsiteValidator.validate(input)
 
@@ -80,9 +58,10 @@ class CampsiteController(val model: CampsiteModel) {
             pricePerNight = input.pricePerNight.trim().toDouble(),
             tags = input.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() },
             rules = input.rules.trim(),
-            rulesRequired = input.rulesRequired
+            toggle = input.toggle,
+            onSuccess = onSuccess,
+            onFailure = onFailure
         )
-        onSuccess()
     }
 
     /**

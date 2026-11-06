@@ -8,7 +8,7 @@ data class CampsiteFormInput(
     val pricePerNight: String = "",
     val tags: String = "",
     val rules: String = "",
-    val rulesRequired: Boolean = true
+    val toggle: Boolean = true
 )
 
 data class CampsiteFormErrors(
