@@ -13,16 +13,15 @@ import java.util.Date
 class CampsiteController(val model: CampsiteModel) {
 
     /**
-     * Retrieve campsite entry based on ID.
+     * Retrieves a cached campsite using its ID.
      *
-     * @param id ID of campsite to retrieve
-     * @return Full campsite object
+     * @param id ID of the campsite to retrieve.
+     * @return The matching campsite, or null if it is unavailable.
      */
-    fun retrieveId(id: Int) : Campsite? {
-        if (model.error != null) {
-            throw IllegalStateException("Unable to reach database.")
+    fun retrieveId(id: Int): Campsite? {
+        return model.campsites.find { campsite ->
+            campsite.id == id.toString()
         }
-        return model.campsites.find { it.id.toInt() == id }
     }
 
 
@@ -116,6 +115,25 @@ class CampsiteController(val model: CampsiteModel) {
             throw IllegalStateException("Unable to reach database.")
         }
         return model.getCampsiteImage("campsite/$id.png")
+    }
+
+    /**
+     * Requests a campsite image URL asynchronously.
+     *
+     * @param path HTTPS URL or Firebase Storage path of the image.
+     * @param onResult Called when the image URL is available.
+     * @param onError Called if the image URL cannot be retrieved.
+     */
+    fun loadCampsiteImage(
+        path: String,
+        onResult: (String) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        model.getCampsiteImage(
+            path = path,
+            onResult = onResult,
+            onError = onError
+        )
     }
 
     /**

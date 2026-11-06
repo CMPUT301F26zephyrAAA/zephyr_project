@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -42,6 +44,9 @@ sealed class GeneralScreen(val route: String) {
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
 }
 
+/**
+ * Identifies the current device and connects the models, controllers, and app screens.
+ */
 class MainActivity : ComponentActivity() {
 
     private val accountsController = AccountsController()
@@ -242,10 +247,79 @@ class MainActivity : ComponentActivity() {
                                 backStackEntry.arguments?.getInt("id")
                                     ?: return@composable
 
+                            val campsite = if (
+                                campsiteModel.isLoading || campsiteModel.error != null
+                            ) {
+                                null
+                            } else {
+                                campsiteController.retrieveId(campsiteId)
+                            }
+                            val promotionalPath = campsite?.promoImagePaths
+                                ?.firstOrNull { path -> path.isNotBlank() }
+                                ?: campsite?.imagePath.orEmpty()
+                            val ownerId = campsite?.ownerID.orEmpty()
+                            var imageUrl by remember(promotionalPath) {
+                                mutableStateOf<String?>(null)
+                            }
+                            var ownerName by remember(ownerId) {
+                                mutableStateOf<String?>(null)
+                            }
+
+                            DisposableEffect(promotionalPath, ownerId) {
+                                var active = true
+                                if (promotionalPath.isNotBlank()) {
+                                    campsiteController.loadCampsiteImage(
+                                        path = promotionalPath,
+                                        onResult = { url ->
+                                            if (active) {
+                                                imageUrl = url
+                                            }
+                                        },
+                                        onError = {
+                                            if (active) {
+                                                imageUrl = null
+                                            }
+                                        }
+                                    )
+                                }
+                                if (ownerId.isNotBlank()) {
+                                    accountsController.findAccount(
+                                        deviceId = ownerId,
+                                        onResult = { owner ->
+                                            if (active) {
+                                                ownerName = owner?.name
+                                            }
+                                        },
+                                        onError = {
+                                            if (active) {
+                                                ownerName = null
+                                            }
+                                        }
+                                    )
+                                }
+                                onDispose {
+                                    active = false
+                                }
+                            }
+
                             campsiteDetailView.DetailView(
-                                campsite = campsiteController.retrieveId(
-                                    campsiteId
-                                ),
+                                campsite = campsite,
+                                onBack = { navHostController.popBackStack() },
+                                imageUrl = imageUrl,
+                                ownerName = ownerName,
+                                statusText = when {
+                                    campsiteModel.error != null -> "Unable to load campsite details."
+                                    campsiteModel.isLoading -> "Loading campsite details..."
+                                    else -> "Campsite not found."
+                                },
+                                canManageLottery = account != null && campsite != null &&
+                                    (
+                                        account.userType == "admin" ||
+                                        (
+                                            account.userType == "owner" &&
+                                            account.id == campsite.ownerID
+                                        )
+                                    ),
                                 codeGenerator = { type, id ->
                                     qrHandler.qRGenerate(type, id)
                                 },

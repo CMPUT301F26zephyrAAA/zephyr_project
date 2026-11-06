@@ -55,6 +55,30 @@ class AccountsController {
         )
     }
 
+    /**
+     * Reads an existing account without creating one.
+     *
+     * @param deviceId Device ID of the account to retrieve.
+     * @param onResult Called with the account, or null if it does not exist.
+     * @param onError Called if the ID is invalid or the account cannot be read.
+     */
+    fun findAccount(
+        deviceId: String,
+        onResult: (Account?) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        if (deviceId.isBlank() || deviceId.contains("/")) {
+            onError(IllegalArgumentException("Invalid account ID."))
+            return
+        }
+
+        accountsModel.getAccount(
+            deviceID = deviceId,
+            onResult = onResult,
+            onError = onError
+        )
+    }
+
     /***
      * Validates and updates an entrant's profile
      * @param account Existing account to update

@@ -40,7 +40,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.core.text.isDigitsOnly
 import com.google.android.gms.location.FusedLocationProviderClient
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +59,8 @@ class UserFilterManager {
      *
      * @param locationClient Location provider client, used to get device location. Has to be instantiated inside MainActivity's onCreate method, therefore it is passed in.
      * @param clearFilter Method to respond when filter is cleared
+     * @param onError Displays a validation error and its dismissal action.
+     * @param currentUserFilters Filter values retained when returning from details.
      */
     @OptIn(ExperimentalMaterial3Api::class)
     @SuppressLint("MissingPermission")
@@ -77,7 +78,9 @@ class UserFilterManager {
         // Acquires current filters from currentUserFilters
         var startDate by remember { mutableStateOf(currentUserFilters.startDate as Date) }
         var endDate by remember { mutableStateOf(currentUserFilters.endDate as Date) }
-        val guests : TextFieldState = rememberTextFieldState(initialText = currentUserFilters.guests.toString())
+        val guests: TextFieldState = rememberTextFieldState(
+            initialText = currentUserFilters.guests?.toString().orEmpty()
+        )
 
         // Configurations for filter options
         val distanceOptions = listOf(15, 30, 50, 100) // List of selectable distances (in km)
@@ -231,21 +234,19 @@ class UserFilterManager {
                         inputTransformation = DigitOnlyInputTransformation(),
                         onKeyboardAction = { performDefaultAction ->
                             focusManager.clearFocus()
-                            if (guests.text.toString().toInt() > 10) { // Triggers error dialog (by setting flag) if anything entered is not allowed
+                            if ((guests.text.toString().toIntOrNull() ?: 0) > 10) { // Checks the guest limit without failing on an empty field.
                                 alertTriggered = true
                             }
                             performDefaultAction()
                         }
                     )
                 }
-                if (guests.text != "" && guests.text.toString().toInt() > 10) { // Triggers error dialog (by setting flag) if anything entered is not allowed
+                val guestText = guests.text.toString()
+                val guestCount = guestText.toIntOrNull()
+                if (guestText.isNotEmpty() && (guestCount == null || guestCount > 10)) { // Triggers the guest-limit dialog.
                     alertTriggered = true
                 }
-                if (guests.text.toString() == "") {
-                    currentUserFilters.guests = null
-                } else if (guests.text.isDigitsOnly()){
-                    currentUserFilters.guests = guests.text.toString().toInt()
-                }
+                currentUserFilters.guests = guestCount
                 Spacer(modifier = Modifier.size(20.dp))
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Spacer(modifier = Modifier.weight(1f))
