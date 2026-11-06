@@ -9,4 +9,12 @@ package com.example.zephyrcampsites
 data class Account(override val id: String = "") : DataHolder(id){
     /**Role of this account is entrant, owner or admin. Defaults to entrant**/
     var userType: String = "entrant"
+
+    /**Entrant's name**/
+    override var name: String = ""
+    /**Entrant's email address**/
+    var email: String = ""
+    /**Entrant's phone number**/
+    var phoneNumber: String = ""
+
 }
