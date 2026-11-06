@@ -103,7 +103,7 @@ class UserFilterManager {
 
         val focusManager = LocalFocusManager.current
 
-        val userLocale = ConfigurationCompat.getLocales(LocalConfiguration.current)[0]
+        val userLocale = ConfigurationCompat.getLocales(LocalConfiguration.current)[0] // Gets locale in a composable way, allows update if changed while app is open. Ref: https://stackoverflow.com/a/70617283
 
         Card(modifier = Modifier
             .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
