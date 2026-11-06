@@ -95,7 +95,9 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
         imageLoader: (Int) -> String,
         locationClient: FusedLocationProviderClient,
         showOwnerView: Boolean = false,
-        onViewChanged: (Boolean) -> Unit = {}
+        onViewChanged: (Boolean) -> Unit = {},
+        onViewAllLotteries: () -> Unit = {}
+
 
     ) {
         val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters.searchString) // Creates text field state based on existing search query
@@ -175,6 +177,18 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                     Text("testing button")
                 }
             }
+
+            if (showOwnerView) {
+            Button(
+                onClick = onViewAllLotteries,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+            ) {
+                Text("View All Lotteries")
+            }}
+
+
             Button(
                 onClick = {
                     onViewChanged(!showOwnerView)},

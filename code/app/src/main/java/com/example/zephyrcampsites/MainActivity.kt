@@ -6,8 +6,11 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
@@ -28,6 +31,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.unit.dp
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -147,6 +155,37 @@ class MainActivity : ComponentActivity() {
                         startDestination = GeneralScreen.AccountLoading.route,
                         modifier = Modifier.weight(1f)
                     ) {
+                        composable("allLotteries") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                            ) {
+                                TextButton(
+                                    onClick = { navHostController.popBackStack() }
+                                ) {
+                                    Text("← Back")
+                                }
+                                Text(
+                                    text = "All Lotteries",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+
+                                LazyColumn {
+                                    items(lotteryModel.lotteries) { lottery ->
+                                        Text(
+                                            text = lottery.lotteryName,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    navHostController.navigate("lotteryDetails/${lottery.id}")
+                                                }
+                                                .padding(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         composable(route = GeneralScreen.RegisterCampsite.route) {
                             CampsiteFormView(
                                 controller = campsiteController,
@@ -221,6 +260,9 @@ class MainActivity : ComponentActivity() {
                                 showOwnerView = showOwnerView,
                                 onViewChanged = { isOwner ->
                                     showOwnerView = isOwner
+                                },
+                                onViewAllLotteries = {
+                                    navHostController.navigate("allLotteries")
                                 }
                             )
                         }
