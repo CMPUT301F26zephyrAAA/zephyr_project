@@ -66,124 +66,162 @@ fun CampsiteFormView(
     var errors by remember { mutableStateOf(CampsiteFormErrors()) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var registered by remember { mutableStateOf(false) }
+    var step by remember { mutableStateOf(1) } //Step 1 (Owner Based on UI)
 
-    Scaffold{ padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                "+ REGISTER CAMPSITE",
-                style = MaterialTheme.typography.titleLarge
-            )
-
-            FormFields(
-                "Campsite Name:",
-                name,
-                { name = it },
-                error = errors.name
-            )
-            FormFields(
-                "Location:",
-                location,
-                { location = it },
-                error = errors.location
-            )
-            FormFields(
-                "Description (Amenities):",
-                description,
-                { description = it },
-                singleLine = false
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FormFields(
-                    "Max Occupancy:",
-                    maxOccupancy,
-                    { maxOccupancy = it },
-                    modifier = Modifier.weight(1f),
-                    error = errors.maxOccupancy
-                )
-
-                FormFields(
-                    "Price / Night:",
-                    pricePerNight,
-                    { pricePerNight = it },
-                    modifier = Modifier.weight(1f),
-                    error = errors.pricePerNight
-                )
-            }
-            FormFields(
-                "Tags:",
-                tags,
-                { tags = it }
-            )
-            FormFields(
-                "Rules & Cancellation Policy:",
-                rules,
-                { rules = it },
-                singleLine = false
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) { Text("Entrants must accept rules before reserving", modifier = Modifier.weight(1f))
-                Switch(checked = toggle, onCheckedChange = { toggle = it })
-            }
-            if (feedback != null) {
-                Text(
-                    text = feedback ?: "",
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+    if (step == 1) {
+        Scaffold{ padding ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .verticalScroll(rememberScrollState())
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Button(
-                    enabled = !registered,
-                    modifier = Modifier.weight(1f),
-                    onClick = {
-                        val input = CampsiteFormInput(
-                            name,
-                            location,
-                            description,
-                            maxOccupancy,
-                            pricePerNight,
-                            tags,
-                            rules,
-                            toggle
-                        )
-                        errors = controller.validate(input)
-                        feedback = null
+                Text(
+                    "+ REGISTER CAMPSITE",
+                    style = MaterialTheme.typography.titleLarge
+                )
 
-                        if (!errors.hasErrors){
-                            controller.registerCampsite(
-                                ownerId,
-                                input,
-                                onSuccess = { onDone() },
-                                onFailure = {
-                                    registered = false
-                                    feedback = it}
-                            )
-                        }
-                    }
-                ) {
-                    Text("PUBLISH")
+                FormFields(
+                    "Campsite Name:",
+                    name,
+                    { name = it },
+                    error = errors.name
+                )
+                FormFields(
+                    "Location:",
+                    location,
+                    { location = it },
+                    error = errors.location
+                )
+                FormFields(
+                    "Description (Amenities):",
+                    description,
+                    { description = it },
+                    singleLine = false
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FormFields(
+                        "Max Occupancy:",
+                        maxOccupancy,
+                        { maxOccupancy = it },
+                        modifier = Modifier.weight(1f),
+                        error = errors.maxOccupancy
+                    )
+
+                    FormFields(
+                        "Price / Night:",
+                        pricePerNight,
+                        { pricePerNight = it },
+                        modifier = Modifier.weight(1f),
+                        error = errors.pricePerNight
+                    )
                 }
-                OutlinedButton(
-                    onClick = onBack,
-                    enabled = !registered,
-                    modifier = Modifier.weight(1f)
+                FormFields(
+                    "Tags:",
+                    tags,
+                    { tags = it }
+                )
+                FormFields(
+                    "Rules & Cancellation Policy:",
+                    rules,
+                    { rules = it },
+                    singleLine = false
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("BACK")
+                    Text(
+                        "Entrants must accept rules before reserving",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(checked = toggle, onCheckedChange = { toggle = it })
+                }
+                if (feedback != null) {
+                    Text(
+                        text = feedback ?: "",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        enabled = !registered,
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            val input = CampsiteFormInput(
+                                name,
+                                location,
+                                description,
+                                maxOccupancy,
+                                pricePerNight,
+                                tags,
+                                rules,
+                                toggle
+                            )
+                            errors = controller.validate(input)
+                            feedback = null
+
+                            if (!errors.hasErrors) {
+                                step = 2 // Based on UI for owner (register Campsite)
+                            }
+                        }
+                    ) {
+                        Text("NEXT")
+                    }
+                    OutlinedButton(
+                        onClick = onBack,
+                        enabled = !registered,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("BACK")
+                    }
                 }
             }
+        }
+    } else {
+        CampsiteLocationView(
+            onPublish = { geoPoint, startDate, endDate ->
+                val input = CampsiteFormInput(
+                    name,
+                    location,
+                    description,
+                    maxOccupancy,
+                    pricePerNight,
+                    tags,
+                    rules,
+                    toggle
+                )
+                registered = true
+                feedback = null
+
+                controller.registerCampsite(
+                    ownerId = ownerId,
+                    input = input,
+                    geolocation = geoPoint,
+                    startDate = startDate,
+                    endDate = endDate,
+                    onSuccess = { onDone() },
+                    onFailure = {
+                        registered = false
+                        feedback = it
+                    }
+                )
+            },
+            onBack = { step = 1 }
+        )
+
+        if (feedback != null){
+            Text(
+                text = feedback ?: "",
+                color = MaterialTheme.colorScheme.error
+            )
         }
     }
 }
