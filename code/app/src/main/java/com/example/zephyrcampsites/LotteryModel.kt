@@ -144,7 +144,15 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.registrationEnd = newEnd
 
         // Save the updated registration dates to Firebase.
-        connector.add(lottery)
+        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            .collection("lottery")
+            .document(lotteryId)
+            .update(
+                mapOf(
+                    "registrationStart" to newStart,
+                    "registrationEnd" to newEnd
+                )
+            )
     }
 
     /**
@@ -193,7 +201,15 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.bookingStart = newStart
         lottery.bookingEnd = newEnd
 
-        connector.add(lottery)
+        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            .collection("lottery")
+            .document(lotteryId)
+            .update(
+                mapOf(
+                    "bookingStart" to newStart,
+                    "bookingEnd" to newEnd
+                )
+            )
     }
 
     /**
@@ -215,7 +231,10 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.numberOfWinners = newCount
 
         // Save the updated value to Firebase.
-        connector.add(lottery)
+        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            .collection("lottery")
+            .document(lotteryId)
+            .update("numberOfWinners", newCount)
     }
     /**
      * Updates the waitlist capacity for a lottery.
@@ -237,7 +256,10 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.waitlistCapacity = newCapacity
 
         // Save the updated capacity to Firebase.
-        connector.add(lottery)
+        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            .collection("lottery")
+            .document(lotteryId)
+            .update("waitlistCapacity", newCapacity)
     }
 
     fun updateLottery(
@@ -348,33 +370,28 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         }
 
 
-        // Copy the existing lottery details before applying changes.
-        val updatedLottery = Lottery(lottery.id).apply {
-            this.lotteryName = lottery.lotteryName
-            this.campsiteId = lottery.campsiteId
-            this.registrationStart = lottery.registrationStart
-            this.registrationEnd = lottery.registrationEnd
-            this.bookingStart = lottery.bookingStart
-            this.bookingEnd = lottery.bookingEnd
-            this.numberOfWinners = lottery.numberOfWinners
-            this.waitlistCapacity = lottery.waitlistCapacity
-            this.entrantCount = lottery.entrantCount
-        }
+        // Update only the lottery settings without changing the entrant count.
+        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            .collection("lottery")
+            .document(lotteryId)
+            .update(
+                mapOf(
+                    "lotteryName" to lotteryName.trim(),
+                    "registrationStart" to registrationStart,
+                    "registrationEnd" to registrationEnd,
+                    "bookingStart" to bookingStart,
+                    "bookingEnd" to bookingEnd,
+                    "numberOfWinners" to numberOfWinners,
+                    "waitlistCapacity" to waitlistCapacity
+                )
+            )
+            .addOnSuccessListener {
+                onSuccess()
+            }
+            .addOnFailureListener { exception ->
+                onFailure(exception)
+            }
 
-        updatedLottery.lotteryName = lotteryName.trim()
-        updatedLottery.registrationStart = registrationStart
-        updatedLottery.registrationEnd = registrationEnd
-        updatedLottery.bookingStart = bookingStart
-        updatedLottery.bookingEnd = bookingEnd
-        updatedLottery.numberOfWinners = numberOfWinners
-        updatedLottery.waitlistCapacity = waitlistCapacity
-
-        // Save the updated lottery and report the result.
-        connector.addWithCallback(
-            value = updatedLottery,
-            onSuccess = onSuccess,
-            onFailure = onFailure
-        )
     }
 
 

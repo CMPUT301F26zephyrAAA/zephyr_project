@@ -86,7 +86,10 @@ class WaitingListModel : WaitingListGateway {
             val existingRegistration = transaction.get(registrationRef)
 
             val capacity = lotteryDocument.getLong("waitlistCapacity")
-            val entrantCount = lotteryDocument.getLong("entrantCount") ?: 0L
+            val entrantCount = lotteryDocument.getLong("entrantCount")
+                ?: throw IllegalStateException(
+                    "Lottery entrant count is not initialized"
+                )
 
             if (capacity != null && entrantCount >= capacity) {
                 throw IllegalStateException("Lottery waiting list is full")
@@ -175,7 +178,10 @@ class WaitingListModel : WaitingListGateway {
                 throw IllegalStateException("You are not on this lottery's waiting list")
             }
 
-            val entrantCount = lotteryDocument.getLong("entrantCount") ?: 0L
+            val entrantCount = lotteryDocument.getLong("entrantCount")
+                ?: throw IllegalStateException(
+                    "Lottery entrant count is not initialized"
+                )
 
             transaction.delete(registrationRef)
 
