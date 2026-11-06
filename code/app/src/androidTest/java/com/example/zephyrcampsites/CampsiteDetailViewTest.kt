@@ -19,10 +19,12 @@ import java.io.File
 import java.util.Date
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.compose.ui.test.assertIsNotEnabled
 
 /**
  * Verifies campsite detail fields, image states, and existing owner controls.
@@ -231,4 +233,299 @@ class CampsiteDetailViewTest {
         }
     }
 
+    private class FakeWaitingListGateway : WaitingListGateway {
+        var joinCalled = false
+        var joined = false
+        var failJoin = false
+
+        override fun isEntrantJoined(
+            lotteryId: String,
+            accountId: String,
+            onResult: (Boolean) -> Unit,
+            onError: (String) -> Unit
+        ) {
+            onResult(joined)
+        }
+
+        override fun joinWaitingList(
+            lotteryId: String,
+            accountId: String,
+            onSuccess: () -> Unit,
+            onError: (String) -> Unit
+        ) {
+            joinCalled = true
+            if (failJoin) {
+                onError("Failed to join waiting list")
+            } else {
+                joined = true
+                onSuccess()
+            }
+        }
+
+        override fun leaveWaitingList(
+            lotteryId: String,
+            accountId: String,
+            onSuccess: () -> Unit,
+            onError: (String) -> Unit
+        ) {
+            joined = false
+            onSuccess()
+        }
+    }
+
+    @Test
+    fun entrantCanJoinActiveLottery() {
+        val fake = FakeWaitingListGateway()
+        val controller = WaitingListController(fake)
+
+        val now = System.currentTimeMillis()
+
+        val lottery = Lottery("lottery-test").apply {
+            campsiteId = campsite.id
+            registrationStart = now - 60000L
+            registrationEnd = now + 600000L
+        }
+
+        composeTestRule.setContent {
+            ZephyrCampsitesTheme {
+                CampsiteDetailView().DetailView(
+                    campsite = campsite,
+                    codeGenerator = { _, _ -> ImageBitmap(2, 2) },
+                    onBack = {},
+                    account = Account("entrant-test").apply {
+                        userType = "entrant"
+                    },
+                    lottery = lottery,
+                    waitingListController = controller
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Join Lottery")
+            .performScrollTo()
+            .performClick()
+
+        composeTestRule.onNodeWithText("Joined")
+            .assertExists()
+
+        assertTrue(fake.joinCalled)
+    }
+    @Test
+    fun entrantCanLeaveWaitingListAfterConfirmation() {
+        val fake = FakeWaitingListGateway()
+        fake.joined = true
+
+        val controller = WaitingListController(fake)
+        val now = System.currentTimeMillis()
+
+        val lottery = Lottery("lottery-test").apply {
+            campsiteId = campsite.id
+            registrationStart = now - 60000L
+            registrationEnd = now + 600000L
+        }
+
+        composeTestRule.setContent {
+            ZephyrCampsitesTheme {
+                CampsiteDetailView().DetailView(
+                    campsite = campsite,
+                    codeGenerator = { _, _ -> ImageBitmap(2, 2) },
+                    onBack = {},
+                    account = Account("entrant-test").apply {
+                        userType = "entrant"
+                    },
+                    lottery = lottery,
+                    waitingListController = controller
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodesWithText("Leave Waiting List")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeTestRule.onNodeWithText("Leave Waiting List")
+            .performScrollTo()
+            .performClick()
+
+        composeTestRule.onNodeWithText(
+            "Are you sure you want to leave the waiting list?"
+        ).assertIsDisplayed()
+
+        composeTestRule.onNodeWithText("Yes, Leave")
+            .performClick()
+
+        composeTestRule.onNodeWithText("Join Lottery")
+            .assertExists()
+
+        assertFalse(fake.joined)
+    }
+    @Test
+    fun cancellingLeaveKeepsEntrantRegistered() {
+        val fake = FakeWaitingListGateway()
+        fake.joined = true
+
+        val controller = WaitingListController(fake)
+        val now = System.currentTimeMillis()
+
+        val lottery = Lottery("lottery-test").apply {
+            campsiteId = campsite.id
+            registrationStart = now - 60000L
+            registrationEnd = now + 600000L
+        }
+
+        composeTestRule.setContent {
+            ZephyrCampsitesTheme {
+                CampsiteDetailView().DetailView(
+                    campsite = campsite,
+                    codeGenerator = { _, _ -> ImageBitmap(2, 2) },
+                    onBack = {},
+                    account = Account("entrant-test").apply {
+                        userType = "entrant"
+                    },
+                    lottery = lottery,
+                    waitingListController = controller
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodesWithText("Leave Waiting List")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeTestRule.onNodeWithText("Leave Waiting List")
+            .performScrollTo()
+            .performClick()
+
+        composeTestRule.onNodeWithText(
+            "Are you sure you want to leave the waiting list?"
+        ).assertIsDisplayed()
+
+        composeTestRule.onNodeWithText("Cancel")
+            .performClick()
+
+        composeTestRule.onNodeWithText("Leave Waiting List")
+            .assertExists()
+
+        composeTestRule.onNodeWithText("Joined")
+            .assertExists()
+
+        assertTrue(fake.joined)
+    }
+
+    @Test
+    fun joinDisabledBeforeRegistrationStarts() {
+        val fake = FakeWaitingListGateway()
+        val controller = WaitingListController(fake)
+        val now = System.currentTimeMillis()
+
+        val lottery = Lottery("future-lottery").apply {
+            campsiteId = campsite.id
+            registrationStart = now + 600000L
+            registrationEnd = now + 1200000L
+        }
+
+        composeTestRule.setContent {
+            ZephyrCampsitesTheme {
+                CampsiteDetailView().DetailView(
+                    campsite = campsite,
+                    codeGenerator = { _, _ -> ImageBitmap(2, 2) },
+                    onBack = {},
+                    account = Account("entrant-test").apply {
+                        userType = "entrant"
+                    },
+                    lottery = lottery,
+                    waitingListController = controller
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Join Lottery")
+            .performScrollTo()
+            .assertIsNotEnabled()
+
+        assertFalse(fake.joinCalled)
+    }
+
+    @Test
+    fun joinDisabledAfterRegistrationEnds() {
+        val fake = FakeWaitingListGateway()
+        val controller = WaitingListController(fake)
+        val now = System.currentTimeMillis()
+
+        val lottery = Lottery("closed-lottery").apply {
+            campsiteId = campsite.id
+            registrationStart = now - 1200000L
+            registrationEnd = now - 600000L
+        }
+
+        composeTestRule.setContent {
+            ZephyrCampsitesTheme {
+                CampsiteDetailView().DetailView(
+                    campsite = campsite,
+                    codeGenerator = { _, _ -> ImageBitmap(2, 2) },
+                    onBack = {},
+                    account = Account("entrant-test").apply {
+                        userType = "entrant"
+                    },
+                    lottery = lottery,
+                    waitingListController = controller
+                )
+            }
+        }
+
+        composeTestRule.onNodeWithText("Join Lottery")
+            .performScrollTo()
+            .assertIsNotEnabled()
+
+        assertFalse(fake.joinCalled)
+    }
+    @Test
+    fun failedJoinDisplaysError() {
+        val fake = FakeWaitingListGateway()
+        fake.failJoin = true
+
+        val controller = WaitingListController(fake)
+        val now = System.currentTimeMillis()
+
+        val lottery = Lottery("lottery-test").apply {
+            campsiteId = campsite.id
+            registrationStart = now - 60000L
+            registrationEnd = now + 600000L
+        }
+
+        composeTestRule.setContent {
+            ZephyrCampsitesTheme {
+                CampsiteDetailView().DetailView(
+                    campsite = campsite,
+                    codeGenerator = { _, _ -> ImageBitmap(2, 2) },
+                    onBack = {},
+                    account = Account("entrant-test").apply {
+                        userType = "entrant"
+                    },
+                    lottery = lottery,
+                    waitingListController = controller
+                )
+            }
+        }
+
+        composeTestRule.waitUntil(5000) {
+            composeTestRule.onAllNodesWithText("Join Lottery")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeTestRule.onNodeWithText("Join Lottery")
+            .performScrollTo()
+            .performClick()
+
+        composeTestRule.onNodeWithText("Failed to join waiting list")
+            .assertIsDisplayed()
+
+        composeTestRule.onNodeWithText("Joined")
+            .assertDoesNotExist()
+
+        assertTrue(fake.joinCalled)
+        assertFalse(fake.joined)
+    }
 }

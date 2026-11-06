@@ -5,9 +5,9 @@ package com.example.zephyrcampsites
  * Handles requests from the UI and delegates firebase
  * reads and writes to WaitingListModel
  */
-class WaitingListController (
-    private val waitingListModel: WaitingListModel
-){
+class WaitingListController(
+    private val waitingListModel: WaitingListGateway
+) {
     /**
      * Checks whether an entrant has already joined a lottery
      *

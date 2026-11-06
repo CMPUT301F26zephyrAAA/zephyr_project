@@ -94,4 +94,28 @@ class WaitingListValidatorTest {
             )
         )
     }
+
+    @Test
+    fun joinAllowedAtExactStartTime() {
+        val result = WaitingListValidator.canJoin(
+            currentTime = 100,
+            registrationStart = 100,
+            registrationEnd = 200,
+            alreadyJoined = false
+        )
+
+        assertTrue(result)
+    }
+
+    @Test
+    fun joinAllowedJustBeforeRegistrationEnds() {
+        val result = WaitingListValidator.canJoin(
+            currentTime = 199,
+            registrationStart = 100,
+            registrationEnd = 200,
+            alreadyJoined = false
+        )
+
+        assertTrue(result)
+    }
 }
