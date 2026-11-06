@@ -5,16 +5,28 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -23,6 +35,13 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.LocationServices
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.ui.unit.dp
 
 
 /**
@@ -40,6 +59,10 @@ sealed class GeneralScreen(val route: String) {
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
     data object Policy : GeneralScreen("GeneralScreen/Policy")
     data object Settings : GeneralScreen("GeneralScreen/Settings")
+    data object AdminMenu : GeneralScreen("GeneralScreen/AdminMenu")
+    data object AdminBrowseCampsite : GeneralScreen("GeneralScreen/AdminBrowseCampsite")
+    data object AdminBrowseProfile : GeneralScreen("GeneralScreen/AdminBrowseProfile")
+    data object AdminBrowseImage : GeneralScreen("GeneralScreen/AdminBrowseImage")
 }
 
 /**
@@ -109,9 +132,18 @@ class MainActivity : ComponentActivity() {
                     if (!accountLoading.value && account != null &&
                         currentRoute == CampsiteScreens.SummaryView.route
                     ) {
-                        Button(onClick = { navHostController.navigate(GeneralScreen.Profile.route) }) {
-                            Text("My Profile")
-                        }
+                       Row(
+                           modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                           horizontalArrangement = Arrangement.SpaceBetween,
+                           verticalAlignment = Alignment.CenterVertically
+                       ) {
+                           Button(onClick = { navHostController.navigate(GeneralScreen.Profile.route) }) {
+                               Text("My Profile")
+                           }
+                           Button(onClick = { navHostController.navigate(GeneralScreen.AdminMenu.route) }) {
+                               Text("TEST ADMIN")
+                           }
+                       }
                     }
 
                     NavHost(
@@ -292,6 +324,50 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
+
+                        // Admin Route
+                        composable(route = GeneralScreen.AdminMenu.route) {
+                            AdminTestingMenu(
+                                onBrowseCampsites = {
+                                    navHostController.navigate(GeneralScreen.AdminBrowseCampsite.route)
+                                },
+                                onBrowseProfiles = { navHostController.navigate(GeneralScreen.AdminBrowseProfile.route) },
+                                onBrowseImages = { navHostController.navigate(GeneralScreen.AdminBrowseImage.route) },
+                                onBack = { navHostController.popBackStack() }
+                            )
+                        }
+
+                        // Browse all campsites
+                        composable(route = GeneralScreen.AdminBrowseCampsite.route) {
+                            AdminBrowseScreen(
+                                title = "BROWSE CAMPSITES",
+                                onBack = { navHostController.popBackStack() }
+                            )
+                        }
+
+                        // Browse all profiles.
+                        composable(
+                            route = GeneralScreen.AdminBrowseProfile.route
+                        ) {
+                            AdminBrowseScreen(
+                                title = "BROWSE PROFILES",
+                                onBack = {
+                                    navHostController.popBackStack()
+                                }
+                            )
+                        }
+
+                        // Browse all images.
+                        composable(
+                            route = GeneralScreen.AdminBrowseImage.route
+                        ) {
+                            AdminBrowseScreen(
+                                title = "BROWSE IMAGES",
+                                onBack = {
+                                    navHostController.popBackStack()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -321,5 +397,93 @@ class MainActivity : ComponentActivity() {
                 ).show()
             }
         )
+    }
+}
+
+
+@Composable
+fun AdminBrowseScreen(
+    title: String,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("BACK")
+        }
+    }
+}
+
+/**
+ * Admin testing menu.
+ *
+ * Allows navigation to the three admin browse pages.
+ * BACK returns to the previous page.
+ */
+@Composable
+fun AdminTestingMenu(
+    onBrowseCampsites: () -> Unit,
+    onBrowseProfiles: () -> Unit,
+    onBrowseImages: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+
+        Text(
+            text = "ADMIN TESTING",
+            style = MaterialTheme.typography.headlineMedium
+        )
+
+        Spacer(modifier = Modifier.height(30.dp))
+
+        Button(
+            onClick = onBrowseCampsites,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("BROWSE CAMPSITES")
+        }
+
+        Button(
+            onClick = onBrowseProfiles,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("BROWSE PROFILES")
+        }
+
+        Button(
+            onClick = onBrowseImages,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("BROWSE IMAGES")
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("BACK")
+        }
     }
 }
