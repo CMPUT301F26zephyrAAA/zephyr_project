@@ -262,7 +262,14 @@ class CampsiteDetailView {
                             .distinct()
                         Text(policies.joinToString("\n").ifBlank { "Not provided" })
                         Text("Availability (booking period): ${availabilityText(campsite)}")
+                    }
 
+                    CampsiteMapView().MapView(campsite.geolocation, campsite.name)
+
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
                         if (account?.userType == "entrant" && ratingController != null) {
                             RatingView().RatingEntry(campsite.id, account, ratingController, onRateCampsite)
                         }

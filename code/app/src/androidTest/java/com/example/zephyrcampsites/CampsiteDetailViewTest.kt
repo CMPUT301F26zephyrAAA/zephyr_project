@@ -520,6 +520,7 @@ class CampsiteDetailViewTest {
             .performClick()
 
         composeTestRule.onNodeWithText("Failed to join waiting list")
+            .performScrollTo()
             .assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Joined")
