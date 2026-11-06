@@ -127,7 +127,7 @@ class MainActivity : ComponentActivity() {
 
                     composable(route = CampsiteScreens.SummaryView.route) {
                         campsiteSummaryView.SummaryView(
-                            onClick = { navHostController.navigate(GeneralScreen.RegisterVampsite.route) },
+                            onClick = { navHostController.navigate(GeneralScreen.RegisterCampsite.route) },
                             openDetail = { id ->
                                 navHostController.navigate(
                                     CampsiteScreens.DetailView.createRoute(id)
