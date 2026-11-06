@@ -1,113 +1,144 @@
 package com.example.zephyrcampsites
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import androidx.compose.ui.platform.testTag
 
-
-/**
- * Displays all registered campsites. Updates automatically when firestore updates.
- *
- * @param model Model of campsites
- * @param onCampsiteSelected When a campsite item is clicked
- * @param onBack Returns to the previous screen
- */
+/** Displays the authorized admin campsite list and forwards selection and Back actions. */
 @Composable
 fun AdminCampsiteListView(
-    model: CampsiteModel,
+    account: Account?,
+    campsites: List<Campsite>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    loadImage: (String, (String?) -> Unit) -> Unit,
     onCampsiteSelected: (Campsite) -> Unit,
     onBack: () -> Unit
 ) {
+    if (account?.userType != "admin" || account.id.isBlank()) {
+        Column {
+            Text("Administrator access required.")
+            OutlinedButton(onClick = onBack) { Text("BACK") }
+        }
+        return
+    }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Browse Campsites",
-            style = MaterialTheme.typography.headlineMedium
+        Text(
+            "BROWSE CAMPSITES",
+            style = MaterialTheme.typography.headlineMedium,
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        if (model.isLoading) {
-            Text("Loading...")
-        } else if (model.error != null) {
-            Text("Error: ${model.error}", color = MaterialTheme.colorScheme.error)
-        }
 
-        if(model.campsites.isEmpty()) {
+        if (isLoading) {
+            Text("Loading campsites...")
+        } else if (errorMessage != null) {
+            Text(
+                "Error: ${errorMessage}",
+                color = MaterialTheme.colorScheme.error,
+            )
+        } else if (campsites.isEmpty()) {
             Text("No campsites registered.")
-        }
-        else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 items(
-                    model.campsites,
-                    key = { it.id }
-                ) {
-                    campsite -> AdminCampsiteItem(campsite, onClick = {onCampsiteSelected(campsite)})
+                    campsites,
+                    key = { it.id },
+                ) { campsite ->
+                    AdminCampsiteItem(
+                        campsite = campsite,
+                        loadImage = loadImage,
+                        onClick = {
+                            onCampsiteSelected(campsite)
+                        },
+                    )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.weight(1f, fill = false))
+
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("BACK")
         }
     }
 }
 
-/**
- * Displays details of a selected campsite with options to delete or go back to browse.
- *
- * @param campsite Selected Campsite
- * @param onClick Returns to the campsite browse list
- */
 @Composable
 fun AdminCampsiteItem(
     campsite: Campsite,
-    onClick: () -> Unit
+    loadImage: (String, (String?) -> Unit) -> Unit,
+    onClick: () -> Unit,
 ) {
     OutlinedButton(
-        onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("CampsiteItem_${campsite.id}")
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().testTag("AdminCampsite_${campsite.id}"),
     ) {
-        Column(modifier = Modifier
-            .padding(8.dp)
-            .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
+            CampsiteAdminImage(campsite.imagePath, loadImage)
+
             Text(
-                text = if(campsite.name.isBlank()){
-                    "Unnamed campsite"
-                } else {
-                    campsite.name
-                },
-                style = MaterialTheme.typography.titleMedium
+                campsite.name.ifBlank { "Unnamed campsite" },
+                style = MaterialTheme.typography.titleMedium,
             )
-            Text("Location: ${campsite.location}")
-            Text("OwnerID: ${campsite.ownerID}")
-            Text("Max Occupancy: ${campsite.maxOccupancy}")
-            Text("Price per night: ${campsite.pricePerNight}")
 
-            val average = campsite.rating.average()
+            Text("Location: ${campsite.location}")
+            Text("Owner: ${campsite.ownerID}")
+            Text("Maximum occupancy: ${campsite.maxOccupancy}")
+
+            val rating =
+                campsite.averageRating ?: campsite.rating.takeIf { it.isNotEmpty() }?.average()
 
             Text(
-                text = "Rating: ${
-                    if(average.isNaN()) {
-                        "Not Rated"
-                    } else {
-                        average
-                    }
-                }"
+                "Rating: ${rating?.let {
+                    String.format("%.1f", it)
+                } ?: "Not rated"}"
             )
         }
+    }
+}
+
+@Composable
+fun CampsiteAdminImage(
+    path: String,
+    loadImage: (String, (String?) -> Unit) -> Unit,
+) {
+    var imageUrl by
+        remember(path) {
+            mutableStateOf<String?>(null)
+        }
+
+    LaunchedEffect(path) {
+        imageUrl = null
+
+        if (path.isNotBlank()) {
+            loadImage(path) { imageUrl = it }
+        }
+    }
+
+    if (imageUrl != null) {
+        AsyncImage(
+            model = imageUrl,
+            contentDescription = "Campsite image",
+            modifier = Modifier.fillMaxWidth().height(150.dp),
+        )
+    } else {
+        Text("No campsite image")
     }
 }

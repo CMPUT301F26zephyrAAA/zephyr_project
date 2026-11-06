@@ -2,15 +2,18 @@ package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.FirebaseFirestore
 
 /**
  * Model responsible for reading & writing lottery waiting list registration in firebase firestore
+ *
+ * @param firestore Database used for account and registration checks.
  */
-class WaitingListModel : WaitingListGateway {
-
-    private val firestore = Firebase.firestore
+class WaitingListModel(private val firestore: FirebaseFirestore = Firebase.firestore) :
+    WaitingListGateway {
     private val waitingList = firestore.collection("waitingList")
     private val lotteries = firestore.collection("lottery")
+
 
     /**
      * Creates a consistent document Id for an entrant in a lottery
@@ -81,8 +84,22 @@ class WaitingListModel : WaitingListGateway {
             val registrationEnd = lotteryDocument.getLong("registrationEnd")
                 ?: throw IllegalStateException("Lottery registration end is missing")
 
+            val account = transaction.get(firestore.collection("accounts").document(accountId))
+            check(account.exists() && account.getBoolean("deletionPending") != true) {
+                "This profile is unavailable."
+            }
             val currentTime = System.currentTimeMillis()
             val existingRegistration = transaction.get(registrationRef)
+
+            val capacity = lotteryDocument.getLong("waitlistCapacity")
+            val entrantCount = lotteryDocument.getLong("entrantCount")
+                ?: throw IllegalStateException(
+                    "Lottery entrant count is not initialized"
+                )
+
+            if (capacity != null && entrantCount >= capacity) {
+                throw IllegalStateException("Lottery waiting list is full")
+            }
 
             if (currentTime < registrationStart) {
                 throw IllegalStateException("Lottery registration has not started")
@@ -111,8 +128,15 @@ class WaitingListModel : WaitingListGateway {
             transaction.set(
                 registrationRef,
                 registration
-            ) // tells firebase to save entrants waiting list registration
-            true //registration value of transaction block
+            )
+
+            transaction.update(
+                lotteryRef,
+                "entrantCount",
+                entrantCount + 1
+            )
+
+            true
         }
             .addOnSuccessListener {
                 onSuccess()
@@ -142,6 +166,7 @@ class WaitingListModel : WaitingListGateway {
         val registrationRef = waitingList.document(id)
         val lotteryRef = lotteries.document(lotteryId)
 
+        //google search ai was used to understand how runTransaction works, no prompt for this since this was a single time use
         firestore.runTransaction { transaction ->
             val lotteryDocument = transaction.get(lotteryRef)
             if (!lotteryDocument.exists()) {
@@ -149,7 +174,7 @@ class WaitingListModel : WaitingListGateway {
             }
 
             val drawCompleted = lotteryDocument.getBoolean("drawCompleted")
-            //temporary compatibility until draw logic is implemented
+            //temporary compatibility until draw logic is implemented (deferred this acceptance criteria for final checkpoint)
             if (drawCompleted == true) {
                 throw IllegalStateException("You cannot leave after the lottery draw")
             }
@@ -159,7 +184,18 @@ class WaitingListModel : WaitingListGateway {
                 throw IllegalStateException("You are not on this lottery's waiting list")
             }
 
+            val entrantCount = lotteryDocument.getLong("entrantCount")
+                ?: throw IllegalStateException(
+                    "Lottery entrant count is not initialized"
+                )
+
             transaction.delete(registrationRef)
+
+            transaction.update(
+                lotteryRef,
+                "entrantCount",
+                (entrantCount - 1).coerceAtLeast(0L)
+            )
             true
         }
             .addOnSuccessListener {

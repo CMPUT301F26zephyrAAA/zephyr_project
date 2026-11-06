@@ -16,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -25,55 +27,66 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.heightIn
+import coil.compose.AsyncImage
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Icon
 
 /**
  * Separate View class exclusively for Admin to browse and manage profiles:
  * 1. AdminProfileListView: Scroll through list of all profiles and select one.
- * 2. AdminProfileDetailView: View individual profile details, go back, or delete profile with confirmation.
+ * 2. AdminProfileDetailView: View individual profile details, go back, or delete profile with
+ *    confirmation.
  */
 class AdminBrowseProfileView {
 
     /**
      * Displays all registered profiles. Updates automatically when firestore updates.
      *
-     * @param onProfileSelected When a profile item is clicked
+     * @param onProfileSelected Callback triggered when a profile item is clicked
      * @param onBack Returns to the previous screen
      */
     @Composable
     fun AdminProfileListView(
+        account: Account?,
+        accountsModel: AccountsModel,
         onProfileSelected: (Account) -> Unit,
-        onBack: () -> Unit
+        onBack: () -> Unit,
+        loadImage: (String, (String?) -> Unit) -> Unit = { _, result -> result(null) },
     ) {
-        val accountsModel = AccountsModel()
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            Text("Administrator access required.")
+            return
+        }
         var accounts by remember { mutableStateOf(emptyList<Account>()) }
         var isLoading by remember { mutableStateOf(true) }
         var errorMessage by remember { mutableStateOf<String?>(null) }
 
         DisposableEffect(accountsModel) {
-            val listener = accountsModel.observeAccounts(
-                onSuccess = {
-                    accounts = it
-                    isLoading = false
-                },
-                onError = {
-                    errorMessage = it.message ?: "Failed to load profiles."
-                    isLoading = false
-                }
-            )
+            val listener =
+                accountsModel.observeAccounts(
+                    onSuccess = {
+                        accounts = it
+                        errorMessage = null
+                        isLoading = false
+                    },
+                    onError = {
+                        errorMessage = it.message ?: "Failed to load profiles."
+                        isLoading = false
+                    },
+                )
 
             onDispose { listener.remove() }
         }
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
                 text = "BROWSE PROFILES",
-                style = MaterialTheme.typography.headlineMedium
+                style = MaterialTheme.typography.headlineMedium,
             )
             Spacer(modifier = Modifier.height(8.dp))
             if (isLoading) {
@@ -82,37 +95,41 @@ class AdminBrowseProfileView {
                 Text("Error: $errorMessage", color = MaterialTheme.colorScheme.error)
             }
 
-            if (accounts.isEmpty()) {
+            if (!isLoading && errorMessage == null && accounts.isEmpty()) {
                 Text("No profiles found.")
-            }
-            else {
+            } else {
                 accounts.forEach { account ->
                     OutlinedButton(
                         onClick = { onProfileSelected(account) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("ProfileItem_${account.id}")
+                        modifier = Modifier.fillMaxWidth().testTag("ProfileItem_${account.id}"),
                     ) {
-                        Column(modifier = Modifier.padding(8.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(
+                            modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            AdminProfileImage(account.imagePath, loadImage)
                             Text(
-                                text = if(account.name.isBlank()) {
-                                    "Unnamed User"
-                                } else {
-                                    account.name
-                                },
-                                style = MaterialTheme.typography.titleMedium
+                                text =
+                                    if (account.name.isBlank()) {
+                                        "Unnamed User"
+                                    } else {
+                                        account.name
+                                    },
+                                style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
                                 text = "Role: ${account.userType} | ID: ${account.id}",
-                                style = MaterialTheme.typography.bodySmall
+                                style = MaterialTheme.typography.bodySmall,
                             )
                             Text(
-                                text = "Email: ${if(account.email.isBlank()) "N/A" else account.email}",
-                                style = MaterialTheme.typography.bodySmall
+                                text =
+                                    "Email: ${if(account.email.isBlank()) { "N/A" } else { account.email }}",
+                                style = MaterialTheme.typography.bodySmall,
                             )
                             Text(
-                                text = "Phone Number: ${if (account.phoneNumber.isBlank()) "N/A" else account.phoneNumber}",
-                                style = MaterialTheme.typography.bodySmall
+                                text =
+                                    "Phone Number: ${if (account.phoneNumber.isBlank()) { "N/A" } else { account.phoneNumber }}",
+                                style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     }
@@ -122,7 +139,7 @@ class AdminBrowseProfileView {
             Spacer(modifier = Modifier.height(16.dp))
             OutlinedButton(
                 onClick = onBack,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("BACK")
             }
@@ -139,51 +156,59 @@ class AdminBrowseProfileView {
      */
     @Composable
     fun AdminProfileDetailView(
+        account: Account?,
         targetAccount: Account,
         accountsController: AccountsController,
         onDeleteSuccess: () -> Unit,
-        onBack: () -> Unit
+        onBack: () -> Unit,
+        loadImage: (String, (String?) -> Unit) -> Unit = { _, result -> result(null) },
     ) {
-        var showDeleteConfirmation by remember { mutableStateOf(false) }
-        var errorMessage by remember { mutableStateOf("") }
-        var isDeleting by remember { mutableStateOf(false) }
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            Text("Administrator access required.")
+            return
+        }
+        var showDeleteConfirmation by remember(targetAccount.id) { mutableStateOf(false) }
+        var errorMessage by remember(targetAccount.id) { mutableStateOf("") }
+        var isDeleting by remember(targetAccount.id) { mutableStateOf(false) }
+        BackHandler(enabled = isDeleting) {}
 
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
                 text = "PROFILE DETAILS",
-                style = MaterialTheme.typography.headlineMedium
+                style = MaterialTheme.typography.headlineMedium,
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            AdminProfileImage(targetAccount.imagePath, loadImage)
             Text(
-                text = "Name: ${if(targetAccount.name.isBlank()) "N/A" else targetAccount.name}",
-                style = MaterialTheme.typography.titleLarge
+                text =
+                    "Name: ${if(targetAccount.name.isBlank()) { "N/A" } else { targetAccount.name }}",
+                style = MaterialTheme.typography.titleLarge,
             )
             Text(
-                text = "Email: ${if(targetAccount.email.isBlank()) "N/A" else targetAccount.email}",
-                style = MaterialTheme.typography.bodyLarge
+                text =
+                    "Email: ${if(targetAccount.email.isBlank()) { "N/A" } else { targetAccount.email }}",
+                style = MaterialTheme.typography.bodyLarge,
             )
             Text(
-                text = "Phone Number: ${if(targetAccount.phoneNumber.isBlank()) "N/A" else targetAccount.phoneNumber}",
-                style = MaterialTheme.typography.bodyLarge
+                text =
+                    "Phone Number: ${if(targetAccount.phoneNumber.isBlank()) { "N/A" } else { targetAccount.phoneNumber }}",
+                style = MaterialTheme.typography.bodyLarge,
             )
             Text(
                 text = "User Type: ${targetAccount.userType}",
-                style = MaterialTheme.typography.bodyLarge
+                style = MaterialTheme.typography.bodyLarge,
             )
             Text(
                 text = "Device ID: ${targetAccount.id}",
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodySmall,
             )
 
-            if(errorMessage.isNotEmpty()) {
+            if (errorMessage.isNotEmpty()) {
                 Text(text = errorMessage, color = MaterialTheme.colorScheme.error)
             }
 
@@ -193,12 +218,9 @@ class AdminBrowseProfileView {
             Button(
                 onClick = { showDeleteConfirmation = true },
                 enabled = !isDeleting,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("AdminDeleteProfileButton"),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
+                modifier = Modifier.fillMaxWidth().testTag("AdminDeleteProfileButton"),
+                colors =
+                    ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
             ) {
                 Text("Remove Profile")
             }
@@ -206,18 +228,22 @@ class AdminBrowseProfileView {
             OutlinedButton(
                 onClick = onBack,
                 enabled = !isDeleting,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Text("BACK")
             }
         }
 
         // Confirmation Dialog before deletion
-        if(showDeleteConfirmation) {
+        if (showDeleteConfirmation) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirmation = false },
                 title = { Text("Confirm Profile Removal") },
-                text = { Text("Are you sure you want to remove '${targetAccount.name.ifBlank { targetAccount.id }}'? This will remove them from all waiting lists, cancel active reservations, and delete the profile.") },
+                text = {
+                    Text(
+                        "Are you sure you want to remove '${targetAccount.name.ifBlank { targetAccount.id }}'? This will remove them from all waiting lists, cancel active reservations, and delete the profile."
+                    )
+                },
                 confirmButton = {
                     TextButton(
                         onClick = {
@@ -226,6 +252,7 @@ class AdminBrowseProfileView {
                             errorMessage = ""
 
                             accountsController.deleteProfile(
+                                account = account,
                                 targetAccount = targetAccount,
                                 onSuccess = {
                                     isDeleting = false
@@ -234,9 +261,10 @@ class AdminBrowseProfileView {
                                 onError = { e ->
                                     isDeleting = false
                                     errorMessage = e.message ?: "Failed to delete profile."
-                                }
+                                },
                             )
-                        }
+                        },
+                        modifier = Modifier.testTag("ConfirmRemoveProfile"),
                     ) {
                         Text("Delete", color = MaterialTheme.colorScheme.error)
                     }
@@ -245,8 +273,91 @@ class AdminBrowseProfileView {
                     TextButton(onClick = { showDeleteConfirmation = false }) {
                         Text("Cancel")
                     }
-                }
+                },
             )
         }
+    }
+
+    /** Loads a selected profile by ID before displaying its authorized admin controls. */
+    @Composable
+    fun AdminProfileDetailScreen(
+        account: Account?,
+        profileId: String,
+        controller: AccountsController,
+        onRemoved: () -> Unit,
+        onBack: () -> Unit,
+        loadImage: (String, (String?) -> Unit) -> Unit = { _, result -> result(null) },
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            Text("Administrator access required.")
+            return
+        }
+        var profile by remember(profileId) { mutableStateOf<Account?>(null) }
+        var loading by remember(profileId) { mutableStateOf(true) }
+        var error by remember(profileId) { mutableStateOf<String?>(null) }
+        DisposableEffect(profileId) {
+            var active = true
+            controller.findAccount(
+                profileId,
+                onResult = {
+                    if (active) {
+                        profile = it
+                        loading = false
+                    }
+                },
+                onError = {
+                    if (active) {
+                        error = it.message ?: "Unable to load profile."
+                        loading = false
+                    }
+                },
+            )
+            onDispose { active = false }
+        }
+        val selected = profile
+        when {
+            loading -> Text("Loading profile...")
+            selected != null ->
+                AdminProfileDetailView(account, selected, controller, onRemoved, onBack, loadImage)
+            else ->
+                Column {
+                    Text(error ?: "Profile no longer exists.")
+                    OutlinedButton(onClick = onBack) { Text("BACK") }
+                }
+        }
+    }
+}
+
+/** Resolves an optional profile image and displays a fallback when it is absent or fails. */
+@Composable
+fun AdminProfileImage(path: String, loadImage: (String, (String?) -> Unit) -> Unit) {
+    var url by remember(path) { mutableStateOf<String?>(null) }
+    DisposableEffect(path) {
+        var active = true
+        if (path.isNotBlank()) {
+            loadImage(path) {
+                if (active) {
+                    url = it
+                }
+            }
+        }
+        onDispose { active = false }
+    }
+    if (url == null) {
+        Column {
+            Icon(
+                Icons.Default.Person,
+                contentDescription = "Default profile image",
+                modifier = Modifier.height(48.dp),
+            )
+            Text("No profile image")
+        }
+    } else {
+        AsyncImage(
+            model = url,
+            contentDescription = "Profile image",
+            onError = { url = null },
+            modifier = Modifier.fillMaxWidth().heightIn(max = 150.dp),
+        )
     }
 }

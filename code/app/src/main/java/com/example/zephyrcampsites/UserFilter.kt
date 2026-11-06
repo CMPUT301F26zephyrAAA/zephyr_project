@@ -18,8 +18,8 @@ data class UserFilter(
     var searchString: String = "",
     var deviceLocation: Location? = null,
     var distanceLimit: Int? = Int.MAX_VALUE,
-    var startDate: Date? = Date(),
-    var endDate: Date? = Date(),
+    var startDate: Date? = null,
+    var endDate: Date? = null,
     var guests: Int? = 1
 ) {
     /**
@@ -29,8 +29,8 @@ data class UserFilter(
         searchString = ""
         deviceLocation = null
         distanceLimit = Int.MAX_VALUE
-        startDate = Date()
-        endDate = Date()
+        startDate = null
+        endDate = null
         guests = 1
     }
 }

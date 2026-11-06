@@ -2,6 +2,7 @@ package com.example.zephyrcampsites
 
 import org.junit.Assert.*
 import org.junit.Test
+// [AI-06] OpenAI, ChatGPT, assistance with developing unit tests using a fake waiting-list gateway and callbacks.
 
 class WaitingListControllerTest {
 

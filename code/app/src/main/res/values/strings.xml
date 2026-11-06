@@ -16,4 +16,26 @@
     <string name="policy_notifications_body">Notification preferences let entrants choose whether to receive app notifications. Turning notifications off does not change lottery results or reservation records. Review your lottery and reservation status in the app.</string>
     <string name="policy_ratings_heading">Ratings</string>
     <string name="policy_ratings_body">Only rate a campsite after you have stayed there. Ratings use a scale of 1 to 5. If you rate the same campsite again, the new rating replaces your previous rating rather than counting as another rating.</string>
+    <string name="settings_entry_title">Account and App Settings</string>
+    <string name="settings_entry_description">Change settings related to notifications, app themes, etc</string>
+    <string name="settings_title">SETTINGS</string>
+    <string name="settings_back">BACK</string>
+    <string name="settings_notifications_title">App Notifications</string>
+    <string name="settings_notifications_description">Receive notifications on your phone whenever there is an update on your lottery or reservation.</string>
+    <string name="settings_saving">Saving notification preference...</string>
+    <string name="rating_title">RATE CAMPSITE</string>
+    <string name="rating_your_rating">Your Rating:</string>
+    <string name="rating_review_label">Review (optional):</string>
+    <string name="rating_review_placeholder">Write a review</string>
+    <string name="rating_submit">SUBMIT</string>
+    <string name="rating_back">BACK</string>
+    <string name="rating_saving">SAVING...</string>
+    <string name="rating_loading">Checking your past stays...</string>
+    <string name="rating_not_eligible">You can rate this campsite after a non-cancelled stay has ended.</string>
+    <string name="rating_missing_campsite">Campsite unavailable</string>
+    <string name="rating_retry">Retry</string>
+    <string name="rating_star_description">%1$d out of 5 stars</string>
+    <string name="campsite_map_description">Map of %1$s</string>
+    <string name="campsite_map_missing">Map location not provided.</string>
+    <string name="campsite_map_error">Unable to load map. Check your connection.</string>
 </resources>
