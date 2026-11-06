@@ -311,6 +311,9 @@ class MainActivity : ComponentActivity() {
                             campsiteId = campsiteId,
                             onLotteryCreated = { lotteryId ->
                                 navHostController.navigate("lotteryDetails/$lotteryId")
+                            },
+                            onBackClick = {
+                                navHostController.popBackStack()
                             }
                         )
                         }

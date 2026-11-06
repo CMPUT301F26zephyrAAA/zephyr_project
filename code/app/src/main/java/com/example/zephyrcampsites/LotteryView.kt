@@ -34,7 +34,8 @@ class LotteryView (
      */
 
     @Composable
-    fun LotterySettingsView(campsiteId: String, onLotteryCreated: (String) -> Unit) {
+    fun LotterySettingsView(campsiteId: String, onLotteryCreated: (String) -> Unit,
+                            onBackClick: () -> Unit) {
 
         var lotteryName by remember { mutableStateOf("") }
 
@@ -299,7 +300,7 @@ class LotteryView (
 
                 Button(
                     onClick = {
-                        // TODO: Connect back navigation later.
+                        onBackClick()
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
