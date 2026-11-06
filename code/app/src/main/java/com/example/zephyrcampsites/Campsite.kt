@@ -10,6 +10,7 @@ import java.util.Date
  *
  * @param id the campsite id to assign to this instance.
  * @property pricePerNight Nightly price in Canadian dollars, or null if not supplied.
+ * @property averageRating Stored average updated when an entrant submits or replaces a rating.
  */
 data class Campsite (override val id: String = "0") : DataHolder(id) {
     override var name: String = ""
@@ -23,6 +24,7 @@ data class Campsite (override val id: String = "0") : DataHolder(id) {
     var bookingPeriodStart: Date = Date(1)
     var bookingPeriodEnd: Date = Date(1793723395)
     var rating: MutableList<Int> = mutableListOf()
+    var averageRating: Double? = null
     var rulesPolicies: List<String> = listOf("")
     var promoImagePaths: List<String> = listOf("")
     var pricePerNight: Double? = null
