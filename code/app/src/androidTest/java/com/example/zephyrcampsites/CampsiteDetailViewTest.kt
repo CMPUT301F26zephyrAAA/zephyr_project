@@ -134,7 +134,7 @@ class CampsiteDetailViewTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Campsite not found.").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Campsite not found").assertIsDisplayed()
         composeTestRule.onNodeWithTag("DetailsBack").performClick()
         assertTrue(backPressed)
     }
@@ -189,6 +189,7 @@ class CampsiteDetailViewTest {
                     campsite = campsite,
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
+                    showOwnerView = true,
                     account = Account(campsite.ownerID).apply { userType = "owner" },
                     onManageLottery = { id -> managedId = id }
                 )
@@ -232,6 +233,7 @@ class CampsiteDetailViewTest {
             }
         }
     }
+    // [AI-07] OpenAI, ChatGPT, assistance with developing Compose UI tests and a fake waiting-list implementation for simulating registration and removal operations.
 
     private class FakeWaitingListGateway : WaitingListGateway {
         var joinCalled = false
@@ -520,6 +522,7 @@ class CampsiteDetailViewTest {
             .performClick()
 
         composeTestRule.onNodeWithText("Failed to join waiting list")
+            .performScrollTo()
             .assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Joined")

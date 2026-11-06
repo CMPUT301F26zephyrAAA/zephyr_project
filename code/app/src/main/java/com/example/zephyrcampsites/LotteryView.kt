@@ -15,7 +15,10 @@ import java.util.TimeZone
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.graphics.Color
+import java.util.Date
 
 
 /**
@@ -31,7 +34,10 @@ class LotteryView (
      */
 
     @Composable
-    fun LotterySettingsView(campsiteId: String) {
+    fun LotterySettingsView(campsiteId: String, onLotteryCreated: (String) -> Unit,
+                            onBackClick: () -> Unit) {
+
+        var lotteryName by remember { mutableStateOf("") }
 
         var registrationStart by remember { mutableStateOf("") }
         var registrationEnd by remember { mutableStateOf("") }
@@ -41,16 +47,10 @@ class LotteryView (
         // Empty means the waitlist has no capacity limit.
         var waitlistCapacity by remember { mutableStateOf("") }
 
-        // US 02.04.04: Store the booking period entered by the campsite owner.
+        //  Store the booking period entered by the campsite owner.
         var bookingStart by remember { mutableStateOf("") }
         var bookingEnd by remember { mutableStateOf("") }
 
-        // Find the existing lottery for the selected campsite.
-        val existingLottery = lotteryController.getLotteryByCampsiteId(campsiteId)
-
-        // Check whether the registration period can still be changed.
-        val canEditRegistration = existingLottery != null &&
-                System.currentTimeMillis() < existingLottery.registrationStart
 
         Column(
             modifier = Modifier
@@ -60,83 +60,153 @@ class LotteryView (
         ) {
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "Lottery Settings",
-                style = MaterialTheme.typography.headlineMedium
+                text = "CREATE LOTTERY",
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.DarkGray
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text(text = "Configure your campsite lottery")
 
             Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "Lottery Name:",
+                color = Color(0xFF2E8B75)
+            )
 
             OutlinedTextField(
-                value = registrationStart,
-                onValueChange = { registrationStart = it },
-                label = { Text("Registration Start (YYYY-MM-DD HH:mm)") },
-                modifier = Modifier.fillMaxWidth()
+                value = lotteryName,
+                onValueChange = { lotteryName = it },
+                label = { Text("Lottery Name") },
+                placeholder = { Text("Enter lottery name") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
             )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Registration Period (YYYY-MM-DD HH:mm):",
+                color = Color(0xFF2E8B75)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            )// owner can enter the registration start and end here
+            {
+                OutlinedTextField(
+                    value = registrationStart,
+                    onValueChange = { registrationStart = it },
+                    placeholder = { Text("Start date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+
+                Text("to")
+
+                OutlinedTextField(
+                    value = registrationEnd,
+                    onValueChange = { registrationEnd = it },
+                    placeholder = { Text("End date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            OutlinedTextField(
-                value = registrationEnd,
-                onValueChange = { registrationEnd = it },
-                label = { Text("Registration End (YYYY-MM-DD HH:mm)") },
-                modifier = Modifier.fillMaxWidth()
+            Text(
+                text = "Booking Period (YYYY-MM-DD HH:mm):",
+                color = Color(0xFF2E8B75)
             )
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
+            // owner can enter the booking start and end here
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = bookingStart,
+                    onValueChange = { bookingStart = it },
+                    placeholder = { Text("Start date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
 
-            // Let the owner enter the booking start date.
-            OutlinedTextField(
-                value = bookingStart,
-                onValueChange = { bookingStart = it },
-                label = { Text("Booking Start (YYYY-MM-DD HH:mm)") },
-                modifier = Modifier.fillMaxWidth()
-            )
+                Text("to")
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            //  Let the owner enter the booking end date.
-            OutlinedTextField(
-                value = bookingEnd,
-                onValueChange = { bookingEnd = it },
-                label = { Text("Booking End (YYYY-MM-DD HH:mm)") },
-                modifier = Modifier.fillMaxWidth()
-            )
+                OutlinedTextField(
+                    value = bookingEnd,
+                    onValueChange = { bookingEnd = it },
+                    placeholder = { Text("End date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
             // Let the owner enter the number of winners.
-            OutlinedTextField(
-                value = numberOfWinners,
-                onValueChange = { numberOfWinners = it },
-                label = { Text("Number of Winners") },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Number of Winners:",
+                        color = Color(0xFF2E8B75)
+                    )
 
-            Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
-                value = waitlistCapacity,
-                onValueChange = { waitlistCapacity = it },
-                label = { Text("Waitlist Capacity (Optional)") },
-                placeholder = { Text("Leave blank for unlimited") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number
-                )
-            )
+                    OutlinedTextField(
+                        value = numberOfWinners,
+                        onValueChange = { numberOfWinners = it },
+                        placeholder = { Text("0") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number
+                        )
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Waitlist Limit:",
+                        color = Color(0xFF2E8B75)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = waitlistCapacity,
+                        onValueChange = { waitlistCapacity = it },
+                        placeholder = { Text("Optional") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number
+                        )
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(24.dp))
 
 
             var message by remember { mutableStateOf("") }
 
-            Button(
-                onClick = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Button(
+                    onClick = {
                     try {
                         // Parse registration dates and times using a fixed format.
                         val formatter = SimpleDateFormat(
@@ -191,15 +261,24 @@ class LotteryView (
                         } else {
                             lotteryController.createLottery(
                                 // Use the selected campsite ID instead of a fixed test ID.
+                                lotteryName = lotteryName,
                                 campsiteId = campsiteId,
                                 registrationStart = start,
                                 registrationEnd = end,
                                 bookingStart = bookingStartTime,
                                 bookingEnd = bookingEndTime,
                                 numberOfWinners = winnerCount,
-                                waitlistCapacity = capacity
+                                waitlistCapacity = capacity,
+                                // Navigate only after Firebase confirms the save.
+                                onSuccess = { lotteryId ->
+                                    onLotteryCreated(lotteryId)
+                                },
+
+                                // Display an error if Firebase cannot save the lottery.
+                                onFailure = { exception ->
+                                    message = "Failed to publish lottery: ${exception.message}"
+                                }
                             )
-                            message = "Lottery submission sent to Firebase."
                         }
 
 
@@ -210,164 +289,503 @@ class LotteryView (
                         message = "Enter dates and times as YYYY-MM-DD HH:mm."
                     }
                 },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("List Campsite in Lottery")
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF19483D),
+                        contentColor = Color.White
+                )
+                ) {
+                    Text("PUBLISH")
+                }
+
+                Button(
+                    onClick = {
+                        onBackClick()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.LightGray,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("BACK")
+                }
             }
 
             if (message.isNotEmpty()) {
                 Text(message)
             }
 
-            // Allow the owner to update dates before registration starts.
-            if (existingLottery != null)  {
-                Spacer(modifier = Modifier.height(16.dp))
 
+        }
+    }
+
+    @Composable
+    fun LotteryDetailsView(
+        lotteryId: String,
+        onEditClick: () -> Unit,
+        onBackClick: () -> Unit
+    ) {
+        val lottery = lotteryController.getLotteryById(lotteryId)
+
+        if (lottery == null) {
+            Text("Lottery not found.")
+            return
+        }
+
+        val formatter = SimpleDateFormat(
+            "yyyy-MM-dd HH:mm",
+            Locale.US
+        ).apply {
+            timeZone = TimeZone.getTimeZone("America/Edmonton")
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "LOTTERY DETAILS",
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.DarkGray
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = lottery.lotteryName,
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text("Campsite ID: ${lottery.campsiteId}")
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                "Registration Period: " +
+                        formatter.format(Date(lottery.registrationStart)) +
+                        " to " +
+                        formatter.format(Date(lottery.registrationEnd))
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                "Booking Period: " +
+                        formatter.format(Date(lottery.bookingStart)) +
+                        " to " +
+                        formatter.format(Date(lottery.bookingEnd))
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text("Number of Winners: ${lottery.numberOfWinners}")
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                "Waitlist Limit: ${lottery.waitlistCapacity ?: "Unlimited"}"
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+
+            Text(
+                text = "Status: Not available",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Progress:",
+                color = Color(0xFF2E8B75),
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text("Joined Waitlist: N/A")
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text("Selected: N/A")
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text("Reserved: N/A")
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text("Declined: N/A")
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Button(
-                    onClick = {
-                        try {
-                            // Convert the entered dates and times to timestamps.
-                            val formatter = SimpleDateFormat(
-                                "yyyy-MM-dd HH:mm", Locale.US
-                            ).apply {
-                                isLenient = false
-                                timeZone = TimeZone.getTimeZone("America/Edmonton")
-                            }
-
-                            val newStart = formatter.parse(registrationStart)?.time
-                                ?: throw IllegalArgumentException("Invalid start date")
-
-                            val newEnd = formatter.parse(registrationEnd)?.time
-                                ?: throw IllegalArgumentException("Invalid end date")
-
-                            // Update the existing lottery through the controller.
-                            lotteryController.updateRegistrationPeriod(
-                                existingLottery.id,
-                                newStart,
-                                newEnd
-                            )
-
-                            message = "Registration period update submitted."
-                        } catch (e: IllegalArgumentException) {
-                            message = e.message ?: "Invalid registration period."
-                        } catch (e: java.text.ParseException) {
-                            message = "Enter dates and times as YYYY-MM-DD HH:mm."
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.weight(1f)
                 ) {
-                    Text("Update Registration Period")
+                    Text("VIEW WAITLIST")
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Allow the owner to update the number of winners.
                 Button(
-                    onClick = {
-                        try {
-                            val newCount = numberOfWinners.toIntOrNull()
-                                ?: throw IllegalArgumentException("Enter a valid whole number of winners.")
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("NOTIFY ENTRANTS")
+                }
+            }
 
-                            require(newCount > 0) {
-                                "Number of winners must be positive."
-                            }
+            Spacer(modifier = Modifier.height(12.dp))
 
-                            lotteryController.updateNumberOfWinners(
-                                existingLottery.id,
-                                newCount
-                            )
+            Button(
+                onClick = onEditClick,
+                modifier = Modifier.fillMaxWidth(0.5f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF19483D),
+                    contentColor = Color.White
+                )
+            ) {
+                Text("EDIT LOTTERY")
+            }
 
-                            message = "Number of winners update submitted."
+            Spacer(modifier = Modifier.height(24.dp))
 
-                        } catch (e: IllegalArgumentException) {
-                            message = e.message ?: "Invalid number of winners."
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Button(
+                    onClick = onBackClick,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.LightGray,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("BACK")
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+
+        }
+    }
+
+    @Composable
+    fun EditLotteryView(
+        lotteryId: String,
+        onSaveClick: () -> Unit,
+        onBackClick: () -> Unit
+    ) {
+        val lottery = lotteryController.getLotteryById(lotteryId)
+
+        if (lottery == null) {
+            Text("Lottery not found.")
+            return
+        }
+
+        val formatter = SimpleDateFormat(
+            "yyyy-MM-dd HH:mm",
+            Locale.US
+        ).apply {
+            isLenient = false
+            timeZone = TimeZone.getTimeZone("America/Edmonton")
+        }
+
+        var lotteryName by remember(lotteryId) {
+            mutableStateOf(lottery.lotteryName)
+        }
+
+        var registrationStart by remember(lotteryId) {
+            mutableStateOf(formatter.format(Date(lottery.registrationStart)))
+        }
+
+        var registrationEnd by remember(lotteryId) {
+            mutableStateOf(formatter.format(Date(lottery.registrationEnd)))
+        }
+
+        var bookingStart by remember(lotteryId) {
+            mutableStateOf(formatter.format(Date(lottery.bookingStart)))
+        }
+
+        var bookingEnd by remember(lotteryId) {
+            mutableStateOf(formatter.format(Date(lottery.bookingEnd)))
+        }
+
+        var numberOfWinners by remember(lotteryId) {
+            mutableStateOf(lottery.numberOfWinners.toString())
+        }
+
+        var waitlistCapacity by remember(lotteryId) {
+            mutableStateOf(lottery.waitlistCapacity?.toString() ?: "")
+        }
+
+        // Message to show validation errors or update status.
+        var message by remember(lotteryId) {
+            mutableStateOf("")
+        }
+
+        val canEditRegistration =
+            System.currentTimeMillis() < lottery.registrationStart
+
+        val canEditBooking =
+            System.currentTimeMillis() < lottery.registrationStart
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+        ) {
+            Text(
+                text = "EDIT LOTTERY",
+                style = MaterialTheme.typography.titleSmall,
+                color = Color.DarkGray
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Lottery Name:",
+                color = Color(0xFF2E8B75)
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = lotteryName,
+                onValueChange = { lotteryName = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Registration Period:",
+                color = Color(0xFF2E8B75)
+            )
+
+            Text(
+                text = "Format: YYYY-MM-DD HH:mm",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = registrationStart,
+                    onValueChange = { registrationStart = it },
+                    placeholder = { Text("Start date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
                     enabled = canEditRegistration
-                ) {
-                    Text("Update Number of Winners")
+                )
+
+                Text("to")
+
+                OutlinedTextField(
+                    value = registrationEnd,
+                    onValueChange = { registrationEnd = it },
+                    placeholder = { Text("End date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    enabled = canEditRegistration
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Booking Period:",
+                color = Color(0xFF2E8B75)
+            )
+
+            Text(
+                text = "Format: YYYY-MM-DD HH:mm",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = bookingStart,
+                    onValueChange = { bookingStart = it },
+                    placeholder = { Text("Start date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    enabled = canEditBooking
+                )
+
+                Text("to")
+
+                OutlinedTextField(
+                    value = bookingEnd,
+                    onValueChange = { bookingEnd = it },
+                    placeholder = { Text("End date") },
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    enabled = canEditBooking
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Number of Winners:",
+                        color = Color(0xFF2E8B75)
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = numberOfWinners,
+                        onValueChange = { numberOfWinners = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number
+                        )
+                    )
                 }
-                Spacer(modifier = Modifier.height(12.dp))
 
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Waitlist Limit:",
+                        color = Color(0xFF2E8B75)
+                    )
 
-                // Allows the owner to update the waitlist capacity.
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = waitlistCapacity,
+                        onValueChange = { waitlistCapacity = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        placeholder = { Text("Unlimited") },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Number
+                        )
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Button(
                     onClick = {
-                        if (existingLottery != null) {
+                        try {
+                            // Convert the entered dates into timestamps.
+                            val start = formatter.parse(registrationStart)?.time
+                                ?: throw IllegalArgumentException("Invalid registration start date.")
 
-                            // Convert the input to a number, or null if left blank.
+                            val end = formatter.parse(registrationEnd)?.time
+                                ?: throw IllegalArgumentException("Invalid registration end date.")
+
+                            val bookingStartTime = formatter.parse(bookingStart)?.time
+                                ?: throw IllegalArgumentException("Invalid booking start date.")
+
+                            val bookingEndTime = formatter.parse(bookingEnd)?.time
+                                ?: throw IllegalArgumentException("Invalid booking end date.")
+
+                            // Validate the numeric fields.
+                            val winners = numberOfWinners.toIntOrNull()
+                                ?: throw IllegalArgumentException("Invalid number of winners.")
+
                             val capacity = if (waitlistCapacity.isBlank()) {
                                 null
                             } else {
                                 waitlistCapacity.toIntOrNull()
+                                    ?: throw IllegalArgumentException("Invalid waitlist limit.")
                             }
 
-                            // Check that the capacity is a positive whole number.
-                            if (waitlistCapacity.isNotBlank() &&
-                                (capacity == null || capacity <= 0)
-                            ) {
-                                message = "Waitlist capacity must be a positive whole number."
-                            } else {
-                                try {
-                                    // The model checks if the capacity change is allowed.
-                                    lotteryController.updateWaitlistCapacity(
-                                        existingLottery.id,
-                                        capacity
-                                    )
-                                    message = "Waitlist capacity update submitted."
-                                } catch (e: IllegalArgumentException) {
-                                    message = e.message ?: "Invalid waitlist capacity."
+                            // Send the updated information to the controller.
+                            lotteryController.updateLottery(
+                                lotteryId = lotteryId,
+                                lotteryName = lotteryName,
+                                registrationStart = start,
+                                registrationEnd = end,
+                                bookingStart = bookingStartTime,
+                                bookingEnd = bookingEndTime,
+                                numberOfWinners = winners,
+                                waitlistCapacity = capacity,
+                                // Firebase confirmed that the lottery was saved.
+                                onSuccess = {
+                                    onSaveClick()
+                                },
+
+                                // Firebase could not save the lottery.
+                                onFailure = { exception ->
+                                    message = "Failed to update lottery: ${exception.message}"
                                 }
-                            }
-                        } else {
-                            message = "Create a lottery first."
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Update Waitlist Capacity")
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-            // Allow the owner to update the booking period.
-                Button(
-                    onClick = {
-                        try {
-                            val formatter = SimpleDateFormat(
-                                "yyyy-MM-dd HH:mm", Locale.US
-                            ).apply {
-                                isLenient = false
-                                timeZone = TimeZone.getTimeZone("America/Edmonton")
-                            }
-
-                            val newStart = formatter.parse(bookingStart)?.time
-                                ?: throw IllegalArgumentException("Invalid booking start date")
-
-                            val newEnd = formatter.parse(bookingEnd)?.time
-                                ?: throw IllegalArgumentException("Invalid booking end date")
-
-                            lotteryController.updateBookingPeriod(
-                                existingLottery.id,
-                                newStart,
-                                newEnd
                             )
 
-                            message = "Booking period update submitted."
-
                         } catch (e: IllegalArgumentException) {
-                            message = e.message ?: "Invalid booking period."
+                            message = e.message ?: "Invalid lottery information."
                         } catch (e: java.text.ParseException) {
-                            message = "Enter dates and times as YYYY-MM-DD HH:mm."
+                            message = "Invalid date. Please use YYYY-MM-DD HH:mm and enter a real date."}
+                        catch (e: Exception) {
+                            message = e.message ?: "Unable to submit lottery update."
                         }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF19483D),
+                        contentColor = Color.White
+                    )
                 ) {
-                    Text("Update Booking Period")
+                    Text("SAVE")
+                }
+
+                Button(
+                    onClick = onBackClick,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.LightGray,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("BACK")
                 }
             }
+            if (message.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
 
+                Text(
+                    text = message,
+                    color = Color(0xFF19483D)
+                )
+            }
         }
     }
 }
+
+

@@ -25,13 +25,14 @@ import java.util.Date
 @Composable
 fun CampsiteAvailabilityView(
     onSave: (Date, Date) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    initialStartDate: Date? = null,
+    initialEndDate: Date? = null
 ) {
-    var startDate by remember { mutableStateOf<Long?>(null) }
-    var endDate by remember { mutableStateOf<Long?>(null) }
+    var startDate by remember(initialStartDate?.time) { mutableStateOf(initialStartDate?.time) }
+    var endDate by remember(initialEndDate?.time) { mutableStateOf(initialEndDate?.time) }
     var selectingStart by remember { mutableStateOf(true) }
-
-    val dateState = rememberDatePickerState()
+    val dateState = rememberDatePickerState(initialSelectedDateMillis = initialStartDate?.time)
 
     DatePickerDialog(
         onDismissRequest = onBack,
@@ -44,9 +45,9 @@ fun CampsiteAvailabilityView(
                     if (selectingStart) {
                         startDate = selectedDate
                         selectingStart = false
-                        dateState.selectedDateMillis = null
+                        dateState.selectedDateMillis = endDate
                     } else {
-                        if (startDate != null && selectedDate >= startDate!!) {
+                        if (startDate != null && selectedDate > startDate!!) {
                             endDate = selectedDate
                             onSave(Date(startDate!!), Date(endDate!!))
                         }

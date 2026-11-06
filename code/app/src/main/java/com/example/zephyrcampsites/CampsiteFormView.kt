@@ -53,16 +53,18 @@ fun CampsiteFormView(
     controller: CampsiteController,
     ownerId: String,
     onDone: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    campsite: Campsite? = null,
+    account: Account? = null
 ) {
-    var name by remember { mutableStateOf("") }
-    var location by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var maxOccupancy by remember { mutableStateOf("") }
-    var pricePerNight by remember { mutableStateOf("") }
-    var tags by remember { mutableStateOf("") }
-    var rules by remember { mutableStateOf("") }
-    var toggle by remember { mutableStateOf(true) }
+    var name by remember(campsite?.id) { mutableStateOf(campsite?.name ?: "") }
+    var location by remember(campsite?.id) { mutableStateOf(campsite?.location ?: "") }
+    var description by remember(campsite?.id) { mutableStateOf(campsite?.description ?: "") }
+    var maxOccupancy by remember(campsite?.id) { mutableStateOf(campsite?.maxOccupancy.toString() ?: "") }
+    var pricePerNight by remember(campsite?.id) { mutableStateOf(campsite?.pricePerNight.toString() ?: "") }
+    var tags by remember(campsite?.id) { mutableStateOf(campsite?.tags?.joinToString(", ") ?: "") }
+    var rules by remember(campsite?.id) { mutableStateOf(campsite?.rules ?:"") }
+    var toggle by remember(campsite?.id) { mutableStateOf(campsite?.toggle ?: true) }
     var errors by remember { mutableStateOf(CampsiteFormErrors()) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var registered by remember { mutableStateOf(false) }
@@ -79,7 +81,7 @@ fun CampsiteFormView(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    "+ REGISTER CAMPSITE",
+                    if (campsite == null) "+ REGISTER CAMPSITE" else "EDIT CAMPSITE",
                     style = MaterialTheme.typography.titleLarge
                 )
 
@@ -169,7 +171,7 @@ fun CampsiteFormView(
                             feedback = null
 
                             if (!errors.hasErrors) {
-                                step = 2 // Based on UI for owner (register Campsite)
+                                    step = 2 // Based on UI for owner (register Campsite)
                             }
                         }
                     ) {
@@ -187,6 +189,7 @@ fun CampsiteFormView(
         }
     } else {
         CampsiteLocationView(
+            campsite = campsite,
             onPublish = { geoPoint, startDate, endDate ->
                 val input = CampsiteFormInput(
                     name,
@@ -198,21 +201,47 @@ fun CampsiteFormView(
                     rules,
                     toggle
                 )
-                registered = true
                 feedback = null
 
-                controller.registerCampsite(
-                    ownerId = ownerId,
-                    input = input,
-                    geolocation = geoPoint,
-                    startDate = startDate,
-                    endDate = endDate,
-                    onSuccess = { onDone() },
-                    onFailure = {
-                        registered = false
-                        feedback = it
-                    }
-                )
+                if (campsite == null) {
+                    registered = true
+
+                    controller.registerCampsite(
+                        ownerId = ownerId,
+                        input = input,
+                        geolocation = geoPoint,
+                        startDate = startDate,
+                        endDate = endDate,
+                        onSuccess = {
+                            registered = false
+                            onDone()
+                        },
+                        onFailure = {
+                            registered = false
+                            feedback = it
+                        }
+                    )
+                } else if (account == null) {
+                    feedback = "Unable to identify current account."
+                } else {
+                    registered = true
+                    controller.updateCampsiteDetails(
+                        campsiteId = campsite.id.toInt(),
+                        account = account,
+                        input = input,
+                        geolocation = geoPoint,
+                        startDate = startDate,
+                        endDate = endDate,
+                        onSuccess = {
+                            registered = false
+                            onDone()
+                        },
+                        onFailure = {
+                            registered = false
+                            feedback = it
+                        }
+                    )
+                }
             },
             onBack = { step = 1 }
         )

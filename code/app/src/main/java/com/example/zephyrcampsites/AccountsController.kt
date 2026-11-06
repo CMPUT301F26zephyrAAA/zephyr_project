@@ -9,10 +9,10 @@ import android.provider.Settings
  *
  * Uses the Android device ID to retrieve or create
  * the user's account without requiring a login.
+ *
+ * @param accountsModel Model used to read and update accounts.
  */
-class AccountsController {
-
-    private val accountsModel = AccountsModel()
+class AccountsController(private val accountsModel: AccountsModel = AccountsModel()) {
     private val profileValidator = ProfileValidator()
 
     /**
@@ -21,8 +21,10 @@ class AccountsController {
      * @param context Android application context.
      * @return The Android device ID.
      */
+    //AI Citation [AI-01]
+    //Open AI, ChatGPT was used for assistance understanding Android device identification
+    //AI Usage and citation in WIKI
     fun getDeviceId(context: Context): String? {
-        //AI used for understanding how to implement this - https://chatgpt.com/share/6ae946a8-c8cc-83ed-96b3-65be0be7a44a
         return Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ANDROID_ID
@@ -36,6 +38,7 @@ class AccountsController {
      * @param onSuccess Returns the identified account.
      * @param onError Called if identification fails.
      */
+    // [AI-04] OpenAI, ChatGPT, assistance with device-based account initialization and Firebase callback handling.
     fun initializeAccount(
         context: Context,
         onSuccess: (Account) -> Unit,
@@ -84,6 +87,7 @@ class AccountsController {
      * @param onSuccess returns the updated account after saving
      * @param onError returns an error message if saving fails
      */
+
     fun updateProfile(
         account: Account,
         name: String,
@@ -91,41 +95,31 @@ class AccountsController {
         phoneNumber: String,
         onSuccess: (Account) -> Unit,
         onError: (String) -> Unit
-        ){
-            val cleanName = name.trim()
-            val cleanEmail = email.trim()
-            val cleanPhone = phoneNumber.trim()
-            val error = profileValidator.validate(cleanName, cleanEmail, cleanPhone)
+    ) {
+        val cleanName = name.trim()
+        val cleanEmail = email.trim()
+        val cleanPhone = phoneNumber.trim()
+        val error = profileValidator.validate(cleanName, cleanEmail, cleanPhone)
 
-            if (error != null){
-                onError(error)
-                return
-            }
-
-            val updatedAccount = Account(account.id)
-            updatedAccount.userType = account.userType
-            updatedAccount.name = cleanName
-            updatedAccount.email = cleanEmail
-            updatedAccount.phoneNumber = cleanPhone
-
-            accountsModel.updateAccount(updatedAccount,
-                onSuccess = {
-                    onSuccess(updatedAccount)
-                },
-
-                onError = {exception ->
-                    onError(exception.message ?: "Failed to updated profile")
-                }
-            )
+        if (error != null) {
+            onError(error)
+            return
         }
 
+        val updatedAccount = account.copy(name = cleanName, email = cleanEmail, phoneNumber = cleanPhone)
+        accountsModel.updateAccount(updatedAccount,
+            onSuccess = { onSuccess(updatedAccount) },
+            onError = { exception -> onError(exception.message ?: "Failed to updated profile") }
+        )
+    }
+
     /**
-     * Updates the notification preference for an account.
+     * Saves a notification preference and returns the updated account after success.
      *
-     * @param account Account to update.
-     * @param enabled New notification preference.
-     * @param onSuccess Called when the preference is successfully updated.
-     * @param onError Called if the preference cannot be updated.
+     * @param account Account whose preference is changing.
+     * @param enabled Whether notifications should be enabled.
+     * @param onSuccess Called with the account after the preference is saved.
+     * @param onError Called if validation or saving fails.
      */
     fun updateNotificationPreference(
         account: Account,
@@ -133,21 +127,16 @@ class AccountsController {
         onSuccess: (Account) -> Unit,
         onError: (String) -> Unit
     ) {
-        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-
-        db.collection("accounts")
-            .document(account.id)
-            .update("notificationsEnabled", enabled)
-            .addOnSuccessListener {
-                account.notificationsEnabled = enabled
-                onSuccess(account)
-            }
-            .addOnFailureListener { exception ->
-                onError(
-                    exception.message
-                        ?: "Failed to update notification preference."
-                )
-            }
+        if (account.id.isBlank() || account.id.contains("/")) {
+            onError("Invalid account ID.")
+            return
+        }
+        accountsModel.updateNotificationPreference(
+            deviceId = account.id,
+            enabled = enabled,
+            onSuccess = { onSuccess(account.copy(notificationsEnabled = enabled)) },
+            onError = { onError("Unable to save notification preference. Please try again.") }
+        )
     }
 }
 

@@ -1,4 +1,3 @@
-
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.layout.*
@@ -9,48 +8,59 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import androidx.compose.ui.platform.testTag
 
+/** Displays the authorized admin campsite list and forwards selection and Back actions. */
 @Composable
 fun AdminCampsiteListView(
-    model: CampsiteModel,
+    account: Account?,
+    campsites: List<Campsite>,
+    isLoading: Boolean,
+    errorMessage: String?,
+    loadImage: (String, (String?) -> Unit) -> Unit,
     onCampsiteSelected: (Campsite) -> Unit,
     onBack: () -> Unit
 ) {
+    if (account?.userType != "admin" || account.id.isBlank()) {
+        Column {
+            Text("Administrator access required.")
+            OutlinedButton(onClick = onBack) { Text("BACK") }
+        }
+        return
+    }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
             "BROWSE CAMPSITES",
-            style = MaterialTheme.typography.headlineMedium
+            style = MaterialTheme.typography.headlineMedium,
         )
 
-        if (model.isLoading) {
+        if (isLoading) {
             Text("Loading campsites...")
-        } else if (model.error != null) {
+        } else if (errorMessage != null) {
             Text(
-                "Error: ${model.error?.message}",
-                color = MaterialTheme.colorScheme.error
+                "Error: ${errorMessage}",
+                color = MaterialTheme.colorScheme.error,
             )
-        } else if (model.campsites.isEmpty()) {
+        } else if (campsites.isEmpty()) {
             Text("No campsites registered.")
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(
-                    model.campsites,
-                    key = { it.id }
+                    campsites,
+                    key = { it.id },
                 ) { campsite ->
                     AdminCampsiteItem(
                         campsite = campsite,
-                        model = model,
+                        loadImage = loadImage,
                         onClick = {
                             onCampsiteSelected(campsite)
-                        }
+                        },
                     )
                 }
             }
@@ -60,7 +70,7 @@ fun AdminCampsiteListView(
 
         OutlinedButton(
             onClick = onBack,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Text("BACK")
         }
@@ -70,33 +80,30 @@ fun AdminCampsiteListView(
 @Composable
 fun AdminCampsiteItem(
     campsite: Campsite,
-    model: CampsiteModel,
-    onClick: () -> Unit
+    loadImage: (String, (String?) -> Unit) -> Unit,
+    onClick: () -> Unit,
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().testTag("AdminCampsite_${campsite.id}"),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            CampsiteAdminImage(campsite.imagePath, model)
+            CampsiteAdminImage(campsite.imagePath, loadImage)
 
             Text(
                 campsite.name.ifBlank { "Unnamed campsite" },
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
             )
 
             Text("Location: ${campsite.location}")
             Text("Owner: ${campsite.ownerID}")
             Text("Maximum occupancy: ${campsite.maxOccupancy}")
 
-            val rating = campsite.averageRating
-                ?: campsite.rating.takeIf { it.isNotEmpty() }
-                    ?.average()
+            val rating =
+                campsite.averageRating ?: campsite.rating.takeIf { it.isNotEmpty() }?.average()
 
             Text(
                 "Rating: ${rating?.let {
@@ -110,21 +117,18 @@ fun AdminCampsiteItem(
 @Composable
 fun CampsiteAdminImage(
     path: String,
-    model: CampsiteModel
+    loadImage: (String, (String?) -> Unit) -> Unit,
 ) {
-    var imageUrl by remember(path) {
-        mutableStateOf<String?>(null)
-    }
+    var imageUrl by
+        remember(path) {
+            mutableStateOf<String?>(null)
+        }
 
     LaunchedEffect(path) {
         imageUrl = null
 
         if (path.isNotBlank()) {
-            model.getCampsiteImage(
-                path = path,
-                onResult = { imageUrl = it },
-                onError = { imageUrl = null }
-            )
+            loadImage(path) { imageUrl = it }
         }
     }
 
@@ -132,9 +136,7 @@ fun CampsiteAdminImage(
         AsyncImage(
             model = imageUrl,
             contentDescription = "Campsite image",
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(150.dp)
+            modifier = Modifier.fillMaxWidth().height(150.dp),
         )
     } else {
         Text("No campsite image")

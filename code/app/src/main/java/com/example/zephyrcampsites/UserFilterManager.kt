@@ -77,8 +77,8 @@ class UserFilterManager {
         val helpers = LocalConverter()
 
         // Acquires current filters from currentUserFilters
-        var startDate by remember { mutableStateOf(currentUserFilters.startDate as Date) }
-        var endDate by remember { mutableStateOf(currentUserFilters.endDate as Date) }
+        var startDate by remember { mutableStateOf(currentUserFilters.startDate) }
+        var endDate by remember { mutableStateOf(currentUserFilters.endDate) }
         val guests: TextFieldState = rememberTextFieldState(initialText = currentUserFilters.guests?.toString().orEmpty())
 
         // Configurations for filter options
@@ -88,8 +88,8 @@ class UserFilterManager {
             distanceDropdownMenuText = "${currentUserFilters.distanceLimit}km"
         }
         val dateRangePickerState = rememberDateRangePickerState(
-            initialSelectedStartDateMillis = startDate.time,
-            initialSelectedEndDateMillis = endDate.time,
+            initialSelectedStartDateMillis = startDate?.time,
+            initialSelectedEndDateMillis = endDate?.time,
         ) // For setting what the user has already selected as the displayed date in picker
 
         // Flags to track current states
@@ -162,23 +162,19 @@ class UserFilterManager {
                     }
                 }
                 Spacer(modifier = Modifier.size(20.dp))
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    if (dateSelected || datesTriggered) { // If not first time setting date overall or not first time setting date within this filter page opening, show previously selected date
-                        Text(
-                            text = "Current selected date: ",
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
+                val selectedStart = currentUserFilters.startDate
+                val selectedEnd = currentUserFilters.endDate
+
+                if (selectedStart != null && selectedEnd != null) {
+                    val formatter = SimpleDateFormat("MMM dd, yyy", userLocale)
+
+                    Text(
+                        text = "Current selected date: " +
+                            "${formatter.format(selectedStart)} to ${formatter.format(selectedEnd)}",
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                 }
-                Row(modifier = Modifier.fillMaxWidth()) {
-                    if (dateSelected || datesTriggered) {
-                        val formatter = SimpleDateFormat("MMM dd, yyyy", userLocale)
-                        Text(
-                            text = "${formatter.format(currentUserFilters.startDate as Date)} to ${formatter.format(currentUserFilters.endDate as Date)}",
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                    }
-                }
+
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Button(onClick = { dateSelect = true }, modifier = Modifier.testTag("DateSelectButton")) {
                         Text(text = "Click to select dates you want to stay...")
@@ -191,17 +187,17 @@ class UserFilterManager {
                                     onClick = {
                                         val start = dateRangePickerState.selectedStartDateMillis
                                         val end = dateRangePickerState.selectedEndDateMillis
-                                        if (start != null) {
+                                        if (start != null && end != null) {
                                             currentUserFilters.startDate =
                                                 Date(helpers.timezoneConvert(start)) // Sets startDate to chosen date in local time
-                                        }
-                                        if (end != null) {
+
                                             currentUserFilters.endDate =
                                                 Date(helpers.timezoneConvert(end)) // Sets endDate to chosen date in local time
+
+                                            dateSelect = false
+                                            dateSelected = true
+                                            datesTriggered = true
                                         }
-                                        dateSelect = false
-                                        dateSelected = true
-                                        datesTriggered = true
                                     }, modifier = Modifier.testTag("DateSelectConfirm")
                                 ) { Text("Confirm") }
                             },
@@ -253,8 +249,11 @@ class UserFilterManager {
                     Spacer(modifier = Modifier.weight(1f))
                     Button(
                         onClick = { // Resets all function variables and currentUserFilters, alongside relevant flags
-                            startDate = Date()
-                            endDate = Date()
+                            startDate = null
+                            endDate = null
+
+                            currentUserFilters.startDate = null
+                            currentUserFilters.endDate = null
                             guests.edit { replace(0, length, "1") }
                             datesTriggered = false
                             distanceDropdownMenuText = "Select distance (default: unlimited)"

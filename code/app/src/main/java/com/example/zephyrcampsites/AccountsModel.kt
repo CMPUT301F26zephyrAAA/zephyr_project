@@ -42,11 +42,12 @@ open class AccountsModel {
      * @param onError Called if saving fails.
      * **/
     fun createAccount(account: Account, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
+        //[AI-02] OpenAI, ChatGPT, explanation of hashMapOf for constructing Firestore account document fields
         val accountData = hashMapOf(
             "id" to account.id,
             "userType" to account.userType,
             "notificationsEnabled" to account.notificationsEnabled
-        ) //AI use: understanding hashMapOf concept (https://chatgpt.com/share/6ae94496-0440-83eb-9305-3b1de9913155)
+        )
         accounts.document(account.id).set(accountData).addOnSuccessListener { onSuccess() }
             .addOnFailureListener { exception -> onError(exception) }
     }
