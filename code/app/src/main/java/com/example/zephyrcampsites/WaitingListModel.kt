@@ -6,7 +6,8 @@ import com.google.firebase.firestore.firestore
 /**
  * Model responsible for reading & writing lottery waiting list registration in firebase firestore
  */
-class WaitingListModel {
+class WaitingListModel : WaitingListGateway {
+
     private val firestore = Firebase.firestore
     private val waitingList = firestore.collection("waitingList")
     private val lotteries = firestore.collection("lottery")
@@ -25,7 +26,7 @@ class WaitingListModel {
     /**
      * Checks whether an entrant is already on a lotterys waiting list
      */
-    fun isEntrantJoined(
+    override fun isEntrantJoined(
         lotteryId: String,
         accountId: String,
         onResult: (Boolean) -> Unit,
@@ -53,7 +54,7 @@ class WaitingListModel {
      * @param onSuccess Called after Firebase confirms the write
      * @param onError Called when joining fails
      */
-    fun joinWaitingList(
+    override fun joinWaitingList(
         lotteryId: String,
         accountId: String,
         onSuccess: () -> Unit,
@@ -126,7 +127,7 @@ class WaitingListModel {
      * Temp halfway checkpoint " if drawCompleted is missing, the draw feature has not been integrated yet so leaving is permitted
      * Needs to be done later - (Final checkpoint)Integrate with the actual lottery draw status and prevent leaving after a draw.
      */
-    fun leaveWaitingList(
+    override fun leaveWaitingList(
         lotteryId: String,
         accountId: String,
         onSuccess: () -> Unit,
