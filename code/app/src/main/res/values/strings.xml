@@ -1,3 +1,19 @@
 <resources>
     <string name="app_name">Zephyr Campsites</string>
+    <string name="policy_entry_title">App Policy and Guidelines</string>
+    <string name="policy_entry_description">Read terms and agreement</string>
+    <string name="policy_title">POLICY AND GUIDELINES</string>
+    <string name="policy_back">BACK</string>
+    <string name="policy_account_heading">Device-based profile</string>
+    <string name="policy_account_body">This app identifies your profile using your device rather than a username and password. Keep your name and contact details up to date so campsite owners can contact you about your reservation.</string>
+    <string name="policy_lottery_heading">Lottery waiting lists</string>
+    <string name="policy_lottery_body">Join an open lottery during its registration period if you are interested in a campsite. A waiting-list entry is not a confirmed reservation. You can join the same lottery only once. Winners are selected randomly after registration closes.</string>
+    <string name="policy_reservations_heading">Reservations</string>
+    <string name="policy_reservations_body">If selected, review the dates still available before confirming a reservation. Another winner may have already reserved the dates you wanted. If no suitable dates remain, you can decline the reservation opportunity.</string>
+    <string name="policy_rules_heading">Campsite rules and cancellation</string>
+    <string name="policy_rules_body">Read the campsite details, rules, and cancellation policy before confirming a reservation. If the owner requires acknowledgment of the rules, you must accept them before confirming. Refer to the campsite\'s own policy when considering a cancellation.</string>
+    <string name="policy_notifications_heading">Notifications</string>
+    <string name="policy_notifications_body">Notification preferences let entrants choose whether to receive app notifications. Turning notifications off does not change lottery results or reservation records. Review your lottery and reservation status in the app.</string>
+    <string name="policy_ratings_heading">Ratings</string>
+    <string name="policy_ratings_body">Only rate a campsite after you have stayed there. Ratings use a scale of 1 to 5. If you rate the same campsite again, the new rating replaces your previous rating rather than counting as another rating.</string>
 </resources>

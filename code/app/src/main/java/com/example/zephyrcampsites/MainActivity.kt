@@ -37,6 +37,7 @@ sealed class GeneralScreen(val route: String) {
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
+    data object Policy : GeneralScreen("GeneralScreen/Policy")
 }
 
 /**
@@ -208,9 +209,14 @@ class MainActivity : ComponentActivity() {
                                     onEdit = {
                                         navHostController.navigate(GeneralScreen.PersonalInformation.route)
                                     },
+                                    onPolicy = { navHostController.navigate(GeneralScreen.Policy.route) },
                                     onBack = { navHostController.popBackStack() }
                                 )
                             }
+                        }
+
+                        composable(route = GeneralScreen.Policy.route) {
+                            PolicyView().PolicyAndGuidelinesView(onBack = { navHostController.popBackStack() })
                         }
 
                         composable(route = GeneralScreen.PersonalInformation.route) {

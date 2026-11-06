@@ -8,8 +8,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.test.assertHasClickAction
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -20,6 +23,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.LocationServices
@@ -87,8 +91,12 @@ class AccountsViewTest {
                                 onEdit = {
                                     navController.navigate(GeneralScreen.PersonalInformation.route)
                                 },
+                                onPolicy = { navController.navigate(GeneralScreen.Policy.route) },
                                 onBack = { navController.popBackStack() }
                             )
+                        }
+                        composable(GeneralScreen.Policy.route) {
+                            PolicyView().PolicyAndGuidelinesView(onBack = { navController.popBackStack() })
                         }
                         composable(GeneralScreen.PersonalInformation.route) {
                             val controller = remember { AccountsController() }
@@ -153,5 +161,52 @@ class AccountsViewTest {
         openProfile()
         composeTestRule.onNodeWithText("BACK").performScrollTo().performClick()
         composeTestRule.onNodeWithTag("CampsiteDetails1").assertExists()
+    }
+
+    @Test
+    fun policyEntryIsAvailableOnProfile() {
+        openProfile()
+        composeTestRule.onNodeWithTag("PolicyAndGuidelinesEntry")
+            .performScrollTo().assertIsDisplayed().assertHasClickAction()
+        composeTestRule.onNodeWithText("App Policy and Guidelines").assertIsDisplayed()
+    }
+
+    @Test
+    fun policyGuidelinesCanBeReadByScrolling() {
+        openPolicy()
+        composeTestRule.onNodeWithText("Device-based profile").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Only rate a campsite after you have stayed there.", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithTag("PolicyBack").assertIsDisplayed()
+    }
+
+    @Test
+    fun policyBackReturnsToProfile() {
+        openPolicy()
+        composeTestRule.onNodeWithTag("PolicyBack").performClick()
+        composeTestRule.onNodeWithText("PROFILE").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Taylor Morgan").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("PolicyAndGuidelinesEntry").assertExists()
+    }
+
+    @Test
+    fun androidBackFromPolicyReturnsToProfile() {
+        openPolicy()
+        Espresso.pressBack()
+        composeTestRule.waitUntil(timeoutMillis = 5000) {
+            composeTestRule.onAllNodesWithTag("PolicyAndGuidelinesEntry")
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("PROFILE").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Taylor Morgan").assertIsDisplayed()
+    }
+
+    /**
+     * Opens policy and guidelines through the profile entry.
+     */
+    private fun openPolicy() {
+        openProfile()
+        composeTestRule.onNodeWithTag("PolicyAndGuidelinesEntry").performScrollTo().performClick()
+        composeTestRule.onNodeWithText("POLICY AND GUIDELINES").assertIsDisplayed()
     }
 }
