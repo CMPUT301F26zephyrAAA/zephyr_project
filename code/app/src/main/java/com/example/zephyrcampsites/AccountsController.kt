@@ -13,6 +13,7 @@ import android.provider.Settings
 class AccountsController {
 
     private val accountsModel = AccountsModel()
+    private val profileValidator = ProfileValidator()
 
     /**
      * Retrieves the device identifier.
@@ -53,4 +54,49 @@ class AccountsController {
             }
         )
     }
-}
+
+    /***
+     * Validates and updates an entrant's profile
+     * @param account Existing account to update
+     * @param name Updated name
+     * @param email Updated email
+     * @param phoneNumber Updated phone number
+     * @param onSuccess returns the updated account after saving
+     * @param onError returns an error message if saving fails
+     */
+
+    fun updateProfile(
+        account: Account,
+        name: String,
+        email: String,
+        phoneNumber: String,
+        onSuccess: (Account) -> Unit,
+        onError: (String) -> Unit
+        ){
+            val cleanName = name.trim()
+            val cleanEmail = email.trim()
+            val cleanPhone = phoneNumber.trim()
+            val error = profileValidator.validate(cleanName, cleanEmail, cleanPhone)
+
+            if (error != null){
+                onError(error)
+                return
+            }
+
+            val updatedAccount = Account(account.id)
+            updatedAccount.userType = account.userType
+            updatedAccount.name = cleanName
+            updatedAccount.email = cleanEmail
+            updatedAccount.phoneNumber = cleanPhone
+
+            accountsModel.updateAccount(updatedAccount,
+                onSuccess = {
+                    onSuccess(updatedAccount)
+                },
+
+                onError = {exception ->
+                    onError(exception.message ?: "Failed to updated profile")
+                })
+        }
+    }
+
