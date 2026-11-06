@@ -35,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
+    data object RegisterCampsite: GeneralScreen("GeneralScreen/RegisterCampsite")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
 }
@@ -53,13 +54,13 @@ class MainActivity : ComponentActivity() {
                 val navHostController: NavHostController = rememberNavController()
                 val qrHandler = QRCodeHandler()
                 val campsiteSummaryView = CampsiteSummaryView()
-                val campsiteModel = CampsiteModel()
-                val campsiteController = CampsiteController(campsiteModel)
+                val campsiteModel = remember { CampsiteModel() }
+                val campsiteController = remember(campsiteModel) {CampsiteController(campsiteModel) }
                 val campsiteDetailView = CampsiteDetailView()
 
                 //  Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
-
+                
                 val lotteryController = remember(lotteryModel) {
                     LotteryController(lotteryModel)
                 }
@@ -114,10 +115,19 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    
+                    composable(route = GeneralScreen.RegisterCampsite.route) {
+                        CampsiteFormView(
+                            controller = campsiteController,
+                            ownerId = account?.id ?: return@composable,
+                            onDone = { navHostController.popBackStack() },
+                            onBack = { navHostController.popBackStack() }
+                        )
+                    }
 
                     composable(route = CampsiteScreens.SummaryView.route) {
                         campsiteSummaryView.SummaryView(
-                            onClick = { campsiteController.addCampsite() },
+                            onClick = { navHostController.navigate(GeneralScreen.RegisterVampsite.route) },
                             openDetail = { id ->
                                 navHostController.navigate(
                                     CampsiteScreens.DetailView.createRoute(id)
