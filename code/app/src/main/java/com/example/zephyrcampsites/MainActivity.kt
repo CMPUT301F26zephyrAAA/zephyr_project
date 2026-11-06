@@ -313,13 +313,8 @@ class MainActivity : ComponentActivity() {
                                     else -> "Campsite not found."
                                 },
                                 canManageLottery = account != null && campsite != null &&
-                                    (
-                                        account.userType == "admin" ||
-                                        (
-                                            account.userType == "owner" &&
-                                            account.id == campsite.ownerID
-                                        )
-                                    ),
+                                    account.userType == "owner" &&
+                                    account.id == campsite.ownerID,
                                 codeGenerator = { type, id ->
                                     qrHandler.qRGenerate(type, id)
                                 },
