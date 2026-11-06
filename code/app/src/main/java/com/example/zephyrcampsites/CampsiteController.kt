@@ -11,6 +11,9 @@ import java.util.Date
  * @param model Model to operate on.
  */
 class CampsiteController(val model: CampsiteModel) {
+    /**
+     * Temporary, testing function. To be removed.
+     */
     fun onClick() {
         if (model.error != null) {
             throw IllegalStateException("Unable to reach database.")
@@ -43,6 +46,43 @@ class CampsiteController(val model: CampsiteModel) {
             throw IllegalStateException("Unable to reach database.")
         }
         model.createCampsite("testing", "here", "the thing", 20)
+    }
+
+    fun validate(input: CampsiteFormInput): CampsiteFormErrors = CampsiteValidator.validate(input)
+
+    /**
+     * Validates the form input, if valid, registers the campsite for the owner.
+     * @param ownerId ID of the owner registering the campsite
+     * @param input text input from the registration form
+     * @param onSuccess This is called after the campsite is successfully created
+     * @param onFailure This is called if there is a problem with registration
+     */
+    fun registerCampsite(
+        ownerId: String,
+        input: CampsiteFormInput,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        if (model.error != null) {
+            onFailure("Unable to reach database.")
+            return
+        }
+        if (validate(input).hasErrors) {
+            onFailure("Please fix highlighted fields.")
+            return
+        }
+        model.registerCampsite(
+            ownerId = ownerId,
+            name = input.name.trim(),
+            location = input.location.trim(),
+            description = input.description.trim(),
+            maxOccupancy = input.maxOccupancy.trim().toInt(),
+            pricePerNight = input.pricePerNight.trim().toDouble(),
+            tags = input.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+            rules = input.rules.trim(),
+            rulesRequired = input.rulesRequired
+        )
+        onSuccess()
     }
 
     /**
@@ -86,6 +126,12 @@ class CampsiteController(val model: CampsiteModel) {
         return resultList
     }
 
+    /**
+     * (Preliminary) Gets the main image for a campsite.
+     * Currently, does not do anything as image storage has not been set up.
+     *
+     * @param id ID of campsite to retrieve image for.
+     */
     fun imageGetter(id: Int) : String {
         if (model.error != null) {
             throw IllegalStateException("Unable to reach database.")

@@ -1,6 +1,7 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf
+import com.google.firebase.firestore.GeoPoint
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 
@@ -9,6 +10,8 @@ import com.google.firebase.firestore.ListenerRegistration
  *
  * @property campsites Local list of campsites, will be updated by snapshot listener
  * @property connector Instance of Firebase connector for campsite collection
+ * @property campsiteListener Used to hold listener of Firebase, so listening can be canceled when needed.
+ * @property error Holds error from Firebase if needed.
  */
 class CampsiteModel : ObservableModel<CampsiteModel>() {
     val campsites = mutableStateListOf(
@@ -40,6 +43,45 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         newCampsite.location = location
         newCampsite.description = description
         newCampsite.maxOccupancy = maxOccupancy
+        connector.add(newCampsite)
+        notifyObservers(this)
+    }
+
+    /**
+     * Registers a new campsite for an owner
+     *
+     * @param ownerId ID of the owner registering the campsite
+     * @param name Name of the campsite
+     * @param location Location of the campsite
+     * @param description Description of the campsite
+     * @param maxOccupancy Maximum occupancy of the campsite
+     * @param pricePerNight Price per night
+     * @param tags Tags for the campsite
+     * @param rules Rules & cancellation policy
+     * @param rulesRequired if entrants must accept rules before reserving
+     */
+    fun registerCampsite(
+        ownerId: String,
+        name: String,
+        location: String,
+        description: String,
+        maxOccupancy: Int,
+        pricePerNight: Double,
+        tags: List<String>,
+        rules: String,
+        rulesRequired: Boolean
+    ) {
+        val newCampsite = Campsite((campsites.size + 1).toString())
+        newCampsite.ownerID = ownerId
+        newCampsite.name = name
+        newCampsite.location = location
+        newCampsite.geolocation = GeoPoint(0.0, 0.0)
+        newCampsite.description = description
+        newCampsite.maxOccupancy = maxOccupancy
+        newCampsite.pricePerNight = pricePerNight
+        newCampsite.tags = tags
+        newCampsite.rules = rules
+        newCampsite.rulesRequired = rulesRequired
         connector.add(newCampsite)
         notifyObservers(this)
     }

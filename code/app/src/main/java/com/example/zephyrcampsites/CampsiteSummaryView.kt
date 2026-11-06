@@ -57,9 +57,9 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import java.util.Date
 
 /**
- * View class for campsites.
+ * View class for only summary/list view of campsites.
  *
- * Should have all Composable functions related to campsites.
+ * @property currentUserFilters Holds user filtering, if they choose to filter list of campsites.
  */
 class CampsiteSummaryView : ViewObserver<CampsiteModel> {
     var currentUserFilters = UserFilter("", null, Int.MAX_VALUE, Date(), Date(), 1) // Holds user filters that they have set, in (Search string, device location, distance limit, start date, end date, # of guests)
@@ -302,6 +302,7 @@ class DigitOnlyInputTransformation : InputTransformation {
     }
 }
 
+//Left if needed but unused:
 //@Preview
 //@Composable
 //fun TestPreview() {

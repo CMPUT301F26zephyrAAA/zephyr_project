@@ -33,8 +33,9 @@ class CampsiteDetailView {
     @Composable
     fun DetailView(
         campsite: Campsite?,
-        codeGenerator: (String, Int) -> ImageBitmap
-    ) {
+        codeGenerator: (String, Int) -> ImageBitmap,
+        onManageLottery: (String) -> Unit = {}
+    )  {
         var codeShow by remember { mutableStateOf(false) }
         val code = codeGenerator("campsite", campsite!!.id.toInt())
         val fileSaver = PermissionHandlers().imageSaveHandler(code)
@@ -92,6 +93,15 @@ class CampsiteDetailView {
                         Text(text = "Download/Save QR")
                     }
                 }
+            }
+            // Manage campsite lottery
+            Spacer(modifier = Modifier.size(16.dp))
+
+            Button(
+                onClick = { onManageLottery(campsite.id) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Manage Lottery")
             }
         }
     }
