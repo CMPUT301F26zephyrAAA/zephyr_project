@@ -1,15 +1,13 @@
 package com.example.zephyrcampsites
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.DocumentSnapshot
 
 /**
  * Model class for accounts. Reads/Writes the "accounts" Firestore collection.
  * **/
 
-class AccountsModel {
-    private val accounts = Firebase.firestore.collection("accounts") //connecting to firestore
+open class AccountsModel {
+    private val accounts by lazy { Firebase.firestore.collection("accounts") } //connecting to firestore
 
     /**
      ** Retrieves an account using its device ID
@@ -26,6 +24,7 @@ class AccountsModel {
                 account.name = document.getString("name") ?: ""
                 account.email = document.getString("email") ?: ""
                 account.phoneNumber = document.getString("phoneNumber") ?: ""
+                account.notificationsEnabled = document.getBoolean("notificationsEnabled") ?: true
                 onResult(account)
             } else {
                 onResult(null)
@@ -45,7 +44,8 @@ class AccountsModel {
     fun createAccount(account: Account, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
         val accountData = hashMapOf(
             "id" to account.id,
-            "userType" to account.userType
+            "userType" to account.userType,
+            "notificationsEnabled" to account.notificationsEnabled
         ) //AI use: understanding hashMapOf concept (https://chatgpt.com/share/6ae94496-0440-83eb-9305-3b1de9913155)
         accounts.document(account.id).set(accountData).addOnSuccessListener { onSuccess() }
             .addOnFailureListener { exception -> onError(exception) }
@@ -82,7 +82,7 @@ class AccountsModel {
      * @param onSuccess Called when Firestore saves the changes
      * @param onError called if the update fails
      * **/
-    fun updateAccount(
+    open fun updateAccount(
         account: Account,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
@@ -103,61 +103,21 @@ class AccountsModel {
     }
 
     /**
-     * Deletes an account from Firestore, removes them from waiting lists, and cancels active reservations.
+     * Saves the notification preference without changing other account fields.
      *
-     * @param targetAccount Account to be deleted.
-     * @param onSuccess Called when the account is successfully deleted.
-     * @param onError Called if profile deletion fails.
+     * @param deviceId Device identifier of the account.
+     * @param enabled Whether the account may receive notifications.
+     * @param onSuccess Called after the preference is saved.
+     * @param onError Called if the preference cannot be saved.
      */
-    fun deleteAccount(
-        targetAccount: Account,
+    open fun updateNotificationPreference(
+        deviceId: String,
+        enabled: Boolean,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
-        val deviceID = targetAccount.id
-
-        //1. Remove entrant from waiting lists (Firestore cleanup)
-        //TODO: Query waitlists collection where entrantId == deviceId and remove them
-        //2. Cancel profile's active reservations and notify affected owners
-        // TODO: Query active reservations for deviceId, update status to cancelled, and notify campsite owners
-
-        accounts.document(deviceID).delete()
-            .addOnSuccessListener {
-                onSuccess()
-            }
-            .addOnFailureListener { exception ->
-                onError(exception)
-            }
-    }
-
-    /**
-     * Observes all registered profiles.
-     * Has an active listener so doesn't need manual refreshing.
-     * Firestore automatically notifies UI when changes occur.
-     *
-     * @param onSuccess Called when the list of accounts is updated.
-     * @param onError Called if the listener fails.
-     */
-    fun observeAccounts(
-        onSuccess: (List<Account>) -> Unit,
-        onError: (Exception) -> Unit
-    ) :ListenerRegistration {
-        return accounts.addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                onError(error)
-                return@addSnapshotListener
-            }
-
-            val profiles = snapshot?.documents?.mapNotNull { document ->
-                Account(document.id).apply {
-                    userType = document.getString("userType") ?: "entrant"
-                    name = document.getString("name") ?: ""
-                    email = document.getString("email") ?: ""
-                    phoneNumber = document.getString("phoneNumber") ?: ""
-                }
-            } ?: emptyList()
-
-            onSuccess(profiles)
-        }
+        accounts.document(deviceId).update("notificationsEnabled", enabled)
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { onError(it) }
     }
 }
