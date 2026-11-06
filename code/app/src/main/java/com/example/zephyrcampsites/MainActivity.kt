@@ -347,7 +347,6 @@ class MainActivity : ComponentActivity() {
                                     CampsiteScreens.SummaryView.route,
                                     false
                                 ) },
-                                onBack = { navHostController.popBackStack() },
                                 onEdit = { id ->
                                     navHostController.navigate(GeneralScreen.EditCampsite.edit(id))
                                 },
