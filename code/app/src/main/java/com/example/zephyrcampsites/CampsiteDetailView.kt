@@ -170,7 +170,7 @@ class CampsiteDetailView {
         onManageLottery: (String) -> Unit = {},
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
-        previewOwnerMode: Boolean = false
+        previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
         onRateCampsite: (String) -> Unit = {}
     ) {
