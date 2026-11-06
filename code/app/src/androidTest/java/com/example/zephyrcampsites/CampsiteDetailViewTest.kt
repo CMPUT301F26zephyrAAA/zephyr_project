@@ -134,7 +134,7 @@ class CampsiteDetailViewTest {
             }
         }
 
-        composeTestRule.onNodeWithText("Campsite not found.").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Campsite not found").assertIsDisplayed()
         composeTestRule.onNodeWithTag("DetailsBack").performClick()
         assertTrue(backPressed)
     }
