@@ -37,4 +37,5 @@
     <string name="rating_star_description">%1$d out of 5 stars</string>
     <string name="campsite_map_description">Map of %1$s</string>
     <string name="campsite_map_missing">Map location not provided.</string>
+    <string name="campsite_map_error">Unable to load map. Check your connection.</string>
 </resources>
