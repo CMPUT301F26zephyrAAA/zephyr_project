@@ -48,6 +48,7 @@ class AccountsView {
      * @param account Current entrants account
      * @param onEdit opens the personal information editing screen
      * @param onPolicy Opens the app policy and guidelines.
+     * @param onSettings Opens account and app settings.
      * @param onBack returns to the previous screen
      */
 
@@ -56,6 +57,7 @@ class AccountsView {
         account: Account,
         onEdit: () -> Unit,
         onPolicy: () -> Unit,
+        onSettings: () -> Unit,
         onBack: () -> Unit
     ){
         Column(modifier = Modifier
@@ -102,9 +104,13 @@ class AccountsView {
                     tag = "PolicyAndGuidelinesEntry",
                     onClick = onPolicy
                 )
+                profileOption(
+                    title = stringResource(R.string.settings_entry_title),
+                    description = stringResource(R.string.settings_entry_description),
+                    tag = "AccountSettingsEntry",
+                    onClick = onSettings
+                )
             }
-            Text("Account and App Settings", style = MaterialTheme.typography.titleMedium)
-            Text("Change settings related to notifications, app themes, etc")
             Text("DELETE PROFILE", color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(onClick = onBack) {
                 Text("BACK")

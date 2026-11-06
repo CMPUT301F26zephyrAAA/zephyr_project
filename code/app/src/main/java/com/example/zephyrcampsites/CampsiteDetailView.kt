@@ -56,6 +56,8 @@ class CampsiteDetailView {
      * @param codeGenerator Function that generates the campsite QR code.
      * @param onBack Returns to the previous screen.
      * @param onManageLottery Opens lottery management for this campsite.
+     * @param ratingController Controller used to check rating eligibility.
+     * @param onRateCampsite Opens the rating screen for an eligible entrant.
      */
     @Composable
     fun DetailScreen(
@@ -68,7 +70,9 @@ class CampsiteDetailView {
         onBack: () -> Unit,
         onManageLottery: (String) -> Unit,
         lottery: Lottery? = null,
-        waitingListController: WaitingListController? = null
+        waitingListController: WaitingListController? = null,
+        ratingController: RatingController? = null,
+        onRateCampsite: (String) -> Unit = {}
     ) {
         val model = controller.model
         val campsite = if (model.isLoading || model.error != null) {
@@ -132,7 +136,9 @@ class CampsiteDetailView {
             },
             onManageLottery = onManageLottery,
             lottery = lottery,
-            waitingListController = waitingListController
+            waitingListController = waitingListController,
+            ratingController = ratingController,
+            onRateCampsite = onRateCampsite
         )
     }
 
@@ -147,6 +153,8 @@ class CampsiteDetailView {
      * @param ownerName Owner's display name, falling back to the stored owner ID.
      * @param statusText Message displayed when the campsite is unavailable.
      * @param onManageLottery Called when the owner opens lottery management.
+     * @param ratingController Controller used to offer ratings only after a completed stay.
+     * @param onRateCampsite Opens the rating screen for this campsite.
      */
     @Composable
     fun DetailView(
@@ -163,6 +171,8 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         previewOwnerMode: Boolean = false
+        ratingController: RatingController? = null,
+        onRateCampsite: (String) -> Unit = {}
     ) {
 
         var previewAsOwner by remember { mutableStateOf(false) }
@@ -258,6 +268,10 @@ class CampsiteDetailView {
                             .distinct()
                         Text(policies.joinToString("\n").ifBlank { "Not provided" })
                         Text("Availability (booking period): ${availabilityText(campsite)}")
+
+                        if (account?.userType == "entrant" && ratingController != null) {
+                            RatingView().RatingEntry(campsite.id, account, ratingController, onRateCampsite)
+                        }
 
                         // Entrant lottery registration
                         if (

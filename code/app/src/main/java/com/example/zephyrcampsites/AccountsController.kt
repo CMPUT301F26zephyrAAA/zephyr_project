@@ -9,10 +9,10 @@ import android.provider.Settings
  *
  * Uses the Android device ID to retrieve or create
  * the user's account without requiring a login.
+ *
+ * @param accountsModel Model used to read and update accounts.
  */
-class AccountsController {
-
-    private val accountsModel = AccountsModel()
+class AccountsController(private val accountsModel: AccountsModel = AccountsModel()) {
     private val profileValidator = ProfileValidator()
 
     /**
@@ -92,31 +92,48 @@ class AccountsController {
         phoneNumber: String,
         onSuccess: (Account) -> Unit,
         onError: (String) -> Unit
-        ){
-            val cleanName = name.trim()
-            val cleanEmail = email.trim()
-            val cleanPhone = phoneNumber.trim()
-            val error = profileValidator.validate(cleanName, cleanEmail, cleanPhone)
+    ) {
+        val cleanName = name.trim()
+        val cleanEmail = email.trim()
+        val cleanPhone = phoneNumber.trim()
+        val error = profileValidator.validate(cleanName, cleanEmail, cleanPhone)
 
-            if (error != null){
-                onError(error)
-                return
-            }
-
-            val updatedAccount = Account(account.id)
-            updatedAccount.userType = account.userType
-            updatedAccount.name = cleanName
-            updatedAccount.email = cleanEmail
-            updatedAccount.phoneNumber = cleanPhone
-
-            accountsModel.updateAccount(updatedAccount,
-                onSuccess = {
-                    onSuccess(updatedAccount)
-                },
-
-                onError = {exception ->
-                    onError(exception.message ?: "Failed to updated profile")
-                })
+        if (error != null) {
+            onError(error)
+            return
         }
+
+        val updatedAccount = account.copy(name = cleanName, email = cleanEmail, phoneNumber = cleanPhone)
+        accountsModel.updateAccount(updatedAccount,
+            onSuccess = { onSuccess(updatedAccount) },
+            onError = { exception -> onError(exception.message ?: "Failed to updated profile") }
+        )
     }
+
+    /**
+     * Saves a notification preference and returns the updated account after success.
+     *
+     * @param account Account whose preference is changing.
+     * @param enabled Whether notifications should be enabled.
+     * @param onSuccess Called with the account after the preference is saved.
+     * @param onError Called if validation or saving fails.
+     */
+    fun updateNotificationPreference(
+        account: Account,
+        enabled: Boolean,
+        onSuccess: (Account) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (account.id.isBlank() || account.id.contains("/")) {
+            onError("Invalid account ID.")
+            return
+        }
+        accountsModel.updateNotificationPreference(
+            deviceId = account.id,
+            enabled = enabled,
+            onSuccess = { onSuccess(account.copy(notificationsEnabled = enabled)) },
+            onError = { onError("Unable to save notification preference. Please try again.") }
+        )
+    }
+}
 
