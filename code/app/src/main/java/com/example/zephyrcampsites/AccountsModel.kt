@@ -1,13 +1,22 @@
 package com.example.zephyrcampsites
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.FieldValue
+import com.google.android.gms.tasks.Tasks
 
 /**
  * Model class for accounts. Reads/Writes the "accounts" Firestore collection.
+ *
+ * @param database Optional database used by local emulator tests.
  * **/
 
-open class AccountsModel {
-    private val accounts by lazy { Firebase.firestore.collection("accounts") } //connecting to firestore
+open class AccountsModel(private val database: FirebaseFirestore? = null) {
+    private val firestore by lazy { database ?: Firebase.firestore }
+    private val accounts by lazy { firestore.collection("accounts") } // connecting to firestore
 
     /**
      ** Retrieves an account using its device ID
@@ -25,6 +34,7 @@ open class AccountsModel {
                 account.email = document.getString("email") ?: ""
                 account.phoneNumber = document.getString("phoneNumber") ?: ""
                 account.notificationsEnabled = document.getBoolean("notificationsEnabled") ?: true
+                account.imagePath = document.getString("imagePath") ?: ""
                 onResult(account)
             } else {
                 onResult(null)
@@ -120,5 +130,168 @@ open class AccountsModel {
         accounts.document(deviceId).update("notificationsEnabled", enabled)
             .addOnSuccessListener { onSuccess() }
             .addOnFailureListener { onError(it) }
+    }
+
+    /**
+     * Observes registered profiles without requiring manual refresh.
+     *
+     * @param onSuccess Receives the latest profiles.
+     * @param onError Receives a loading error.
+     * @return Listener that the caller must remove when leaving the screen.
+     */
+    open fun observeAccounts(
+        onSuccess: (List<Account>) -> Unit,
+        onError: (Exception) -> Unit,
+    ): ListenerRegistration {
+        return accounts.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+            } else {
+                onSuccess(
+                    snapshot?.documents.orEmpty().map { document ->
+                        Account(
+                            document.id,
+                            userType = document.getString("userType") ?: "entrant",
+                            name = document.getString("name") ?: "",
+                            email = document.getString("email") ?: "",
+                            phoneNumber = document.getString("phoneNumber") ?: "",
+                            notificationsEnabled =
+                                document.getBoolean("notificationsEnabled") ?: true,
+                            imagePath = document.getString("imagePath") ?: "",
+                        )
+                    }
+                )
+            }
+        }
+    }
+
+    /**
+     * Removes a profile, its waiting list entries, and its active reservations' availability holds.
+     *
+     * @param targetAccount Profile to remove.
+     * @param adminId Administrator recorded on cancelled reservations.
+     * @param onSuccess Called after the cleanup and deletion commit.
+     * @param onError Called when deletion fails.
+     */
+    open fun deleteAccount(
+        targetAccount: Account,
+        adminId: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        val accountRef = accounts.document(targetAccount.id)
+        accountRef
+            .get(Source.SERVER)
+            .addOnSuccessListener { existing ->
+                if (!existing.exists()) {
+                    onError(IllegalStateException("Profile no longer exists."))
+                    return@addOnSuccessListener
+                }
+                val fail: (Exception) -> Unit = { error ->
+                    accountRef.update("deletionPending", FieldValue.delete())
+                    onError(error)
+                }
+                accountRef
+                    .update("deletionPending", true)
+                    .addOnSuccessListener {
+                        val queries =
+                            listOf(
+                                firestore
+                                    .collection("waitingList")
+                                    .whereEqualTo("accountId", targetAccount.id)
+                                    .get(Source.SERVER),
+                                firestore
+                                    .collection("reservation")
+                                    .whereEqualTo("accountId", targetAccount.id)
+                                    .get(Source.SERVER),
+                            )
+                        Tasks.whenAllSuccess<QuerySnapshot>(queries)
+                            .addOnSuccessListener { results ->
+                                val entries = results[0].documents
+                                val reservations = results[1].documents
+                                val lotteryRefs =
+                                    entries
+                                        .mapNotNull { it.getString("lotteryId") }
+                                        .distinct()
+                                        .map { firestore.collection("lottery").document(it) }
+                                if (entries.size + reservations.size + lotteryRefs.size + 1 > 500) {
+                                    fail(
+                                        IllegalStateException(
+                                            "Too many related records to remove at once."
+                                        )
+                                    )
+                                    return@addOnSuccessListener
+                                }
+                                firestore
+                                    .runTransaction { transaction ->
+                                        val savedAccount = transaction.get(accountRef)
+                                        val savedEntries = entries.map {
+                                            transaction.get(it.reference)
+                                        }
+                                        val savedLotteries = lotteryRefs.map { transaction.get(it) }
+                                        val savedReservations = reservations.map {
+                                            transaction.get(it.reference)
+                                        }
+                                        check(savedAccount.exists()) { "Profile no longer exists." }
+                                        val removedCounts =
+                                            savedEntries
+                                                .filter { it.exists() }
+                                                .groupingBy { it.getString("lotteryId") }
+                                                .eachCount()
+                                        savedLotteries
+                                            .filter { it.exists() }
+                                            .forEach { lottery ->
+                                                val count =
+                                                    lottery.getLong("entrantCount")
+                                                        ?: error(
+                                                            "Lottery entrant count is missing."
+                                                        )
+                                                transaction.update(
+                                                    lottery.reference,
+                                                    "entrantCount",
+                                                    (count - (removedCounts[lottery.id] ?: 0))
+                                                        .coerceAtLeast(0L),
+                                                )
+                                            }
+                                        savedEntries
+                                            .filter { it.exists() }
+                                            .forEach { transaction.delete(it.reference) }
+                                        savedReservations
+                                            .filter {
+                                                it.exists() && it.getBoolean("cancelled") != true
+                                            }
+                                            .forEach { reservation ->
+                                                val end =
+                                                    reservation
+                                                        .getTimestamp("bookedPeriodEnd")
+                                                        ?.toDate()
+                                                        ?.time
+                                                        ?: error("Reservation checkout is missing.")
+                                                if (end > System.currentTimeMillis()) {
+                                                    transaction.update(
+                                                        reservation.reference,
+                                                        mapOf(
+                                                            "cancelled" to true,
+                                                            "status" to "cancelled",
+                                                            "cancelledBy" to adminId,
+                                                            "cancelledAt" to
+                                                                FieldValue.serverTimestamp(),
+                                                            "cancellationReason" to
+                                                                "Profile removed by administrator.",
+                                                        ),
+                                                    )
+                                                }
+                                            }
+                                        transaction.delete(accountRef)
+                                        true
+                                    }
+                                    .addOnSuccessListener { onSuccess() }
+                                    .addOnFailureListener(fail)
+                            }
+                            .addOnFailureListener(fail)
+                    }
+                    .addOnFailureListener(onError)
+            }
+            .addOnFailureListener(onError)
     }
 }

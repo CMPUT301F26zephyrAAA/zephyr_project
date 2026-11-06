@@ -2,13 +2,15 @@ package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.FirebaseFirestore
 
 /**
  * Model responsible for reading & writing lottery waiting list registration in firebase firestore
+ *
+ * @param firestore Database used for account and registration checks.
  */
-class WaitingListModel : WaitingListGateway {
-
-    private val firestore = Firebase.firestore
+class WaitingListModel(private val firestore: FirebaseFirestore = Firebase.firestore) :
+    WaitingListGateway {
     private val waitingList = firestore.collection("waitingList")
     private val lotteries = firestore.collection("lottery")
 
@@ -82,6 +84,10 @@ class WaitingListModel : WaitingListGateway {
             val registrationEnd = lotteryDocument.getLong("registrationEnd")
                 ?: throw IllegalStateException("Lottery registration end is missing")
 
+            val account = transaction.get(firestore.collection("accounts").document(accountId))
+            check(account.exists() && account.getBoolean("deletionPending") != true) {
+                "This profile is unavailable."
+            }
             val currentTime = System.currentTimeMillis()
             val existingRegistration = transaction.get(registrationRef)
 

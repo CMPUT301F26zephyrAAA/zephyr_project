@@ -2,6 +2,7 @@
 package com.example.zephyrcampsites
 
 import android.os.Bundle
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -66,6 +67,9 @@ sealed class GeneralScreen(val route: String) {
     data object AdminMenu : GeneralScreen("GeneralScreen/AdminMenu")
     data object AdminBrowseCampsite : GeneralScreen("GeneralScreen/AdminBrowseCampsite")
     data object AdminBrowseProfile : GeneralScreen("GeneralScreen/AdminBrowseProfile")
+
+    data object AdminProfileDetail : GeneralScreen("GeneralScreen/AdminProfileDetail/{id}")
+
     data object AdminBrowseImage : GeneralScreen("GeneralScreen/AdminBrowseImage")
 }
 
@@ -92,6 +96,8 @@ class MainActivity : ComponentActivity() {
                     rememberNavController()
                 var showOwnerView by rememberSaveable { mutableStateOf(false) }
 
+                val adminAccountsModel = remember { AccountsModel() }
+                val adminProfileView = remember { AdminBrowseProfileView() }
                 val qrHandler = remember { QRCodeHandler() }
                 val campsiteSummaryView = remember { CampsiteSummaryView() }
                 val campsiteModel = remember { CampsiteModel() }
@@ -557,11 +563,36 @@ class MainActivity : ComponentActivity() {
                         composable(
                             route = GeneralScreen.AdminBrowseProfile.route
                         ) {
-                            AdminBrowseScreen(
-                                title = "BROWSE PROFILES",
-                                onBack = {
-                                    navHostController.popBackStack()
-                                }
+                            adminProfileView.AdminProfileListView(account, adminAccountsModel,
+                                onProfileSelected = { navHostController.navigate("GeneralScreen/AdminProfileDetail/${Uri.encode(it.id)}") },
+                                onBack = { navHostController.popBackStack() },
+                                loadImage = { path, result ->
+                                    campsiteController.loadCampsiteImage(
+                                        path,
+                                        { result(it) },
+                                        { result(null) },
+                                    )
+                                },
+                            )
+                        }
+
+                        composable(
+                            GeneralScreen.AdminProfileDetail.route,
+                            arguments = listOf(navArgument("id") { type = NavType.StringType }),
+                        ) { entry ->
+                            adminProfileView.AdminProfileDetailScreen(
+                                account,
+                                entry.arguments?.getString("id") ?: return@composable,
+                                accountsController,
+                                onRemoved = { navHostController.popBackStack() },
+                                onBack = { navHostController.popBackStack() },
+                                loadImage = { path, result ->
+                                    campsiteController.loadCampsiteImage(
+                                        path,
+                                        { result(it) },
+                                        { result(null) },
+                                    )
+                                },
                             )
                         }
 

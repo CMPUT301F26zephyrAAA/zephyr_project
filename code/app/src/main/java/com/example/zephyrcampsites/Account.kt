@@ -9,6 +9,7 @@ package com.example.zephyrcampsites
  * @property email Contact email address.
  * @property phoneNumber Contact phone number.
  * @property notificationsEnabled Whether notification senders may notify this account.
+ * @property imagePath Optional profile image URL or Storage path.
  */
 
 data class Account(
@@ -17,5 +18,6 @@ data class Account(
     override var name: String = "",
     var email: String = "",
     var phoneNumber: String = "",
-    var notificationsEnabled: Boolean = true
+    var notificationsEnabled: Boolean = true,
+    var imagePath: String = "",
 ) : DataHolder(id)
