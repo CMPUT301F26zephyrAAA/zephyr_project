@@ -31,15 +31,18 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import java.text.DateFormat
 import java.text.NumberFormat
 import java.util.Locale
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
 
 /**
  * Displays campsite details, promotional imagery, and existing owner controls.
- *
  * Outstanding issue: availability uses the stored booking period until the
  * reservation feature provides a reservation-aware availability schedule.
  */
@@ -54,6 +57,8 @@ class CampsiteDetailView {
      * @param codeGenerator Function that generates the campsite QR code.
      * @param onBack Returns to the previous screen.
      * @param onManageLottery Opens lottery management for this campsite.
+     * @param ratingController Controller used to check rating eligibility.
+     * @param onRateCampsite Opens the rating screen for an eligible entrant.
      */
     @Composable
     fun DetailScreen(
@@ -65,6 +70,10 @@ class CampsiteDetailView {
         onBack: () -> Unit,
         onManageLottery: (String) -> Unit,
         onEdit: (Int) -> Unit
+        lottery: Lottery? = null,
+        waitingListController: WaitingListController? = null,
+        ratingController: RatingController? = null,
+        onRateCampsite: (String) -> Unit = {}
     ) {
         val model = controller.model
         val campsite = if (model.isLoading || model.error != null) {
@@ -129,6 +138,10 @@ class CampsiteDetailView {
             },
             onManageLottery = onManageLottery,
             onEdit = onEdit
+            lottery = lottery,
+            waitingListController = waitingListController,
+            ratingController = ratingController,
+            onRateCampsite = onRateCampsite
         )
     }
 
@@ -143,11 +156,14 @@ class CampsiteDetailView {
      * @param ownerName Owner's display name, falling back to the stored owner ID.
      * @param statusText Message displayed when the campsite is unavailable.
      * @param onManageLottery Called when the owner opens lottery management.
+     * @param ratingController Controller used to offer ratings only after a completed stay.
+     * @param onRateCampsite Opens the rating screen for this campsite.
      */
     @Composable
     fun DetailView(
         campsite: Campsite?,
         codeGenerator: (String, Int) -> ImageBitmap,
+
         onBack: () -> Unit,
         account: Account? = null,
         imageUrl: String? = null,
@@ -157,7 +173,46 @@ class CampsiteDetailView {
         hasError: Boolean = false,
         onEdit: (Int) -> Unit = {},
         onManageLottery: (String) -> Unit = {},
+        onManageLottery: (String) -> Unit = {},
+        lottery: Lottery? = null,
+        waitingListController: WaitingListController? = null,
+        ratingController: RatingController? = null,
+        onRateCampsite: (String) -> Unit = {}
     ) {
+        val accountId = account?.id
+        var joined by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var checkingMembership by remember(lottery?.id, accountId) { mutableStateOf(true) }
+        var membershipError by remember (lottery?.id, accountId) {mutableStateOf(false)}
+        var joining by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var leaving by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var showLeaveConfirmation by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var joinError by remember(lottery?.id, accountId) { mutableStateOf("") }
+
+        LaunchedEffect(lottery?.id, accountId, waitingListController) {
+            joinError = ""
+            membershipError = false
+
+            if (lottery == null || accountId.isNullOrBlank() || waitingListController == null) {
+                checkingMembership = false
+            } else {
+                checkingMembership = true
+
+                waitingListController.isEntrantJoined(
+                    lotteryId = lottery.id,
+                    accountId = accountId,
+                    onResult = { isJoined ->
+                        joined = isJoined
+                        membershipError = false
+                        checkingMembership = false
+                    },
+                    onError = { error ->
+                        joinError = error
+                        membershipError = true
+                        checkingMembership = false
+                    }
+                )
+            }
+        }
         Scaffold(
             bottomBar = {
                 Row(
@@ -175,6 +230,7 @@ class CampsiteDetailView {
                 modifier = Modifier.fillMaxSize().padding(contentPadding)
                     .verticalScroll(rememberScrollState())
                     .testTag("CampsiteDetailsScreen")
+
             ) {
                 /** The following code was generated by OpenAI, ChatGPT,
                   * "Implement loading and error states for the campsite details screen
@@ -250,6 +306,126 @@ class CampsiteDetailView {
                         Text(policies.joinToString("\n").ifBlank { "Not provided" })
                         Text("Availability (booking period): ${availabilityText(campsite)}")
 
+                        if (account?.userType == "entrant" && ratingController != null) {
+                            RatingView().RatingEntry(campsite.id, account, ratingController, onRateCampsite)
+                        }
+
+                        // Entrant lottery registration
+                        if (
+                            account?.userType == "entrant" &&
+                            lottery != null &&
+                            !accountId.isNullOrBlank() &&
+                            waitingListController != null
+                        ) {
+                            Spacer(modifier = Modifier.size(16.dp))
+                            Button(
+                                onClick = {
+                                    joining = true
+                                    joinError = ""
+                                    waitingListController.joinWaitingList(
+                                        lotteryId = lottery.id,
+                                        accountId = accountId,
+                                        onSuccess = {
+                                            joined = true
+                                            joining = false
+                                        },
+                                        onError = { error ->
+                                            joinError = error
+                                            joining = false
+                                        }
+                                    )
+                                },
+                                enabled = !joined &&
+                                        !checkingMembership &&
+                                        !membershipError &&
+                                        !joining &&
+                                        !leaving &&
+                                        System.currentTimeMillis() >= lottery.registrationStart &&
+                                        System.currentTimeMillis() < lottery.registrationEnd,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    when {
+                                        checkingMembership -> "Checking..."
+                                        joining -> "Joining..."
+                                        joined -> "Joined"
+                                        else -> "Join Lottery"
+                                    }
+                                )
+                            }
+
+                            if (joinError.isNotEmpty()) {
+                                Text(
+                                    text = joinError,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            if (joined){
+                                Spacer(modifier = Modifier.size(8.dp))
+                                OutlinedButton(
+                                    onClick = {
+                                        showLeaveConfirmation = true
+                                    },
+                                    enabled = !leaving && !joining,
+                                    modifier = Modifier.fillMaxWidth()
+                                ){
+                                    Text(
+                                        if (leaving) "Leaving..."
+                                        else "Leave Waiting List"
+                                    )
+                                }
+                            }
+                            if (showLeaveConfirmation) {
+                                Dialog( //https://developer.android.com/develop/ui/compose/components/dialog
+                                    onDismissRequest = {
+                                        if (!leaving) showLeaveConfirmation = false
+                                    }
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(MaterialTheme.colorScheme.surface)
+                                            .padding(20.dp)
+                                    ) {
+                                        Text("Are you sure you want to leave the waiting list?")
+                                        Button(
+                                            onClick = {
+                                                leaving = true
+                                                joinError = ""
+
+                                                waitingListController.leaveWaitingList(
+                                                    lotteryId = lottery.id,
+                                                    accountId = accountId,
+                                                    onSuccess = {
+                                                        joined = false
+                                                        leaving = false
+                                                        showLeaveConfirmation = false
+                                                    },
+                                                    onError = { error ->
+                                                        leaving = false
+                                                        showLeaveConfirmation = false
+                                                        joinError = error
+                                                    }
+                                                )
+                                            },
+                                            enabled = !leaving
+                                        ) {
+                                            Text(if (leaving) "Leaving..." else "Yes, Leave")
+                                        }
+
+                                        Button(
+                                            onClick = { showLeaveConfirmation = false },
+                                            enabled = !leaving
+                                        ) {
+                                            Text("Cancel")
+                                        }
+                                    }
+                                }
+                            }
+
+                        }
+
                         if (account?.userType == "owner" && account.id == campsite.ownerID) {
                             ownerControls(
                                 campsite = campsite,
@@ -309,7 +485,7 @@ class CampsiteDetailView {
 
         val formatter = DateFormat.getDateInstance(DateFormat.MEDIUM, Locale.CANADA)
         return "${formatter.format(campsite.bookingPeriodStart)} to " +
-            formatter.format(campsite.bookingPeriodEnd)
+                formatter.format(campsite.bookingPeriodEnd)
     }
 
     /**

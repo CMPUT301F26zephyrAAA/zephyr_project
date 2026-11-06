@@ -24,6 +24,7 @@ import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.LocationServices
 
+
 /**
  * Sealed class for general screens that could be used across different categories.
  *
@@ -41,6 +42,7 @@ sealed class GeneralScreen(val route: String) {
     data object EditCampsite: GeneralScreen("EditCampsite/{id}") {
         fun edit(id: Int) = "EditCampsite/$id"
     }
+    data object Settings : GeneralScreen("GeneralScreen/Settings")
 }
 
 /**
@@ -69,6 +71,7 @@ class MainActivity : ComponentActivity() {
                     CampsiteController(campsiteModel)
                 }
                 val campsiteDetailView = remember { CampsiteDetailView() }
+                val ratingController = remember { RatingController() }
 
                 // Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
@@ -77,6 +80,12 @@ class MainActivity : ComponentActivity() {
                 }
                 val lotteryView = remember(lotteryController) {
                     LotteryView(lotteryController)
+                }
+
+                // Waiting-list registration for entrants.
+                val waitingListModel = remember { WaitingListModel() }
+                val waitingListController = remember(waitingListModel) {
+                    WaitingListController(waitingListModel)
                 }
 
                 // Navigate after account initialization finishes.
@@ -185,6 +194,26 @@ class MainActivity : ComponentActivity() {
                             val campsiteId = backStackEntry.arguments?.getInt("id")
                                 ?: return@composable
 
+                            val now = System.currentTimeMillis()
+
+                            val campsiteLotteries = lotteryModel.lotteries.filter { lottery ->
+                                lottery.campsiteId == campsiteId.toString() &&
+                                        now < lottery.bookingStart
+                            }
+
+                            val campsiteLottery = campsiteLotteries
+                                .filter { lottery ->
+                                    now >= lottery.registrationStart &&
+                                            now < lottery.registrationEnd
+                                }
+                                .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries
+                                    .filter { lottery ->
+                                        now >= lottery.registrationStart
+                                    }
+                                    .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries.minByOrNull { it.registrationStart }
+
                             campsiteDetailView.DetailScreen(
                                 campsiteId = campsiteId,
                                 controller = campsiteController,
@@ -197,7 +226,20 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onManageLottery = { id ->
                                     navHostController.navigate("${GeneralScreen.LotterySettings.route}/$id")
-                                }
+                                },
+                                lottery = campsiteLottery,
+                                waitingListController = waitingListController,
+                                ratingController = ratingController,
+                                onRateCampsite = { id -> navHostController.navigate(CampsiteScreens.RateCampsite.createRoute(id)) }
+                            )
+                        }
+
+                        composable(CampsiteScreens.RateCampsite.route,
+                            arguments = listOf(navArgument("id") { type = NavType.IntType })) { entry ->
+                            val id = entry.arguments?.getInt("id") ?: return@composable
+                            RatingView().RatingScreen(
+                                campsite = campsiteController.retrieveId(id), account = account, controller = ratingController,
+                                onSaved = { navHostController.popBackStack() }, onBack = { navHostController.popBackStack() }
                             )
                         }
 
@@ -265,6 +307,7 @@ class MainActivity : ComponentActivity() {
                                         navHostController.navigate(GeneralScreen.PersonalInformation.route)
                                     },
                                     onPolicy = { navHostController.navigate(GeneralScreen.Policy.route) },
+                                    onSettings = { navHostController.navigate(GeneralScreen.Settings.route) },
                                     onBack = { navHostController.popBackStack() }
                                 )
                             }
@@ -272,6 +315,20 @@ class MainActivity : ComponentActivity() {
 
                         composable(route = GeneralScreen.Policy.route) {
                             PolicyView().PolicyAndGuidelinesView(onBack = { navHostController.popBackStack() })
+                        }
+
+                        composable(route = GeneralScreen.Settings.route) {
+                            val settingsAccount = currentAccount.value ?: return@composable
+                            SettingsView().SettingsScreen(
+                                account = settingsAccount,
+                                accountsController = accountsController,
+                                onSaved = { updated ->
+                                    currentAccount.value = currentAccount.value?.copy(
+                                        notificationsEnabled = updated.notificationsEnabled
+                                    )
+                                },
+                                onBack = { navHostController.popBackStack() }
+                            )
                         }
 
                         composable(route = GeneralScreen.PersonalInformation.route) {
