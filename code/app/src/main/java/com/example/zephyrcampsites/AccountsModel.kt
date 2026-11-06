@@ -7,14 +7,17 @@ import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.FieldValue
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.storage
 
 /**
  * Model class for accounts. Reads/Writes the "accounts" Firestore collection.
  *
  * @param database Optional database used by local emulator tests.
+ * @param storage Optional Storage instance used by local emulator tests.
  * **/
 
-open class AccountsModel(private val database: FirebaseFirestore? = null) {
+open class AccountsModel(private val database: FirebaseFirestore? = null, private val storage: FirebaseStorage? = null) {
     private val firestore by lazy { database ?: Firebase.firestore }
     private val accounts by lazy { firestore.collection("accounts") } // connecting to firestore
 
@@ -291,6 +294,59 @@ open class AccountsModel(private val database: FirebaseFirestore? = null) {
                             .addOnFailureListener(fail)
                     }
                     .addOnFailureListener(onError)
+            }
+            .addOnFailureListener(onError)
+    }
+
+    /**
+     * Removes the selected profile image without deleting the profile or clearing a newer image.
+     *
+     * @param account Profile containing the selected image.
+     * @param path Selected image path.
+     * @param onSuccess Called after Storage deletion and reference cleanup succeed.
+     * @param onError Called if the selection is stale or removal fails.
+     */
+    open fun removeProfileImage(
+        account: Account,
+        path: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (path.isBlank()) {
+            onError(IllegalArgumentException("No profile image exists."))
+            return
+        }
+        val reference = accounts.document(account.id)
+        reference
+            .get(Source.SERVER)
+            .addOnSuccessListener { document ->
+                if (!document.exists() || document.getString("imagePath") != path) {
+                    onError(
+                        IllegalStateException(
+                            "The selected profile image has changed. Refresh the list."
+                        )
+                    )
+                    return@addOnSuccessListener
+                }
+                FirebaseConnector("accounts", firestore)
+                    .removeImage(
+                        path,
+                        storage ?: Firebase.storage,
+                        onSuccess = {
+                            firestore
+                                .runTransaction { transaction ->
+                                    val current = transaction.get(reference)
+                                    check(current.exists()) { "Profile no longer exists." }
+                                    if (current.getString("imagePath") == path) {
+                                        transaction.update(reference, "imagePath", "")
+                                    }
+                                    true
+                                }
+                                .addOnSuccessListener { onSuccess() }
+                                .addOnFailureListener(onError)
+                        },
+                        onError = onError,
+                    )
             }
             .addOnFailureListener(onError)
     }

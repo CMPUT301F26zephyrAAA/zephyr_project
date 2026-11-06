@@ -600,11 +600,41 @@ class MainActivity : ComponentActivity() {
                         composable(
                             route = GeneralScreen.AdminBrowseImage.route
                         ) {
-                            AdminBrowseScreen(
-                                title = "BROWSE IMAGES",
-                                onBack = {
-                                    navHostController.popBackStack()
-                                }
+                            AdminBrowseImageView(account, adminAccountsModel, campsiteModel,
+                                onRemove = { image, success, failure ->
+                                    if (image.type == "profile") {
+                                        accountsController.removeProfileImage(
+                                            account,
+                                            Account(image.ownerId),
+                                            image.path,
+                                            success,
+                                            failure,
+                                        )
+                                    } else {
+                                        val campsite =
+                                            campsiteModel.campsites.find { it.id == image.ownerId }
+                                        if (campsite == null) {
+                                            failure(
+                                                IllegalStateException("Campsite no longer exists.")
+                                            )
+                                        } else
+                                            campsiteController.removeImage(
+                                                account,
+                                                campsite,
+                                                image.path,
+                                                success,
+                                                failure,
+                                            )
+                                    }
+                                },
+                                onBack = { navHostController.popBackStack() },
+                                loadImage = { path, result ->
+                                    campsiteController.loadCampsiteImage(
+                                        path,
+                                        { result(it) },
+                                        { result(null) },
+                                    )
+                                },
                             )
                         }
                     }

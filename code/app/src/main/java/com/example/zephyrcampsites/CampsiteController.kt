@@ -320,4 +320,26 @@ class CampsiteController(val model: CampsiteModel) {
         return (max - occupied >= guests)
     }
 
+    /**
+     * Requests removal of a selected campsite image for an administrator.
+     *
+     * @param account Current administrator.
+     * @param campsite Campsite containing the image.
+     * @param path Selected image path.
+     * @param onSuccess Called after removal succeeds.
+     * @param onError Called when access or removal fails.
+     */
+    fun removeImage(
+        account: Account?,
+        campsite: Campsite,
+        path: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            onError(IllegalArgumentException("Only administrators can remove images."))
+            return
+        }
+        model.removeImage(campsite, path, onSuccess, onError)
+    }
 }

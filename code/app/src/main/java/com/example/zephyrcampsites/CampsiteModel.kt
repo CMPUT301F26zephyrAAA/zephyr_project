@@ -14,19 +14,25 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.Source
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.storage
+import com.google.firebase.firestore.FieldValue
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
  *
  * @param firestore Database used for campsites and related registrations.
+ * @param storage Optional Storage instance for local emulator tests.
  * @property campsites Local list of campsites, will be updated by snapshot listener
  * @property connector Instance of Firebase connector for campsite collection
  * @property campsiteListener Used to hold listener of Firebase, so listening can be canceled when needed.
  * @property error Holds error from Firebase if needed.
  * @property isLoading Whether the first campsite snapshot is still loading.
  */
-class CampsiteModel(private val firestore: FirebaseFirestore = Firebase.firestore) :
-    ObservableModel<CampsiteModel>() {
+class CampsiteModel(
+    private val firestore: FirebaseFirestore = Firebase.firestore,
+    private val storage: FirebaseStorage? = null,
+) : ObservableModel<CampsiteModel>() {
     val campsites = mutableStateListOf<Campsite>()
     val connector = FirebaseConnector("campsite", firestore)
     private var campsiteListener: ListenerRegistration? = null
@@ -266,5 +272,69 @@ class CampsiteModel(private val firestore: FirebaseFirestore = Firebase.firestor
                 isLoading = false
             }
         )
+    }
+
+    /**
+     * Removes one selected image and clears every matching reference on this campsite.
+     *
+     * @param campsite Campsite containing the selected image.
+     * @param path Selected image path, kept separate from the mutable campsite fields.
+     * @param onSuccess Called after Storage deletion and reference cleanup succeed.
+     * @param onError Called if the image is stale, invalid, or cannot be removed.
+     */
+    fun removeImage(
+        campsite: Campsite,
+        path: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (path.isBlank()) {
+            onError(IllegalArgumentException("No campsite image exists."))
+            return
+        }
+        val reference = connector.db.document(campsite.id)
+        reference
+            .get(Source.SERVER)
+            .addOnSuccessListener { document ->
+                val promotional = document.get("promoImagePaths") as? List<*> ?: emptyList<Any>()
+                if (
+                    !document.exists() ||
+                        (document.getString("imagePath") != path && path !in promotional)
+                ) {
+                    onError(
+                        IllegalStateException(
+                            "The selected campsite image has changed. Refresh the list."
+                        )
+                    )
+                    return@addOnSuccessListener
+                }
+                connector.removeImage(
+                    path,
+                    storage ?: Firebase.storage,
+                    onSuccess = {
+                        firestore
+                            .runTransaction { transaction ->
+                                val current = transaction.get(reference)
+                                check(current.exists()) { "Campsite no longer exists." }
+                                val updates =
+                                    mutableMapOf<String, Any>(
+                                        "promoImagePaths" to FieldValue.arrayRemove(path)
+                                    )
+                                if (current.getString("imagePath") == path) {
+                                    updates["imagePath"] = ""
+                                }
+                                transaction.update(reference, updates)
+                                true
+                            }
+                            .addOnSuccessListener {
+                                notifyObservers(this)
+                                onSuccess()
+                            }
+                            .addOnFailureListener(onError)
+                    },
+                    onError = onError,
+                )
+            }
+            .addOnFailureListener(onError)
     }
 }

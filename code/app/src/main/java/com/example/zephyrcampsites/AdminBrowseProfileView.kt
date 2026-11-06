@@ -29,6 +29,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.heightIn
 import coil.compose.AsyncImage
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.Icon
 
 /**
  * Separate View class exclusively for Admin to browse and manage profiles:
@@ -341,7 +344,14 @@ fun AdminProfileImage(path: String, loadImage: (String, (String?) -> Unit) -> Un
         onDispose { active = false }
     }
     if (url == null) {
-        Text("No profile image")
+        Column {
+            Icon(
+                Icons.Default.Person,
+                contentDescription = "Default profile image",
+                modifier = Modifier.height(48.dp),
+            )
+            Text("No profile image")
+        }
     } else {
         AsyncImage(
             model = url,

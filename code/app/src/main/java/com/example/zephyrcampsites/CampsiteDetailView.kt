@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Landscape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.activity.compose.BackHandler
@@ -617,6 +620,8 @@ class CampsiteDetailView {
             }
 
             if (imageUrl.isNullOrBlank() || failed || loading) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (imageUrl.isNullOrBlank() || failed) { Icon(Icons.Default.Landscape, contentDescription = "Default campsite image") }
                 Text(
                     text = if (imageUrl.isNullOrBlank() || failed) {
                         "No promotional image"
@@ -625,6 +630,7 @@ class CampsiteDetailView {
                     },
                     modifier = Modifier.testTag("CampsiteImagePlaceholder")
                 )
+                }
             }
         }
     }

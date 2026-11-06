@@ -6,6 +6,8 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.firestore
 import com.google.firebase.storage.storage
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.StorageException
 import android.util.Log
 import android.net.Uri
 
@@ -209,4 +211,43 @@ class FirebaseConnector(target: String, firestore: FirebaseFirestore = Firebase.
                     onFailure(exception)
                 }
         }
+        /**
+     * Removes a Storage image, treating an already missing object as a successful retry.
+     *
+     * @param path Storage path or Firebase Storage URL.
+     * @param storage Storage instance used for deletion.
+     * @param onSuccess Called after removal or when the file is already absent.
+     * @param onError Called for invalid paths or failed deletion.
+     */
+    fun removeImage(
+        path: String,
+        storage: FirebaseStorage,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (path.isBlank()) {
+            onError(IllegalArgumentException("Image path is empty."))
+            return
+        }
+        val reference =
+            try {
+                if (path.startsWith("gs://") || path.startsWith("https://")) {
+                    storage.getReferenceFromUrl(path)
+                } else storage.reference.child(path)
+            } catch (error: IllegalArgumentException) {
+                onError(error)
+                return
+            }
+        reference
+            .delete()
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { error ->
+                if (
+                    error is StorageException &&
+                        error.errorCode == StorageException.ERROR_OBJECT_NOT_FOUND
+                ) {
+                    onSuccess()
+                } else onError(error)
+            }
     }
+}

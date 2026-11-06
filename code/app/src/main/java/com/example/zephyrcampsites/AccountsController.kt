@@ -163,5 +163,28 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         }
         accountsModel.deleteAccount(targetAccount, account.id, onSuccess, onError)
     }
+
+    /**
+     * Requests removal of a selected profile image for an administrator.
+     *
+     * @param account Current administrator.
+     * @param targetAccount Profile containing the image.
+     * @param path Selected image path.
+     * @param onSuccess Called after removal succeeds.
+     * @param onError Called when access or removal fails.
+     */
+    fun removeProfileImage(
+        account: Account?,
+        targetAccount: Account,
+        path: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            onError(IllegalArgumentException("Only administrators can remove images."))
+            return
+        }
+        accountsModel.removeProfileImage(targetAccount, path, onSuccess, onError)
+    }
 }
 
