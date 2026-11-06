@@ -39,6 +39,8 @@ sealed class GeneralScreen(val route: String) {
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
     data object Policy : GeneralScreen("GeneralScreen/Policy")
+    data object AdminBrowseProfile : GeneralScreen("GeneralScreen/AdminBrowseProfile")
+    data object AdminProfileDetail : GeneralScreen("GeneralScreen/AdminProfileDetail")
 }
 
 /**

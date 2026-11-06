@@ -17,6 +17,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,18 +34,36 @@ import androidx.compose.ui.unit.dp
 class AdminBrowseProfileView {
 
     /**
-     * Displays a scrollable list of profiles for the admin to browse and select from.
+     * Displays all registered profiles. Updates automatically when firestore updates.
      *
-     * @param accounts List of all registered accounts in the system
      * @param onProfileSelected Callback triggered when a profile item is clicked
      * @param onBack Returns to the previous screen
      */
     @Composable
     fun AdminProfileListView(
-        accounts: List<Account>,
         onProfileSelected: (Account) -> Unit,
         onBack: () -> Unit
     ) {
+        val accountsModel = AccountsModel()
+        var accounts by remember { mutableStateOf(emptyList<Account>()) }
+        var isLoading by remember { mutableStateOf(true) }
+        var errorMessage by remember { mutableStateOf<String?>(null) }
+
+        DisposableEffect(accountsModel) {
+            val listener = accountsModel.observeAccounts(
+                onSuccess = {
+                    accounts = it
+                    isLoading = false
+                },
+                onError = {
+                    errorMessage = it.message ?: "Failed to load profiles."
+                    isLoading = false
+                }
+            )
+
+            onDispose { listener.remove() }
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -53,31 +72,49 @@ class AdminBrowseProfileView {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "MANAGE PROFILES (ADMIN)",
+                text = "BROWSE PROFILES",
                 style = MaterialTheme.typography.headlineMedium
             )
             Spacer(modifier = Modifier.height(8.dp))
+            if (isLoading) {
+                Text("Loading...")
+            } else if (errorMessage != null) {
+                Text("Error: $errorMessage", color = MaterialTheme.colorScheme.error)
+            }
 
             if (accounts.isEmpty()) {
                 Text("No profiles found.")
             }
-
-            accounts.forEach { account ->
-                OutlinedButton(
-                    onClick = { onProfileSelected(account) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("ProfileItem_${account.id}")
-                ) {
-                    Column(modifier = Modifier.padding(8.dp).fillMaxWidth()) {
-                        Text(
-                            text = if (account.name.isBlank()) "Unnamed User" else account.name,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "Role: ${account.userType} | ID: ${account.id}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+            else {
+                accounts.forEach { account ->
+                    OutlinedButton(
+                        onClick = { onProfileSelected(account) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ProfileItem_${account.id}")
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = if(account.name.isBlank()) {
+                                    "Unnamed User"
+                                } else {
+                                    account.name
+                                },
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Role: ${account.userType} | ID: ${account.id}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "Email: ${if(account.email.isBlank()) "N/A" else account.email}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "Phone Number: ${if (account.phoneNumber.isBlank()) "N/A" else account.phoneNumber}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
             }
@@ -126,15 +163,15 @@ class AdminBrowseProfileView {
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Name: ${if (targetAccount.name.isBlank()) "N/A" else targetAccount.name}",
+                text = "Name: ${if(targetAccount.name.isBlank()) "N/A" else targetAccount.name}",
                 style = MaterialTheme.typography.titleLarge
             )
             Text(
-                text = "Email: ${if (targetAccount.email.isBlank()) "N/A" else targetAccount.email}",
+                text = "Email: ${if(targetAccount.email.isBlank()) "N/A" else targetAccount.email}",
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = "Phone Number: ${if (targetAccount.phoneNumber.isBlank()) "N/A" else targetAccount.phoneNumber}",
+                text = "Phone Number: ${if(targetAccount.phoneNumber.isBlank()) "N/A" else targetAccount.phoneNumber}",
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
@@ -146,7 +183,7 @@ class AdminBrowseProfileView {
                 style = MaterialTheme.typography.bodySmall
             )
 
-            if (errorMessage.isNotEmpty()) {
+            if(errorMessage.isNotEmpty()) {
                 Text(text = errorMessage, color = MaterialTheme.colorScheme.error)
             }
 
@@ -176,7 +213,7 @@ class AdminBrowseProfileView {
         }
 
         // Confirmation Dialog before deletion
-        if (showDeleteConfirmation) {
+        if(showDeleteConfirmation) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirmation = false },
                 title = { Text("Confirm Profile Removal") },

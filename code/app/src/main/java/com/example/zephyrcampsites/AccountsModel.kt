@@ -1,6 +1,8 @@
 package com.example.zephyrcampsites
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.DocumentSnapshot
 
 /**
  * Model class for accounts. Reads/Writes the "accounts" Firestore collection.
@@ -128,4 +130,34 @@ class AccountsModel {
             }
     }
 
+    /**
+     * Observes all registered profiles.
+     * Has an active listener so doesn't need manual refreshing.
+     * Firestore automatically notifies UI when changes occur.
+     *
+     * @param onSuccess Called when the list of accounts is updated.
+     * @param onError Called if the listener fails.
+     */
+    fun observeAccounts(
+        onSuccess: (List<Account>) -> Unit,
+        onError: (Exception) -> Unit
+    ) :ListenerRegistration {
+        return accounts.addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError(error)
+                return@addSnapshotListener
+            }
+
+            val profiles = snapshot?.documents?.mapNotNull { document ->
+                Account(document.id).apply {
+                    userType = document.getString("userType") ?: "entrant"
+                    name = document.getString("name") ?: ""
+                    email = document.getString("email") ?: ""
+                    phoneNumber = document.getString("phoneNumber") ?: ""
+                }
+            } ?: emptyList()
+
+            onSuccess(profiles)
+        }
+    }
 }
