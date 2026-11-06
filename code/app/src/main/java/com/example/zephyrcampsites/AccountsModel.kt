@@ -100,4 +100,32 @@ class AccountsModel {
             }
     }
 
+    /**
+     * Deletes an account from Firestore, removes them from waiting lists, and cancels active reservations.
+     *
+     * @param targetAccount Account to be deleted.
+     * @param onSuccess Called when the account is successfully deleted.
+     * @param onError Called if profile deletion fails.
+     */
+    fun deleteAccount(
+        targetAccount: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val deviceID = targetAccount.id
+
+        //1. Remove entrant from waiting lists (Firestore cleanup)
+        //TODO: Query waitlists collection where entrantId == deviceId and remove them
+        //2. Cancel profile's active reservations and notify affected owners
+        // TODO: Query active reservations for deviceId, update status to cancelled, and notify campsite owners
+
+        accounts.document(deviceID).delete()
+            .addOnSuccessListener {
+                onSuccess()
+            }
+            .addOnFailureListener { exception ->
+                onError(exception)
+            }
+    }
+
 }

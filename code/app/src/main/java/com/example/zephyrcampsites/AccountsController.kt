@@ -64,7 +64,6 @@ class AccountsController {
      * @param onSuccess returns the updated account after saving
      * @param onError returns an error message if saving fails
      */
-
     fun updateProfile(
         account: Account,
         name: String,
@@ -98,5 +97,20 @@ class AccountsController {
                     onError(exception.message ?: "Failed to updated profile")
                 })
         }
+
+    /**
+     * Deletes an account.
+     *
+     * @param targetAccount Account being deleted.
+     * @param onSuccess Called when the account is successfully deleted.
+     * @param onError Called if profile deletion fails.
+     */
+    fun deleteProfile(
+        targetAccount: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        accountsModel.deleteAccount(targetAccount, onSuccess, onError)
     }
+}
 

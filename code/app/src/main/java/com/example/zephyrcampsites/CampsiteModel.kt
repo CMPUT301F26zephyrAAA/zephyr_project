@@ -87,16 +87,30 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
     }
 
     /**
-     * Deletes a given campsite.
+     * Deletes a given campsite, closes active lotteries/waitlist, and notifies affected users.
      * Caller needs to handle IllegalStateException in case of failure to communicate with Firestore.
      *
      * @param target Campsite to delete.
+     * @param onSuccess Called when successfully deleted campsite from Firebase.
+     * @param onFailure Called when failed to delete campsite from Firebase.
      */
     fun deleteCampsite(
-        target: Campsite
+        target: Campsite,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
     ) {
-        connector.remove(target)
-        notifyObservers(this)
+        //IMPLEMENT - Close active lotteries and waitlists for this campsite.
+        // TODO: Add backend/database call to update associated lottery/waitlist statuses to "CLOSED"
+        //IMPLEMENT - Notify owner and any affected waitlist entrants.
+        // TODO: Trigger notification dispatcher for target.ownerID and waitlist participants
+        //Reference link - https://kotlinlang.org/docs/exceptions.html#throw-exceptions-with-precondition-functions
+        try {
+            connector.remove(target)
+            notifyObservers(this)
+            onSuccess()
+        } catch (e: Exception) {
+            onFailure(e.message ?: "Failed to delete campsite.")
+        }
     }
 
     /**

@@ -65,6 +65,33 @@ class CampsiteController(val model: CampsiteModel) {
     }
 
     /**
+     * Remove a campsite.
+     *
+     * @param campsite Campsite to be removed.
+     * @param onSuccess Called after successful deletion of campsite.
+     * @param onFailure Called on failure of removal of campsite.
+     */
+    fun removeCampsite(
+        campsite: Campsite,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
+    ){
+        if (model.error != null) {
+            onFailure("Unable to reach database.")
+            return
+        }
+        try {
+            model.deleteCampsite(
+                target = campsite,
+                onSuccess = onSuccess,
+                onFailure = onFailure
+            )
+        }catch (e: IllegalStateException){
+            onFailure(e.localizedMessage ?: "Failed to delete campsite.")
+        }
+    }
+
+    /**
      * Search function for specified filters.
      * All params can be null if filter was not used.
      * Calls on helper functions to do actual checks, this function only checks that all checks were true.
