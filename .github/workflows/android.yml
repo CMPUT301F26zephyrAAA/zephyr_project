@@ -23,19 +23,17 @@ jobs:
 
     - name: Get directory
       run: ls
-      working-directory: ./code
+      working-directory: ./code/app
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
       working-directory: ./code
     - name: Create google-services.json
-      run: cat app/google-services.json | base64
-      working-directory: ./code
+      run: cat ./code/app/google-services.json | base64
     - name: Adding data to google-services.json
       env: 
         DATA: ${{ secrets.GOOGLE_SERVICES_JSON }}
-      run: echo $DATA > code/app/google-services.json
-      working-directory: ./code
+      run: echo $DATA > ./code/app/google-services.json
     - name: Build with Gradle
       run: ./gradlew build
       working-directory: ./code
