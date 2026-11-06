@@ -16,5 +16,7 @@ data class Account(override val id: String = "") : DataHolder(id){
     var email: String = ""
     /**Entrant's phone number**/
     var phoneNumber: String = ""
+    /**Entrant's profile picture**/
+    var imagePath: String = ""
 
 }

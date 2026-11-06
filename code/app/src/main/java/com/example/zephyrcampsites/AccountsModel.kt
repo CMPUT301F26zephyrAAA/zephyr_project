@@ -3,6 +3,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.storage.storage
 
 /**
  * Model class for accounts. Reads/Writes the "accounts" Firestore collection.
@@ -26,6 +27,7 @@ class AccountsModel {
                 account.name = document.getString("name") ?: ""
                 account.email = document.getString("email") ?: ""
                 account.phoneNumber = document.getString("phoneNumber") ?: ""
+                account.imagePath = document.getString("imagePath") ?: ""
                 onResult(account)
             } else {
                 onResult(null)
@@ -154,10 +156,51 @@ class AccountsModel {
                     name = document.getString("name") ?: ""
                     email = document.getString("email") ?: ""
                     phoneNumber = document.getString("phoneNumber") ?: ""
+                    imagePath = document.getString("imagePath") ?: ""
                 }
             } ?: emptyList()
 
             onSuccess(profiles)
         }
+    }
+
+    /**
+     * Removes profile image. (for Admin purposes)
+     *
+     * @param account Account to remove image from.
+     * @param onSuccess Called when the image is successfully removed.
+     * @param onError Called if the image removal fails.
+     */
+    fun removeProfileImage(
+        account: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val path = account.imagePath
+        if(path.isBlank()) {
+            onError(IllegalArgumentException("No profile image exists"))
+            return
+        }
+        val storage = Firebase.storage
+        val imageRef = try {
+            if(path.startsWith("gs://")|| path.startsWith("https://")) {
+                storage.getReferenceFromUrl(path)
+            } else {
+                storage.reference.child(path)
+            }
+        } catch (e: IllegalArgumentException) {
+            onError(e)
+            return
+        }
+        imageRef.delete()
+            .addOnSuccessListener {
+                accounts.document(account.id).update("imagePath", "")
+                    .addOnSuccessListener {
+                        account.imagePath = ""
+                        onSuccess()
+                    }
+                    .addOnFailureListener(onError)
+            }
+            .addOnFailureListener {onError}
     }
 }

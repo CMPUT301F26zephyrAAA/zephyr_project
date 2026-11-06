@@ -4,10 +4,14 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import java.util.Date
 import com.google.firebase.firestore.GeoPoint
+import com.google.firebase.firestore.firestore
+import com.google.firebase.storage.storage
+
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
  *
@@ -117,7 +121,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
     ) {
         //US 03.01.01
         //waitlistConnector.deleteWaitlistsOfCampsite(target, onSuccess, onFailure) - cannot implement yet
-        lotteryConnector.deleteLotteriesOfCampsite(target, onSuccess, onFailure)
+        //lotteryConnector.deleteLotteriesOfCampsite(target, onSuccess, onFailure)
         // TODO: Trigger notification dispatcher for target.ownerID and waitlist participants
         //Reference link - https://kotlinlang.org/docs/exceptions.html#throw-exceptions-with-precondition-functions
         try {
@@ -180,5 +184,92 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
                 isLoading = false
             }
         )
+    }
+
+    /**
+     * Removes campsite image. (for Admin purposes)
+     *
+     * @param campsite Campsite to remove image from.
+     * @param onSuccess Called when the image is successfully removed.
+     * @param onError Called if the image removal fails.
+     */
+    fun removeCampsiteImage(
+        campsite: Campsite,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val path = campsite.imagePath
+        if(path.isBlank()) {
+            onError(IllegalArgumentException("No campsite image exists"))
+            return
+        }
+        val storage = Firebase.storage
+        val imageRef = try {
+            if(path.startsWith("gs://")|| path.startsWith("https://")) {
+                storage.getReferenceFromUrl(path)
+            } else {
+                storage.reference.child(path)
+            }
+        } catch (e: IllegalArgumentException) {
+            onError(e)
+            return
+        }
+        imageRef.delete()
+            .addOnSuccessListener {
+                Firebase.firestore.collection("campsites")
+                    .document(campsite.id).update("imagePath", "")
+                    .addOnSuccessListener {
+                        campsite.imagePath = ""
+                        onSuccess()
+                    }
+                    .addOnFailureListener(onError)
+            }
+            .addOnFailureListener {onError}
+    }
+
+    /**
+     * Deleting promotional images. (for Admin purposes)
+     *
+     * @param campsite Campsite to remove image from.
+     * @param imagePath String of path of the specific image within promotional images.
+     * @param onSuccess Called when the image is successfully removed.
+     * @param onError Called if the image removal fails.
+     */
+    fun removePromotionalImage(
+        campsite: Campsite,
+        imagePath: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        if(imagePath.isBlank() || imagePath !in campsite.promoImagePaths) {
+            onError(IllegalArgumentException("Image path is invalid."))
+            return
+        }
+
+        val storage = Firebase.storage
+        val imageRef = try {
+            if(imagePath.startsWith("gs://")|| imagePath.startsWith("https://")) {
+                storage.getReferenceFromUrl(imagePath)
+            } else {
+                storage.reference.child(imagePath)
+            }
+        } catch (e: IllegalArgumentException) {
+            onError(e)
+            return
+        }
+
+        imageRef.delete()
+            .addOnSuccessListener {
+                val remainingPaths = campsite.promoImagePaths.filter { it != imagePath }
+
+                Firebase.firestore.collection("campsites")
+                    .document(campsite.id).update("promoImagePaths", remainingPaths)
+                    .addOnSuccessListener {
+                        campsite.promoImagePaths = remainingPaths
+                        onSuccess()
+                    }
+                    .addOnFailureListener(onError)
+            }
+            .addOnFailureListener {onError}
     }
 }
