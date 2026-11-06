@@ -25,12 +25,12 @@ jobs:
       run: chmod +x gradlew
       working-directory: ./code
     - name: Create google-services.json
-      run: code/app/google-services.json | base64
+      run: /home/runner/work/code/app/google-services.json | base64
       working-directory: ./code
     - name: Adding data to google-services.json
       env: 
         DATA: ${{ secrets.GOOGLE_SERVICES_JSON }}
-      run: echo $DATA > code/app/google-services.json
+      run: echo $DATA > /home/runner/work/code/app/google-services.json
       working-directory: ./code
     - name: Build with Gradle
       run: ./gradlew build
