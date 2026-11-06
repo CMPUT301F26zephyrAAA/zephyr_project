@@ -23,31 +23,6 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
     var error : FirebaseFirestoreException? = null
 
     /**
-     * Creates campsite given name, location, description, and max occupancy. (Check required fields?)
-     * Uses Campsite data class and adds it using connector.
-     * Caller needs to handle IllegalStateException in case of failure to communicate with Firestore.
-     *
-     * @param name Name of new campsite
-     * @param location Location of new campsite (unsure if redundant if geolocation is a thing?)
-     * @param description Description of new campsite
-     * @param maxOccupancy Int of max occupancy of new campsite
-     */
-    fun createCampsite(
-        name: String,
-        location: String,
-        description: String,
-        maxOccupancy: Int,
-    ) {
-        val newCampsite = Campsite((campsites.size + 1).toString())
-        newCampsite.name = name
-        newCampsite.location = location
-        newCampsite.description = description
-        newCampsite.maxOccupancy = maxOccupancy
-        connector.add(newCampsite)
-        notifyObservers(this)
-    }
-
-    /**
      * Registers a new campsite for an owner
      *
      * @param ownerId ID of the owner registering the campsite
@@ -58,7 +33,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
      * @param pricePerNight Price per night
      * @param tags Tags for the campsite
      * @param rules Rules & cancellation policy
-     * @param rulesRequired if entrants must accept rules before reserving
+     * @param toggle if entrants must accept rules before reserving
      */
     fun registerCampsite(
         ownerId: String,
@@ -69,21 +44,28 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         pricePerNight: Double,
         tags: List<String>,
         rules: String,
-        rulesRequired: Boolean
+        toggle: Boolean,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit
     ) {
-        val newCampsite = Campsite((campsites.size + 1).toString())
+        val nextId = (campsites.maxOfOrNull { it.id.toIntOrNull() ?: 0 } ?: 0) + 1
+        val newCampsite = Campsite(nextId.toString())
         newCampsite.ownerID = ownerId
         newCampsite.name = name
         newCampsite.location = location
-        newCampsite.geolocation = GeoPoint(0.0, 0.0)
         newCampsite.description = description
         newCampsite.maxOccupancy = maxOccupancy
         newCampsite.pricePerNight = pricePerNight
         newCampsite.tags = tags
         newCampsite.rules = rules
-        newCampsite.rulesRequired = rulesRequired
-        connector.add(newCampsite)
-        notifyObservers(this)
+        newCampsite.toggle = toggle
+        connector.add(newCampsite,
+            onSuccess = {
+                notifyObservers(this)
+                onSuccess()
+            },
+            onFailure = onFailure
+        )
     }
 
     /**

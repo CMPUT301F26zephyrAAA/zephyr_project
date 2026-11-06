@@ -36,6 +36,7 @@ sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
     data object Profile : GeneralScreen("GeneralScreen/Profile")
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
+    data object RegisterCampsite: GeneralScreen("GeneralScreen/RegisterCampsite")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
@@ -60,7 +61,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ZephyrCampsitesTheme {
-
                 val navHostController: NavHostController =
                     rememberNavController()
 
@@ -74,7 +74,7 @@ class MainActivity : ComponentActivity() {
 
                 // Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
-
+                
                 val lotteryController = remember(lotteryModel) {
                     LotteryController(lotteryModel)
                 }
@@ -134,12 +134,19 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-
                     NavHost(
                         navController = navHostController,
                         startDestination = GeneralScreen.AccountLoading.route,
                         modifier = Modifier.weight(1f)
                     ) {
+                        composable(route = GeneralScreen.RegisterCampsite.route) {
+                            CampsiteFormView(
+                                controller = campsiteController,
+                                ownerId = account?.id ?: return@composable,
+                                onDone = { navHostController.popBackStack() },
+                                onBack = { navHostController.popBackStack() }
+                            )
+                        }
 
                         // Account loading screen.
                         composable(
@@ -182,7 +189,9 @@ class MainActivity : ComponentActivity() {
                         ) {
                             campsiteSummaryView.SummaryView(
                                 onClick = {
-                                    campsiteController.addCampsite()
+                                    navHostController.navigate(
+                                        GeneralScreen.RegisterCampsite.route
+                                    )
                                 },
                                 openDetail = { id ->
                                     navHostController.navigate(

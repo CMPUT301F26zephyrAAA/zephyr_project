@@ -5,6 +5,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
 import com.google.firebase.storage.storage
+import android.util.Log
 
 /**
  * Class for firebase connection.
@@ -23,12 +24,15 @@ class FirebaseConnector(target: String) {
      *
      * @param value Object to add, can be anything that inherits from DataHolder (base class that data classes inherits from).
      */
-    fun add(value: DataHolder) {
+    fun add(value: DataHolder, onSuccess: () -> Unit = {}, onFailure: (String) -> Unit = {}) {
         db.document(value.id).set(value)
-            .addOnCompleteListener { task ->
-                if (!task.isSuccessful) {
-                    throw IllegalStateException("Database operation failed.")
-                }
+            .addOnSuccessListener {
+                Log.d("Firebase_test", "Saved campsite: ${value.id}")
+                onSuccess()
+            }
+            .addOnFailureListener { exception ->
+                Log.e("Firebase_test", "Save failed", exception)
+                onFailure(exception.message ?: "Database operation failed.")
             }
     }
 
