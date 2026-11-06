@@ -28,9 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import android.widget.Toast
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.Button
@@ -362,13 +360,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
-                        }
-                            lotteryView.LotterySettingsView(
-                                campsiteId = campsiteId,
-                                onLotteryCreated = { lotteryId ->
-                                    navHostController.navigate("lotteryDetails/$lotteryId")
-                                }
-                            )
                         }
                         composable(
                             route = "lotteryDetails/{lotteryId}",
