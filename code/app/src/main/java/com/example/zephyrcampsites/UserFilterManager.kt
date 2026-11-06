@@ -251,6 +251,9 @@ class UserFilterManager {
                         onClick = { // Resets all function variables and currentUserFilters, alongside relevant flags
                             startDate = null
                             endDate = null
+
+                            currentUserFilters.startDate = null
+                            currentUserFilters.endDate = null
                             guests.edit { replace(0, length, "1") }
                             datesTriggered = false
                             distanceDropdownMenuText = "Select distance (default: unlimited)"

@@ -134,7 +134,7 @@ class CampsiteDetailView {
             statusText = when {
                 model.error != null -> "Unable to load campsite details."
                 model.isLoading -> "Loading campsite details..."
-                else -> "Campsite not found."
+                else -> "Campsite not found"
             },
             onManageLottery = onManageLottery,
             onEdit = onEdit,

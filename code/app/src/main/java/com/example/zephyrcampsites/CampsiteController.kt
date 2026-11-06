@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 import android.location.Location
 import com.google.firebase.firestore.GeoPoint
 import java.util.Date
+import java.util.Calendar
 
 /**
  * Controller class for anything campsite related.
@@ -170,6 +171,22 @@ class CampsiteController(val model: CampsiteModel) {
 
         model.campsites.forEach { campsite ->
             val campsiteDate : Pair<Date, Date> = Pair(campsite.bookingPeriodStart, campsite.bookingPeriodEnd)
+
+            val today = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.time
+
+            val isNotExpired = !campsite.bookingPeriodEnd.before(today)
+
+            val matchDate =
+                if (startDate == null || endDate == null) {
+                    isNotExpired
+                } else {
+                    bookDateCheck(startDate, endDate, campsiteDate)
+                }
             val campsiteLocConvert = Location("manual").apply {
                 latitude = campsite.geolocation.latitude
                 longitude = campsite.geolocation.longitude
@@ -178,7 +195,7 @@ class CampsiteController(val model: CampsiteModel) {
             if (
                 regexCheck(searchString, campsite.name, campsite.location) &&
                 locationCheck(campsiteLocConvert, deviceLocation, distanceLimit) &&
-                bookDateCheck(startDate, endDate, campsiteDate) &&
+                matchDate &&
                 guestsCheck(campsite.maxOccupancy, 0, guests) //0 for now, check bookings for total bookers later
             ) {
                 resultList.add(campsite)
