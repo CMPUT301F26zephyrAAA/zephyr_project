@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.firestore
 import com.google.firebase.storage.storage
 import android.util.Log
@@ -15,9 +16,10 @@ import android.net.Uri
  * Intention is for each model to make an instance of this for their target type, ex. in CampsiteModel.kt, val connector = FirebaseConnector("campsite")
  *
  * @param target Name of target Firebase collection, ex. campsite, accounts, etc.
+ * @param firestore Database used for collection access.
  */
-class FirebaseConnector(target: String) {
-    val db = Firebase.firestore.collection(target)
+class FirebaseConnector(target: String, firestore: FirebaseFirestore = Firebase.firestore) {
+    val db = firestore.collection(target)
 
     /**
      * Adds a document to the target collection.

@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -59,6 +62,7 @@ class CampsiteDetailView {
      * @param onManageLottery Opens lottery management for this campsite.
      * @param ratingController Controller used to check rating eligibility.
      * @param onRateCampsite Opens the rating screen for an eligible entrant.
+     * @param onRemoved Returns to browsing after successful removal.
      */
     @Composable
     fun DetailScreen(
@@ -74,8 +78,11 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         ratingController: RatingController? = null,
-        onRateCampsite: (String) -> Unit = {}
+        onRateCampsite: (String) -> Unit = {},
+        onRemoved: () -> Unit = onBack,
     ) {
+        var removing by remember(campsiteId) { mutableStateOf(false) }
+        var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
         val model = controller.model
         val campsite = if (model.isLoading || model.error != null) {
             null
@@ -143,7 +150,27 @@ class CampsiteDetailView {
             lottery = lottery,
             waitingListController = waitingListController,
             ratingController = ratingController,
-            onRateCampsite = onRateCampsite
+            onRateCampsite = onRateCampsite,
+            removing = removing,
+            removalError = removalError,
+            onRemove = {
+                if (campsite != null && !removing) {
+                    removing = true
+                    removalError = null
+                    controller.removeCampsite(
+                        account,
+                        campsite,
+                        onSuccess = {
+                            removing = false
+                            onRemoved()
+                        },
+                        onFailure = {
+                            removing = false
+                            removalError = it
+                        },
+                    )
+                }
+            },
         )
     }
 
@@ -160,6 +187,9 @@ class CampsiteDetailView {
      * @param onManageLottery Called when the owner opens lottery management.
      * @param ratingController Controller used to offer ratings only after a completed stay.
      * @param onRateCampsite Opens the rating screen for this campsite.
+     * @param removing Whether removal is pending.
+     * @param removalError Error from the last removal request.
+     * @param onRemove Requests removal after confirmation.
      */
     @Composable
     fun DetailView(
@@ -180,10 +210,37 @@ class CampsiteDetailView {
         waitingListController: WaitingListController? = null,
         previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
-        onRateCampsite: (String) -> Unit = {}
+        onRateCampsite: (String) -> Unit = {},
+        removing: Boolean = false,
+        removalError: String? = null,
+        onRemove: () -> Unit = {},
     ) {
 
-        var previewAsOwner by remember { mutableStateOf(false) }
+        var showRemoveConfirmation by remember(campsite?.id) { mutableStateOf(false) }
+        BackHandler(enabled = removing) {}
+        if (showRemoveConfirmation && account?.userType == "admin" && campsite != null) {
+            AlertDialog(
+                onDismissRequest = { showRemoveConfirmation = false },
+                title = { Text("Remove campsite?") },
+                text = {
+                    Text("Remove ${campsite.name} and its associated lotteries and waiting lists?")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showRemoveConfirmation = false
+                            onRemove()
+                        },
+                        modifier = Modifier.testTag("ConfirmRemoveCampsite"),
+                    ) {
+                        Text("REMOVE")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRemoveConfirmation = false }) { Text("CANCEL") }
+                },
+            )
+        }
         val accountId = account?.id
         var joined by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var checkingMembership by remember(lottery?.id, accountId) { mutableStateOf(true) }
@@ -225,7 +282,11 @@ class CampsiteDetailView {
                         .padding(horizontal = 20.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    OutlinedButton(onClick = onBack, modifier = Modifier.testTag("DetailsBack")) {
+                    OutlinedButton(
+                        onClick = onBack,
+                        enabled = !removing,
+                        modifier = Modifier.testTag("DetailsBack"),
+                    ) {
                         Text("BACK")
                     }
                 }
@@ -325,7 +386,7 @@ class CampsiteDetailView {
                         // Entrant lottery registration
                         if (
                             !showOwnerView &&
-                            account != null &&
+                            account != null && account.userType != "admin" &&
                             lottery != null &&
                             !accountId.isNullOrBlank() &&
                             waitingListController != null
@@ -441,7 +502,22 @@ class CampsiteDetailView {
 
                         // Replace preview mode with actual campsite ownership validation
                         // when account integration is completed. this is just for the testing purpose.
-                        if (showOwnerView) {
+                        if (account?.userType == "admin") {
+                            removalError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            Button(
+                                onClick = { showRemoveConfirmation = true },
+                                enabled = !removing,
+                                modifier = Modifier.fillMaxWidth().testTag("RemoveCampsite"),
+                            ) {
+                                Text(
+                                    if (removing) {
+                                        "Removing..."
+                                    } else {
+                                        "REMOVE CAMPSITE"
+                                    }
+                                )
+                            }
+                        } else if (showOwnerView) {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,

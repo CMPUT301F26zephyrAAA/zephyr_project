@@ -164,8 +164,8 @@ class MainActivity : ComponentActivity() {
                            Button(onClick = { navHostController.navigate(GeneralScreen.Profile.route) }) {
                                Text("My Profile")
                            }
-                           Button(onClick = { navHostController.navigate(GeneralScreen.AdminMenu.route) }) {
-                               Text("TEST ADMIN")
+                           if (account.userType == "admin") {
+                               Button(onClick = { navHostController.navigate(GeneralScreen.AdminMenu.route) }) { Text("ADMIN") }
                            }
                        }
                     }
@@ -343,10 +343,7 @@ class MainActivity : ComponentActivity() {
                                 account = account,
                                 showOwnerView = showOwnerView,
                                 codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
-                                onBack = { navHostController.popBackStack(
-                                    CampsiteScreens.SummaryView.route,
-                                    false
-                                ) },
+                                onBack = { navHostController.popBackStack() },
                                 onEdit = { id ->
                                     navHostController.navigate(GeneralScreen.EditCampsite.edit(id))
                                 },
@@ -547,8 +544,11 @@ class MainActivity : ComponentActivity() {
 
                         // Browse all campsites
                         composable(route = GeneralScreen.AdminBrowseCampsite.route) {
-                            AdminBrowseScreen(
-                                title = "BROWSE CAMPSITES",
+                            AdminCampsiteListView(
+                                account = account, campsites = campsiteModel.campsites,
+                                isLoading = campsiteModel.isLoading, errorMessage = campsiteModel.error?.message,
+                                loadImage = { path, result -> campsiteController.loadCampsiteImage(path, { result(it) }, { result(null) }) },
+                                onCampsiteSelected = { navHostController.navigate(CampsiteScreens.DetailView.createRoute(it.id.toInt())) },
                                 onBack = { navHostController.popBackStack() }
                             )
                         }
