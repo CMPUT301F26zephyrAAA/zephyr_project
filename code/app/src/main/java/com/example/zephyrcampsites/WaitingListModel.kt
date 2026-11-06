@@ -12,6 +12,7 @@ class WaitingListModel : WaitingListGateway {
     private val waitingList = firestore.collection("waitingList")
     private val lotteries = firestore.collection("lottery")
 
+
     /**
      * Creates a consistent document Id for an entrant in a lottery
      * Ensures that the same entrant cannot have multiple registration documents for the same lottery
@@ -84,6 +85,16 @@ class WaitingListModel : WaitingListGateway {
             val currentTime = System.currentTimeMillis()
             val existingRegistration = transaction.get(registrationRef)
 
+            val capacity = lotteryDocument.getLong("waitlistCapacity")
+            val entrantCount = lotteryDocument.getLong("entrantCount")
+                ?: throw IllegalStateException(
+                    "Lottery entrant count is not initialized"
+                )
+
+            if (capacity != null && entrantCount >= capacity) {
+                throw IllegalStateException("Lottery waiting list is full")
+            }
+
             if (currentTime < registrationStart) {
                 throw IllegalStateException("Lottery registration has not started")
             }
@@ -111,8 +122,15 @@ class WaitingListModel : WaitingListGateway {
             transaction.set(
                 registrationRef,
                 registration
-            ) // tells firebase to save entrants waiting list registration
-            true //registration value of transaction block
+            )
+
+            transaction.update(
+                lotteryRef,
+                "entrantCount",
+                entrantCount + 1
+            )
+
+            true
         }
             .addOnSuccessListener {
                 onSuccess()
@@ -160,7 +178,18 @@ class WaitingListModel : WaitingListGateway {
                 throw IllegalStateException("You are not on this lottery's waiting list")
             }
 
+            val entrantCount = lotteryDocument.getLong("entrantCount")
+                ?: throw IllegalStateException(
+                    "Lottery entrant count is not initialized"
+                )
+
             transaction.delete(registrationRef)
+
+            transaction.update(
+                lotteryRef,
+                "entrantCount",
+                (entrantCount - 1).coerceAtLeast(0L)
+            )
             true
         }
             .addOnSuccessListener {

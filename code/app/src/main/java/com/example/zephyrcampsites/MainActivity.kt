@@ -1,3 +1,4 @@
+
 package com.example.zephyrcampsites
 
 import android.os.Bundle
@@ -5,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,26 +17,33 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.navigation.NavHostController
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
+import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.unit.dp
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -45,7 +54,7 @@ sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
     data object Profile : GeneralScreen("GeneralScreen/Profile")
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
-    data object RegisterCampsite : GeneralScreen("GeneralScreen/RegisterCampsite")
+    data object RegisterCampsite: GeneralScreen("GeneralScreen/RegisterCampsite")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
@@ -60,17 +69,18 @@ sealed class GeneralScreen(val route: String) {
     data object AdminBrowseImage : GeneralScreen("GeneralScreen/AdminBrowseImage")
 }
 
-/**
- * Identifies the current device and connects the models, controllers, and app screens.
- */
 class MainActivity : ComponentActivity() {
+
     private val accountsController = AccountsController()
     private val currentAccount = mutableStateOf<Account?>(null)
     private val accountLoading = mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val locationClient = LocationServices.getFusedLocationProviderClient(this)
+
+        val locationClient: FusedLocationProviderClient =
+            LocationServices.getFusedLocationProviderClient(this)
+
         enableEdgeToEdge()
 
         // Identify the user automatically when the app launches.
@@ -78,7 +88,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ZephyrCampsitesTheme {
-                val navHostController = rememberNavController()
+                val navHostController: NavHostController =
+                    rememberNavController()
+                var showOwnerView by rememberSaveable { mutableStateOf(false) }
+
                 val qrHandler = remember { QRCodeHandler() }
                 val campsiteSummaryView = remember { CampsiteSummaryView() }
                 val campsiteModel = remember { CampsiteModel() }
@@ -90,9 +103,11 @@ class MainActivity : ComponentActivity() {
 
                 // Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
+
                 val lotteryController = remember(lotteryModel) {
                     LotteryController(lotteryModel)
                 }
+
                 val lotteryView = remember(lotteryController) {
                     LotteryView(lotteryController)
                 }
@@ -107,24 +122,38 @@ class MainActivity : ComponentActivity() {
                 val account = currentAccount.value
                 LaunchedEffect(accountLoading.value, account?.id) {
                     if (!accountLoading.value) {
+
                         val destination = if (account != null) {
                             CampsiteScreens.SummaryView.route
                         } else {
                             GeneralScreen.AccountError.route
                         }
+
                         navHostController.navigate(destination) {
-                            popUpTo(GeneralScreen.AccountLoading.route) { inclusive = true }
+                            popUpTo(GeneralScreen.AccountLoading.route) {
+                                inclusive = true
+                            }
                             launchSingleTop = true
                         }
                     }
                 }
 
-                Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-                    val currentBackStackEntry by navHostController.currentBackStackEntryAsState()
+                // Column containing the profile button and navigation.
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                ) {
+
+
+                    val currentBackStackEntry by
+                    navHostController.currentBackStackEntryAsState()
                     val currentRoute = currentBackStackEntry?.destination?.route
 
                     // Show the profile button only on the campsite browsing screen.
-                    if (!accountLoading.value && account != null &&
+                    if (
+                        !accountLoading.value &&
+                        account != null &&
                         currentRoute == CampsiteScreens.SummaryView.route
                     ) {
                        Row(
@@ -146,6 +175,37 @@ class MainActivity : ComponentActivity() {
                         startDestination = GeneralScreen.AccountLoading.route,
                         modifier = Modifier.weight(1f)
                     ) {
+                        composable("allLotteries") {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                            ) {
+                                TextButton(
+                                    onClick = { navHostController.popBackStack() }
+                                ) {
+                                    Text("← Back")
+                                }
+                                Text(
+                                    text = "All Lotteries",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+
+                                LazyColumn {
+                                    items(lotteryModel.lotteries) { lottery ->
+                                        Text(
+                                            text = lottery.lotteryName,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    navHostController.navigate("lotteryDetails/${lottery.id}")
+                                                }
+                                                .padding(12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                         composable(route = GeneralScreen.RegisterCampsite.route) {
                             CampsiteFormView(
                                 controller = campsiteController,
@@ -156,67 +216,105 @@ class MainActivity : ComponentActivity() {
                         }
 
                         // Account loading screen.
-                        composable(route = GeneralScreen.AccountLoading.route) {
+                        composable(
+                            route = GeneralScreen.AccountLoading.route
+                        ) {
                             Text("Account loading...")
                         }
 
                         // Account error screen with Retry.
-                        composable(route = GeneralScreen.AccountError.route) {
+                        composable(
+                            route = GeneralScreen.AccountError.route
+                        ) {
                             Column {
                                 Text("Unable to load account.")
-                                Button(onClick = {
-                                    navHostController.navigate(GeneralScreen.AccountLoading.route) {
-                                        popUpTo(GeneralScreen.AccountError.route) { inclusive = true }
-                                        launchSingleTop = true
+
+                                Button(
+                                    onClick = {
+                                        navHostController.navigate(
+                                            GeneralScreen.AccountLoading.route
+                                        ) {
+                                            popUpTo(
+                                                GeneralScreen.AccountError.route
+                                            ) {
+                                                inclusive = true
+                                            }
+                                            launchSingleTop = true
+                                        }
+
+                                        initializeUser()
                                     }
-                                    initializeUser()
-                                }) {
+                                ) {
                                     Text("Retry")
                                 }
                             }
                         }
 
-                    composable(route = CampsiteScreens.SummaryView.route) {
-                        campsiteSummaryView.SummaryView(
-                            onClick = { navHostController.navigate(GeneralScreen.RegisterCampsite.route) },
-                            openDetail = { id ->
-                                navHostController.navigate(
-                                    CampsiteScreens.DetailView.createRoute(id)
-                                )
-                            },
-                            filterPage = {
-                                navHostController.navigate(
-                                    CampsiteScreens.FilterPage.route
-                                )
-                            },
-                            searchHandler = { userFilters ->
-                                campsiteController.search(userFilters)
-                            },
-                            imageLoader = { id ->
-                                campsiteController.imageGetter(id)
-                            },
-                            locationClient = locationClient
-                        )
-                    }
+                        // Campsite summary screen.
+                        composable(
+                            route = CampsiteScreens.SummaryView.route
+                        ) {
+                            campsiteSummaryView.SummaryView(
+                                onClick = {
+                                    navHostController.navigate(
+                                        GeneralScreen.RegisterCampsite.route
+                                    )
+                                },
+                                openDetail = { id ->
+                                    navHostController.navigate(
+                                        CampsiteScreens.DetailView.createRoute(id)
+                                    )
+                                },
+                                filterPage = {
+                                    navHostController.navigate(
+                                        CampsiteScreens.FilterPage.route
+                                    )
+                                },
+                                searchHandler = { userFilters ->
+                                    campsiteController.search(userFilters)
+                                },
+                                imageLoader = { id ->
+                                    campsiteController.imageGetter(id)
+                                },
+                                locationClient = locationClient,
+                                showOwnerView = showOwnerView,
+                                onViewChanged = { isOwner ->
+                                    showOwnerView = isOwner
+                                },
+                                onViewAllLotteries = {
+                                    navHostController.navigate("allLotteries")
+                                }
+                            )
+                        }
 
                         // QR scanning screen.
-                        composable(route = GeneralScreen.QRScan.route) {
+                        composable(
+                            route = GeneralScreen.QRScan.route
+                        ) {
                             qrHandler.QRScan(
                                 campsiteNav = { id ->
-                                    navHostController.navigate(CampsiteScreens.DetailView.createRoute(id))
+                                    navHostController.navigate(
+                                        CampsiteScreens.DetailView.createRoute(id)
+                                    )
                                 },
-                                accountNav = {},
-                                lotteryNav = {}
+                                accountNav = { },
+                                lotteryNav = { }
                             )
                         }
 
                         // Campsite details screen.
                         composable(
                             route = CampsiteScreens.DetailView.route,
-                            arguments = listOf(navArgument("id") { type = NavType.IntType })
+                            arguments = listOf(
+                                navArgument("id") {
+                                    type = NavType.IntType
+                                }
+                            )
                         ) { backStackEntry ->
-                            val campsiteId = backStackEntry.arguments?.getInt("id")
-                                ?: return@composable
+
+                            val campsiteId =
+                                backStackEntry.arguments?.getInt("id")
+                                    ?: return@composable
 
                             val now = System.currentTimeMillis()
 
@@ -243,8 +341,12 @@ class MainActivity : ComponentActivity() {
                                 controller = campsiteController,
                                 accountsController = accountsController,
                                 account = account,
+                                showOwnerView = showOwnerView,
                                 codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
-                                onBack = { navHostController.popBackStack() },
+                                onBack = { navHostController.popBackStack(
+                                    CampsiteScreens.SummaryView.route,
+                                    false
+                                ) },
                                 onEdit = { id ->
                                     navHostController.navigate(GeneralScreen.EditCampsite.edit(id))
                                 },
@@ -314,16 +416,76 @@ class MainActivity : ComponentActivity() {
                         // Lottery settings screen.
                         composable(
                             route = "${GeneralScreen.LotterySettings.route}/{campsiteId}",
-                            arguments = listOf(navArgument("campsiteId") { type = NavType.StringType })
+                            arguments = listOf(
+                                navArgument("campsiteId") {
+                                    type = NavType.StringType
+                                }
+                            )
                         ) { backStackEntry ->
-                            val campsiteId = backStackEntry.arguments?.getString("campsiteId")
+
+                            val campsiteId = backStackEntry.arguments
+                                ?.getString("campsiteId")
                                 ?: return@composable
-                            lotteryView.LotterySettingsView(campsiteId)
+
+                        lotteryView.LotterySettingsView(
+                            campsiteId = campsiteId,
+                            onLotteryCreated = { lotteryId ->
+                                navHostController.navigate("lotteryDetails/$lotteryId")
+                            },
+                            onBackClick = {
+                                navHostController.popBackStack()
+                            }
+                        )
                         }
 
-                        // Entrant profile screen.
+                        composable(
+                            route = "lotteryDetails/{lotteryId}",
+                            arguments = listOf(
+                                navArgument("lotteryId") {
+                                    type = NavType.StringType
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val lotteryId = backStackEntry.arguments
+                                ?.getString("lotteryId") ?: return@composable
+
+                            lotteryView.LotteryDetailsView(
+                                lotteryId = lotteryId,
+                                onEditClick = {
+                                    navHostController.navigate("editLottery/$lotteryId")
+                                },
+                                onBackClick = {
+                                    navHostController.popBackStack()
+                                }
+                            )
+                        }
+
+                        composable(
+                            route = "editLottery/{lotteryId}",
+                            arguments = listOf(
+                                navArgument("lotteryId") {
+                                    type = NavType.StringType
+                                }
+                            )
+                        ) { backStackEntry ->
+                            val lotteryId = backStackEntry.arguments
+                                ?.getString("lotteryId") ?: return@composable
+
+                            lotteryView.EditLotteryView(
+                                lotteryId = lotteryId,
+                                onSaveClick = {
+                                    navHostController.popBackStack()
+                                },
+                                onBackClick = {
+                                    navHostController.popBackStack()
+                                }
+                            )
+                        }
+
+                        // Entrant profile screen
                         composable(route = GeneralScreen.Profile.route) {
                             val profileAccount = currentAccount.value
+
                             if (profileAccount != null) {
                                 AccountsView().ProfileOverviewView(
                                     account = profileAccount,
@@ -357,12 +519,16 @@ class MainActivity : ComponentActivity() {
 
                         composable(route = GeneralScreen.PersonalInformation.route) {
                             val profileAccount = currentAccount.value
+
                             if (profileAccount != null) {
                                 AccountsView().ProfileView(
                                     account = profileAccount,
                                     accountsController = accountsController,
-                                    onSaved = { currentAccount.value = it },
-                                    onBack = { navHostController.popBackStack() }
+                                    onSaved = {updatedAccount ->
+                                        currentAccount.value = updatedAccount
+                                    },
+                                    onBack = {navHostController.popBackStack()
+                                    }
                                 )
                             }
                         }
@@ -422,6 +588,7 @@ class MainActivity : ComponentActivity() {
     // [AI-03] OpenAI, ChatGPT, assistance understanding asynchronous account initialization and callback state. Also was unsure of how to us Toast.makeText
     private fun initializeUser() {
         accountLoading.value = true
+
         accountsController.initializeAccount(
             context = this,
             onSuccess = { account ->
@@ -431,6 +598,7 @@ class MainActivity : ComponentActivity() {
             onError = { exception ->
                 currentAccount.value = null
                 accountLoading.value = false
+
                 Toast.makeText(
                     this,
                     "Failed to load account: ${exception.message}",

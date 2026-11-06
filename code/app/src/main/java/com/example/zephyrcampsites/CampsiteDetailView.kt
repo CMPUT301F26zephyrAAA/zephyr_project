@@ -66,6 +66,7 @@ class CampsiteDetailView {
         controller: CampsiteController,
         accountsController: AccountsController,
         account: Account?,
+        showOwnerView: Boolean = false,
         codeGenerator: (String, Int) -> ImageBitmap,
         onBack: () -> Unit,
         onManageLottery: (String) -> Unit,
@@ -127,6 +128,7 @@ class CampsiteDetailView {
             codeGenerator = codeGenerator,
             onBack = onBack,
             account = account,
+            showOwnerView = showOwnerView,
             imageUrl = imageUrl,
             ownerName = ownerName,
             isLoading = model.isLoading,
@@ -166,6 +168,7 @@ class CampsiteDetailView {
 
         onBack: () -> Unit,
         account: Account? = null,
+        showOwnerView: Boolean = false,
         imageUrl: String? = null,
         ownerName: String? = null,
         statusText: String = "Campsite not found.",
@@ -175,9 +178,12 @@ class CampsiteDetailView {
         onManageLottery: (String) -> Unit = {},
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
+        previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
         onRateCampsite: (String) -> Unit = {}
     ) {
+
+        var previewAsOwner by remember { mutableStateOf(false) }
         val accountId = account?.id
         var joined by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var checkingMembership by remember(lottery?.id, accountId) { mutableStateOf(true) }
@@ -318,7 +324,8 @@ class CampsiteDetailView {
 
                         // Entrant lottery registration
                         if (
-                            account?.userType == "entrant" &&
+                            !showOwnerView &&
+                            account != null &&
                             lottery != null &&
                             !accountId.isNullOrBlank() &&
                             waitingListController != null
@@ -432,13 +439,16 @@ class CampsiteDetailView {
 
                         }
 
-                        if (account?.userType == "owner" && account.id == campsite.ownerID) {
+                        // Replace preview mode with actual campsite ownership validation
+                        // when account integration is completed. this is just for the testing purpose.
+                        if (showOwnerView) {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,
                                 onEdit = onEdit,
                                 onManageLottery = onManageLottery
                             )
+
                         }
                     }
                 }
@@ -590,4 +600,5 @@ class CampsiteDetailView {
             Text("Manage Lottery")
         }
     }
+
 }
