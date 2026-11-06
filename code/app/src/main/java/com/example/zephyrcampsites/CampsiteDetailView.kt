@@ -63,6 +63,7 @@ class CampsiteDetailView {
         controller: CampsiteController,
         accountsController: AccountsController,
         account: Account?,
+        showOwnerView: Boolean,
         codeGenerator: (String, Int) -> ImageBitmap,
         onBack: () -> Unit,
         onManageLottery: (String) -> Unit,
@@ -121,6 +122,7 @@ class CampsiteDetailView {
             codeGenerator = codeGenerator,
             onBack = onBack,
             account = account,
+            showOwnerView = showOwnerView,
             imageUrl = imageUrl,
             ownerName = ownerName,
             statusText = when {
@@ -153,13 +155,17 @@ class CampsiteDetailView {
 
         onBack: () -> Unit,
         account: Account? = null,
+        showOwnerView: Boolean,
         imageUrl: String? = null,
         ownerName: String? = null,
         statusText: String = "Campsite not found.",
         onManageLottery: (String) -> Unit = {},
         lottery: Lottery? = null,
-        waitingListController: WaitingListController? = null
+        waitingListController: WaitingListController? = null,
+        previewOwnerMode: Boolean = false
     ) {
+
+        var previewAsOwner by remember { mutableStateOf(false) }
         val accountId = account?.id
         var joined by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var checkingMembership by remember(lottery?.id, accountId) { mutableStateOf(true) }
@@ -216,6 +222,7 @@ class CampsiteDetailView {
                 if (campsite == null) {
                     Text(statusText, modifier = Modifier.padding(20.dp))
                 } else {
+                    Text("Debug Owner View: $showOwnerView") // test
                     promotionalImage(imageUrl = imageUrl, campsiteName = campsite.name)
 
                     Column(
@@ -255,7 +262,8 @@ class CampsiteDetailView {
 
                         // Entrant lottery registration
                         if (
-                            account?.userType == "entrant" &&
+                            !showOwnerView &&
+                            account != null &&
                             lottery != null &&
                             !accountId.isNullOrBlank() &&
                             waitingListController != null
@@ -369,7 +377,7 @@ class CampsiteDetailView {
 
                         }
 
-                        if (account?.userType == "owner" && account.id == campsite.ownerID) {
+                        if (showOwnerView) {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,
@@ -492,6 +500,7 @@ class CampsiteDetailView {
         codeGenerator: (String, Int) -> ImageBitmap,
         onManageLottery: (String) -> Unit
     ) {
+        Text("Debug campsite ID: ${campsite.id}") // test
         val numericId = campsite.id.toIntOrNull() ?: return
         var codeShow by remember(campsite.id) { mutableStateOf(false) }
         val code = remember(campsite.id) { codeGenerator("campsite", numericId) }

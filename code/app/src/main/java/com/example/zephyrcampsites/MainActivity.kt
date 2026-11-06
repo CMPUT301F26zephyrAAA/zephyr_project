@@ -25,6 +25,8 @@ import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.navigation.compose.currentBackStackEntryAsState
 
 /**
@@ -64,6 +66,7 @@ class MainActivity : ComponentActivity() {
             ZephyrCampsitesTheme {
                 val navHostController: NavHostController =
                     rememberNavController()
+                var showOwnerView by rememberSaveable { mutableStateOf(false) }
 
                 val qrHandler = remember { QRCodeHandler() }
                 val campsiteSummaryView = remember { CampsiteSummaryView() }
@@ -214,7 +217,11 @@ class MainActivity : ComponentActivity() {
                                 imageLoader = { id ->
                                     campsiteController.imageGetter(id)
                                 },
-                                locationClient = locationClient
+                                locationClient = locationClient,
+                                showOwnerView = showOwnerView,
+                                onViewChanged = { isOwner ->
+                                    showOwnerView = isOwner
+                                }
                             )
                         }
 
@@ -272,8 +279,12 @@ class MainActivity : ComponentActivity() {
                                 controller = campsiteController,
                                 accountsController = accountsController,
                                 account = account,
+                                showOwnerView = showOwnerView,
                                 codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
-                                onBack = { navHostController.popBackStack() },
+                                onBack = { navHostController.popBackStack(
+                                    CampsiteScreens.SummaryView.route,
+                                    false
+                                ) },
                                 onManageLottery = { id ->
                                     navHostController.navigate("${GeneralScreen.LotterySettings.route}/$id")
                                 },

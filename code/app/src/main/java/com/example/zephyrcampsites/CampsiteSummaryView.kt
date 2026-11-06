@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ButtonDefaults.buttonColors
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
@@ -40,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -90,7 +93,10 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
         searchHandler: (UserFilter) -> List<Campsite>,
         filterPage: () -> Unit,
         imageLoader: (Int) -> String,
-        locationClient: FusedLocationProviderClient
+        locationClient: FusedLocationProviderClient,
+        showOwnerView: Boolean,
+        onViewChanged: (Boolean) -> Unit
+
     ) {
         val searchString : TextFieldState = rememberTextFieldState(initialText = currentUserFilters.searchString) // Creates text field state based on existing search query
 
@@ -101,6 +107,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
         val focusManager = LocalFocusManager.current
 
         var errorState by remember { mutableStateOf(false) }
+
 
         Column(modifier = Modifier
             .fillMaxSize()
@@ -167,6 +174,21 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                 Button(onClick = onClick) {
                     Text("testing button")
                 }
+            }
+            Button(
+                onClick = {
+                    onViewChanged(!showOwnerView)},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 8.dp),
+                colors = buttonColors(
+                    containerColor = Color(0xFF1B5E20)
+                )
+            ) {
+                Text(
+                    if (showOwnerView) "Switch to Entrant View"
+                    else "Switch to Owner View"
+                )
             }
         }
         if (errorState) {
