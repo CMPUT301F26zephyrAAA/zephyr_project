@@ -19,4 +19,13 @@ sealed class CampsiteScreens(val route: String) {
         }
     }
     data object FilterPage : CampsiteScreens("CampsiteScreen/FilterPage")
+    data object RateCampsite : CampsiteScreens("CampsiteScreen/rating/{id}") {
+        /**
+         * Creates the rating route for a campsite.
+         *
+         * @param id Campsite ID.
+         * @return Route used to open the campsite rating screen.
+         */
+        fun createRoute(id: String): String = "CampsiteScreen/rating/$id"
+    }
 }
