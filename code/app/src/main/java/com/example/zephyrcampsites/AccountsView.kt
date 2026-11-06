@@ -1,13 +1,16 @@
 package com.example.zephyrcampsites
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -16,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -26,9 +30,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.zephyrcampsites.ui.theme.ProfileMenuGreen
 
 /**
  * View class for displaying and editing entrant account details
@@ -82,35 +89,59 @@ class AccountsView {
                 style = MaterialTheme.typography.bodySmall
             )
 
-            OutlinedButton(
-                onClick = onEdit,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("personalInformationButton")
-            ){
-                Column(modifier = Modifier.padding(8.dp)) {
-                    Text("Personal Information")
-                    Text("View and change personal information", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-
-            OutlinedButton(
-                onClick = onPolicy,
-                modifier = Modifier.fillMaxWidth().testTag("PolicyAndGuidelinesEntry")
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
-                        Text(stringResource(R.string.policy_entry_title))
-                        Text(stringResource(R.string.policy_entry_description), style = MaterialTheme.typography.bodySmall)
-                    }
-                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                profileOption(
+                    title = "Personal Information",
+                    description = "View and change personal information",
+                    tag = "personalInformationButton",
+                    onClick = onEdit
+                )
+                profileOption(
+                    title = stringResource(R.string.policy_entry_title),
+                    description = stringResource(R.string.policy_entry_description),
+                    tag = "PolicyAndGuidelinesEntry",
+                    onClick = onPolicy
+                )
             }
             Text("Account and App Settings", style = MaterialTheme.typography.titleMedium)
             Text("Change settings related to notifications, app themes, etc")
             Text("DELETE PROFILE", color = MaterialTheme.colorScheme.onSurfaceVariant)
             OutlinedButton(onClick = onBack) {
                 Text("BACK")
+            }
+        }
+    }
+
+    /**
+     * Displays a clickable profile menu entry with a title, description, and navigation arrow.
+     *
+     * @param title Name of the destination.
+     * @param description Description displayed below the title.
+     * @param tag Test identifier for the entry.
+     * @param onClick Opens the destination.
+     */
+    @Composable
+    private fun profileOption(title: String, description: String, tag: String, onClick: () -> Unit) {
+        Surface(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth().testTag(tag),
+            shape = RoundedCornerShape(2.dp),
+            color = ProfileMenuGreen,
+            contentColor = Color.White
+        ) {
+            Box(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 98.dp)
+                    .padding(start = 15.dp, top = 10.dp, end = 10.dp, bottom = 4.dp)
+            ) {
+                Column(modifier = Modifier.padding(end = 28.dp, bottom = 28.dp)) {
+                    Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Light)
+                    Text(description, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraLight)
+                }
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier.align(Alignment.BottomEnd).size(24.dp)
+                )
             }
         }
     }
