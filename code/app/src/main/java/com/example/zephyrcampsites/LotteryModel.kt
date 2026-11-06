@@ -17,15 +17,23 @@ class LotteryModel : ObservableModel<LotteryModel>() {
      * Creates a lottery for a campsite.
      */
     fun createLottery(
+        lotteryName: String,
         campsiteId: String,
         registrationStart: Long,
         registrationEnd: Long,
         bookingStart: Long,
         bookingEnd: Long,
         numberOfWinners: Int = 1,
-        waitlistCapacity: Int? = null
-    ) {
+        waitlistCapacity: Int?,
+        onSuccess: (String) -> Unit,
+        onFailure: (Exception) -> Unit
+    ): String {
         LotteryValidator().validateCampsiteId(campsiteId)
+
+        // validate the lottery name
+        require(lotteryName.isNotBlank()) {
+            "Enter a lottery name."
+        }
 
         // Registration must start in the future.
         LotteryValidator().validateFutureRegistrationStart(
@@ -71,6 +79,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
 
 
         val lottery = Lottery(UUID.randomUUID().toString())
+        lottery.lotteryName = lotteryName.trim()
 
         lottery.campsiteId = campsiteId
         lottery.registrationStart = registrationStart
@@ -80,7 +89,17 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.numberOfWinners = numberOfWinners
         lottery.waitlistCapacity = waitlistCapacity
 
-        connector.add(lottery)
+        // Save the lottery and confirm the result.
+        connector.addWithCallback(
+            value = lottery,
+            onSuccess = {
+                onSuccess(lottery.id)
+            },
+            onFailure = { exception ->
+                onFailure(exception)
+            }
+        )
+        return lottery.id
     }
 
 
@@ -219,6 +238,135 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         // Save the updated capacity to Firebase.
         connector.add(lottery)
     }
+
+    fun updateLottery(
+        lotteryId: String,
+        lotteryName: String,
+        registrationStart: Long,
+        registrationEnd: Long,
+        bookingStart: Long,
+        bookingEnd: Long,
+        numberOfWinners: Int,
+        waitlistCapacity: Int?,
+        onSuccess: () -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
+        // Find the lottery that needs to be updated.
+        val lottery = lotteries.find { it.id == lotteryId }
+            ?: throw IllegalArgumentException("Lottery not found.")
+
+        val now = System.currentTimeMillis()
+
+        // Check the lottery name.
+        require(lotteryName.isNotBlank()) {
+            "Lottery name cannot be empty."
+        }
+
+        // Registration dates cannot be changed after registration starts.
+        require(
+            now < lottery.registrationStart ||
+                    (registrationStart == lottery.registrationStart &&
+                            registrationEnd == lottery.registrationEnd)
+        ) {
+            "Registration period cannot be changed after registration starts."
+        }
+
+        // Booking dates cannot be changed after registration starts.
+        require(
+            now < lottery.registrationStart ||
+                    (bookingStart == lottery.bookingStart &&
+                            bookingEnd == lottery.bookingEnd)
+        ) {
+            "Booking period cannot be changed after registration starts."
+        }
+
+        // Check that the registration period is valid.
+        require(registrationStart < registrationEnd) {
+            "Invalid registration period."
+        }
+
+        // A changed registration start date must be in the future.
+        if (registrationStart != lottery.registrationStart) {
+            require(registrationStart > now) {
+                "Registration start must be in the future."
+            }
+        }
+
+        // Registration must finish before booking begins.
+        LotteryValidator().validateRegistrationBeforeBooking(
+            registrationEnd,
+            bookingStart
+        )
+
+        require(registrationEnd < bookingStart && bookingStart < bookingEnd) {
+            "Booking must start after registration ends and end after it starts."
+        }
+
+        // Check that a newly changed booking start is in the future.
+        if (bookingStart != lottery.bookingStart) {
+            require(bookingStart > System.currentTimeMillis()) {
+                "Booking start must be in the future."
+            }
+        }
+
+        // Check for overlapping booking periods on the same campsite.
+        lotteries
+            .filter { other ->
+                other.id != lotteryId &&
+                        other.campsiteId == lottery.campsiteId
+            }
+            .forEach { other ->
+                LotteryValidator().validateNoBookingOverlap(
+                    bookingStart,
+                    bookingEnd,
+                    other.bookingStart,
+                    other.bookingEnd
+                )
+            }
+
+        // Winner count can only be changed before registration starts.
+        if (numberOfWinners != lottery.numberOfWinners) {
+            LotteryValidator().validateRegistrationNotStarted(
+                lottery.registrationStart,
+                now
+            )
+        }
+
+        // Check that the winner count is valid.
+        LotteryValidator().validateNumberOfWinners(numberOfWinners)
+
+        // Check whether the waitlist capacity can be changed.
+        if (waitlistCapacity != lottery.waitlistCapacity) {
+            val registrationStarted = now >= lottery.registrationStart
+
+            LotteryCapacityValidator.validateCapacityUpdate(
+                oldCapacity = lottery.waitlistCapacity,
+                newCapacity = waitlistCapacity,
+                registrationStarted = registrationStarted
+            )
+        }
+
+        // Create a copy so the existing lottery is not changed
+        // before all validation is complete.
+        val updatedLottery = lottery.copy()
+
+        updatedLottery.lotteryName = lotteryName.trim()
+        updatedLottery.registrationStart = registrationStart
+        updatedLottery.registrationEnd = registrationEnd
+        updatedLottery.bookingStart = bookingStart
+        updatedLottery.bookingEnd = bookingEnd
+        updatedLottery.numberOfWinners = numberOfWinners
+        updatedLottery.waitlistCapacity = waitlistCapacity
+
+        // Save the updated lottery and report the result.
+        connector.addWithCallback(
+            value = updatedLottery,
+            onSuccess = onSuccess,
+            onFailure = onFailure
+        )
+    }
+
+
 
 
     init {

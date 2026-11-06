@@ -113,4 +113,21 @@ class FirebaseConnector(target: String) {
             }
         }
     }
+
+    /**
+     * Saves a document and reports whether the operation succeeded.
+     */
+    fun addWithCallback(
+        value: DataHolder,
+        onSuccess: () -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
+        db.document(value.id).set(value)
+            .addOnSuccessListener {
+                onSuccess()
+            }
+            .addOnFailureListener { exception ->
+                onFailure(exception)
+            }
+    }
 }

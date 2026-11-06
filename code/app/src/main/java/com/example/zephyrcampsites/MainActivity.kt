@@ -150,7 +150,56 @@ class MainActivity : ComponentActivity() {
                             val campsiteId = backStackEntry.arguments
                                 ?.getString("campsiteId") ?: return@composable
 
-                            lotteryView.LotterySettingsView(campsiteId)
+                            lotteryView.LotterySettingsView(
+                                campsiteId = campsiteId,
+                                onLotteryCreated = { lotteryId ->
+                                    navHostController.navigate("lotteryDetails/$lotteryId")
+                                }
+                            )
+                        }
+                        composable(
+                            route = "lotteryDetails/{lotteryId}",
+                            arguments = listOf(
+                                navArgument("lotteryId") {
+                                    type = NavType.StringType
+                                }
+                            )
+                        ) { backStackEntry ->
+
+                            val lotteryId = backStackEntry.arguments
+                                ?.getString("lotteryId") ?: return@composable
+
+                            lotteryView.LotteryDetailsView(
+                                lotteryId = lotteryId,
+                                onEditClick = {
+                                    navHostController.navigate("editLottery/$lotteryId")
+                                },
+                                onBackClick = {
+                                    navHostController.popBackStack()
+                                }
+                            )
+                        }
+                        composable(
+                            route = "editLottery/{lotteryId}",
+                            arguments = listOf(
+                                navArgument("lotteryId") {
+                                    type = NavType.StringType
+                                }
+                            )
+                        ) { backStackEntry ->
+
+                            val lotteryId = backStackEntry.arguments
+                                ?.getString("lotteryId") ?: return@composable
+
+                            lotteryView.EditLotteryView(
+                                lotteryId = lotteryId,
+                                onSaveClick = {
+                                    navHostController.popBackStack()
+                                },
+                                onBackClick = {
+                                    navHostController.popBackStack()
+                                }
+                            )
                         }
                     }
                 }

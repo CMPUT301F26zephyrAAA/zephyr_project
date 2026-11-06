@@ -9,6 +9,7 @@ data class Lottery(
     override val id: String = ""
 ) : DataHolder(id) {
 
+    var lotteryName: String = ""
     var campsiteId: String = ""
     var registrationStart: Long = 0L
     var registrationEnd: Long = 0L
