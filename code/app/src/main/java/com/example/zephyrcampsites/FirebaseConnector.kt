@@ -98,23 +98,47 @@ class FirebaseConnector(target: String) {
     }
 
     /**
-     * (Incomplete, probably unusable) Gets resource from Firebase storage.
+     * Resolves an HTTPS image URL or an existing Firebase Storage path.
      *
-     * @param path File path of resource to get.
-     * @param result Method to respond when operation is a success, used to save the resource.
+     * @param path HTTPS URL or Firebase Storage path of the image.
+     * @param result Called when the image URL is available.
+     * @param onError Called if the path is invalid or the URL cannot be retrieved.
      */
     fun resourceGetter(
         path: String,
-        result: (String) -> Unit
+        result: (String) -> Unit,
+        onError: (Exception) -> Unit = {}
     ) {
-        val storageRef = Firebase.storage.reference
-        val resource =  storageRef.child(path)
-        resource.downloadUrl.addOnSuccessListener {uri ->
-            result(uri.toString())
-        }.addOnCompleteListener { task ->
-            if (!task.isSuccessful) {
-                throw IllegalStateException("Database operation failed.")
-            }
+        val cleanPath = path.trim()
+
+        if (cleanPath.isBlank()) {
+            onError(IllegalArgumentException("Image path is empty."))
+            return
         }
+
+        if (cleanPath.startsWith("https://")) {
+            result(cleanPath)
+            return
+        }
+
+        if (cleanPath.startsWith("http://")) {
+            onError(IllegalArgumentException("Image URLs must use HTTPS."))
+            return
+        }
+
+        val resource = try {
+            if (cleanPath.startsWith("gs://")) {
+                Firebase.storage.getReferenceFromUrl(cleanPath)
+            } else {
+                Firebase.storage.reference.child(cleanPath)
+            }
+        } catch (exception: IllegalArgumentException) {
+            onError(exception)
+            return
+        }
+
+        resource.downloadUrl
+            .addOnSuccessListener { uri -> result(uri.toString()) }
+            .addOnFailureListener { exception -> onError(exception) }
     }
 }

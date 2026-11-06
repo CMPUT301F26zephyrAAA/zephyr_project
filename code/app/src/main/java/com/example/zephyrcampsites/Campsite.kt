@@ -9,6 +9,7 @@ import java.util.Date
  * No methods, only data holder. ID is given to create, and everything is var so owners can modify.
  *
  * @param id the campsite id to assign to this instance.
+ * @property pricePerNight Nightly price in Canadian dollars, or null if not supplied.
  */
 data class Campsite (override val id: String = "0") : DataHolder(id) {
     override var name: String = ""
@@ -24,7 +25,7 @@ data class Campsite (override val id: String = "0") : DataHolder(id) {
     var rating: MutableList<Int> = mutableListOf()
     var rulesPolicies: List<String> = listOf("")
     var promoImagePaths: List<String> = listOf("")
-    var pricePerNight: Double = 0.0
+    var pricePerNight: Double? = null
     var rules: String = "" //holds up the Rules & Cancellation policy for registering a campsite
     var toggle: Boolean = false // holds the switch for "Entrants must accept rules before reserving"
 }

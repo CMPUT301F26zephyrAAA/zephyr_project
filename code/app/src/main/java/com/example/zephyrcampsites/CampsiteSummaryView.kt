@@ -63,6 +63,7 @@ import java.util.Date
  */
 class CampsiteSummaryView : ViewObserver<CampsiteModel> {
     var currentUserFilters = UserFilter("", null, Int.MAX_VALUE, Date(), Date(), 1) // Holds user filters that they have set, in (Search string, device location, distance limit, start date, end date, # of guests)
+    private val userFilterManager = UserFilterManager()
 
     /**
      * Update function for MVC? But doesn't seem to be needed because of how Jetpack Compose works.
@@ -78,6 +79,8 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
      * @param openDetail Method that responds when a details page needs to be opened.
      * @param searchHandler Method that handles the search and returns the result list of campsites
      * @param filterPage Method that responds when a filter page needs to be opened.
+     * @param imageLoader Existing list-image URL getter.
+     * @param locationClient Location provider used by the filter controls.
      */
 
     @Composable
@@ -93,7 +96,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
 
         var filterOpen by remember {mutableStateOf(false)} // For tracking if the filter dialog is open
 
-        currentUserFilters.searchString = searchString.text as String // For syncing currentUserFilters when user enters search string on summary page
+        currentUserFilters.searchString = searchString.text.toString() // Keeps the current search when returning from details.
 
         val focusManager = LocalFocusManager.current
 
@@ -112,9 +115,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                 TextField(
                     state = searchString,
                     label = { Text("Campsite Search (Name/Location) ") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                    modifier = Modifier.fillMaxWidth().weight(1f).testTag("CampsiteSearch"),
                     lineLimits = TextFieldLineLimits.SingleLine,
                     keyboardOptions = KeyboardOptions(
                         imeAction = ImeAction.Done
@@ -132,7 +133,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                 }
             }
             if (filterOpen) {
-                UserFilterManager().FilterSetter(
+                userFilterManager.FilterSetter(
                     locationClient = locationClient,
                     clearFilter = {
                         searchString.clearText()
@@ -194,6 +195,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 40.dp, vertical = 16.dp)
+                .testTag("CampsiteRow${item.id}")
                 .clickable { onClick(item.id.toInt()) },
             elevation = CardDefaults.cardElevation(
                 defaultElevation = 5.dp
