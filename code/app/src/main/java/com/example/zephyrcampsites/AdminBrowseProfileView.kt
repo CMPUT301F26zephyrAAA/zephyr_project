@@ -36,7 +36,7 @@ class AdminBrowseProfileView {
     /**
      * Displays all registered profiles. Updates automatically when firestore updates.
      *
-     * @param onProfileSelected Callback triggered when a profile item is clicked
+     * @param onProfileSelected When a profile item is clicked
      * @param onBack Returns to the previous screen
      */
     @Composable
