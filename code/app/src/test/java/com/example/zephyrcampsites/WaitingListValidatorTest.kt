@@ -2,7 +2,8 @@ package com.example.zephyrcampsites
 
 import org.junit.Assert.*
 import org.junit.Test
-//this test was written with AI - https://chatgpt.com/share/6aed8276-605c-83eb-81c0-8249008661e5
+// [AI-08] OpenAI, ChatGPT, assistance with developing unit tests for lottery registration eligibility, duplicate membershidp, and waiting-list capacity
+
 class WaitingListValidatorTest {
 
     @Test

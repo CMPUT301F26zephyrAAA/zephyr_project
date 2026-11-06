@@ -233,6 +233,7 @@ class CampsiteDetailViewTest {
             }
         }
     }
+    // [AI-07] OpenAI, ChatGPT, assistance with developing Compose UI tests and a fake waiting-list implementation for simulating registration and removal operations.
 
     private class FakeWaitingListGateway : WaitingListGateway {
         var joinCalled = false
@@ -521,6 +522,7 @@ class CampsiteDetailViewTest {
             .performClick()
 
         composeTestRule.onNodeWithText("Failed to join waiting list")
+            .performScrollTo()
             .assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Joined")

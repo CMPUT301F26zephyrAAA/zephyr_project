@@ -21,8 +21,10 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
      * @param context Android application context.
      * @return The Android device ID.
      */
+    //AI Citation [AI-01]
+    //Open AI, ChatGPT was used for assistance understanding Android device identification
+    //AI Usage and citation in WIKI
     fun getDeviceId(context: Context): String? {
-        //AI used for understanding how to implement this - https://chatgpt.com/share/6ae946a8-c8cc-83ed-96b3-65be0be7a44a
         return Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ANDROID_ID
@@ -36,6 +38,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
      * @param onSuccess Returns the identified account.
      * @param onError Called if identification fails.
      */
+    // [AI-04] OpenAI, ChatGPT, assistance with device-based account initialization and Firebase callback handling.
     fun initializeAccount(
         context: Context,
         onSuccess: (Account) -> Unit,

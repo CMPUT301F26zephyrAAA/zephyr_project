@@ -475,8 +475,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // AI use: ChatGPT
-    // https://chatgpt.com/share/6ae95606-2174-83ed-945d-28ed82129f67
+    /**
+     * Loads the current account and updates the account initialization status.
+     */
+    // [AI-03] OpenAI, ChatGPT, assistance understanding asynchronous account initialization and callback state. Also was unsure of how to us Toast.makeText
     private fun initializeUser() {
         accountLoading.value = true
 

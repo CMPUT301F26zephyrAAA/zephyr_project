@@ -157,6 +157,7 @@ class WaitingListModel : WaitingListGateway {
         val registrationRef = waitingList.document(id)
         val lotteryRef = lotteries.document(lotteryId)
 
+        //google search ai was used to understand how runTransaction works, no prompt for this since this was a single time use
         firestore.runTransaction { transaction ->
             val lotteryDocument = transaction.get(lotteryRef)
             if (!lotteryDocument.exists()) {
@@ -164,7 +165,7 @@ class WaitingListModel : WaitingListGateway {
             }
 
             val drawCompleted = lotteryDocument.getBoolean("drawCompleted")
-            //temporary compatibility until draw logic is implemented
+            //temporary compatibility until draw logic is implemented (deferred this acceptance criteria for final checkpoint)
             if (drawCompleted == true) {
                 throw IllegalStateException("You cannot leave after the lottery draw")
             }
