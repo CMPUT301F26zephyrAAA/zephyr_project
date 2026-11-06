@@ -115,10 +115,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                 TextField(
                     state = searchString,
                     label = { Text("Campsite Search (Name/Location) ") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .testTag("CampsiteSearch"),
+                    modifier = Modifier.fillMaxWidth().weight(1f).testTag("CampsiteSearch"),
                     lineLimits = TextFieldLineLimits.SingleLine,
                     keyboardOptions = KeyboardOptions(
                         imeAction = ImeAction.Done

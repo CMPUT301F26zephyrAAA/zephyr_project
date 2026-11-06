@@ -163,6 +163,22 @@ class CampsiteDetailViewTest {
     }
 
     @Test
+    fun adminDoesNotSeeOwnerControls() {
+        showDetails(account = Account("admin-demo").apply { userType = "admin" })
+        composeTestRule.onNodeWithText("Generate/Hide QR").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Download/Save QR").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Manage Lottery").assertDoesNotExist()
+    }
+
+    @Test
+    fun differentOwnerDoesNotSeeOwnerControls() {
+        showDetails(account = Account("other-owner").apply { userType = "owner" })
+        composeTestRule.onNodeWithText("Generate/Hide QR").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Download/Save QR").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Manage Lottery").assertDoesNotExist()
+    }
+
+    @Test
     fun ownerCanStillGenerateQrAndOpenLotteryManagement() {
         var managedId: String? = null
         composeTestRule.setContent {
@@ -171,7 +187,7 @@ class CampsiteDetailViewTest {
                     campsite = campsite,
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
-                    canManageLottery = true,
+                    account = Account(campsite.ownerID).apply { userType = "owner" },
                     onManageLottery = { id -> managedId = id }
                 )
             }
@@ -190,11 +206,13 @@ class CampsiteDetailViewTest {
      *
      * @param imageUrl Local fixture image path, or null for the placeholder.
      * @param ownerName Owner name supplied to the view.
+     * @param account Account viewing the campsite.
      * @param onBack Called when Back is pressed.
      */
     private fun showDetails(
         imageUrl: String? = null,
         ownerName: String? = "Jordan Lee",
+        account: Account = Account("entrant-demo"),
         onBack: () -> Unit = {}
     ) {
         composeTestRule.setContent {
@@ -202,9 +220,10 @@ class CampsiteDetailViewTest {
                 CampsiteDetailView().DetailView(
                     campsite = campsite,
                     codeGenerator = { _, _ ->
-                        throw AssertionError("Entrants must not generate owner QR codes.")
+                        throw AssertionError("Accounts that do not own the campsite must not generate QR codes.")
                     },
                     onBack = onBack,
+                    account = account,
                     imageUrl = imageUrl,
                     ownerName = ownerName
                 )

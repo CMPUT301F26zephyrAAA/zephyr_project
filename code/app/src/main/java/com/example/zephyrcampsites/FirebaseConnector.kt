@@ -138,11 +138,7 @@ class FirebaseConnector(target: String) {
         }
 
         resource.downloadUrl
-            .addOnSuccessListener { uri ->
-                result(uri.toString())
-            }
-            .addOnFailureListener { exception ->
-                onError(exception)
-            }
+            .addOnSuccessListener { uri -> result(uri.toString()) }
+            .addOnFailureListener { exception -> onError(exception) }
     }
 }

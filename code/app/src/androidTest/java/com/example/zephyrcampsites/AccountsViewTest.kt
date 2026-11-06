@@ -62,9 +62,7 @@ class AccountsViewTest {
             ZephyrCampsitesTheme {
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (currentEntry?.destination?.route == CampsiteScreens.SummaryView.route) {
-                        Button(
-                            onClick = { navController.navigate(GeneralScreen.Profile.route) }
-                        ) {
+                        Button(onClick = { navController.navigate(GeneralScreen.Profile.route) }) {
                             Text("My Profile")
                         }
                     }

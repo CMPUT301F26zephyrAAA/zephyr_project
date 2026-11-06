@@ -135,11 +135,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         onResult: (String) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        connector.resourceGetter(
-            path = path,
-            result = onResult,
-            onError = onError
-        )
+        connector.resourceGetter(path = path, result = onResult, onError = onError)
     }
 
     /**

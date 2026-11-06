@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,15 +44,99 @@ import java.util.Locale
  */
 class CampsiteDetailView {
     /**
+     * Loads the selected campsite's image and owner for the details screen.
+     *
+     * @param campsiteId ID of the campsite to display.
+     * @param controller Controller used to retrieve campsite data.
+     * @param accountsController Controller used to retrieve the owner's name.
+     * @param account Current account used to identify the campsite's owner.
+     * @param codeGenerator Function that generates the campsite QR code.
+     * @param onBack Returns to the previous screen.
+     * @param onManageLottery Opens lottery management for this campsite.
+     */
+    @Composable
+    fun DetailScreen(
+        campsiteId: Int,
+        controller: CampsiteController,
+        accountsController: AccountsController,
+        account: Account?,
+        codeGenerator: (String, Int) -> ImageBitmap,
+        onBack: () -> Unit,
+        onManageLottery: (String) -> Unit
+    ) {
+        val model = controller.model
+        val campsite = if (model.isLoading || model.error != null) {
+            null
+        } else {
+            controller.retrieveId(campsiteId)
+        }
+        val promotionalPath = campsite?.promoImagePaths
+            ?.firstOrNull { path -> path.isNotBlank() } ?: campsite?.imagePath.orEmpty()
+        val ownerId = campsite?.ownerID.orEmpty()
+        var imageUrl by remember(promotionalPath) { mutableStateOf<String?>(null) }
+        var ownerName by remember(ownerId) { mutableStateOf<String?>(null) }
+
+        DisposableEffect(promotionalPath, ownerId) {
+            var active = true
+            if (promotionalPath.isNotBlank()) {
+                controller.loadCampsiteImage(
+                    path = promotionalPath,
+                    onResult = { url ->
+                        if (active) {
+                            imageUrl = url
+                        }
+                    },
+                    onError = {
+                        if (active) {
+                            imageUrl = null
+                        }
+                    }
+                )
+            }
+            if (ownerId.isNotBlank()) {
+                accountsController.findAccount(
+                    deviceId = ownerId,
+                    onResult = { owner ->
+                        if (active) {
+                            ownerName = owner?.name
+                        }
+                    },
+                    onError = {
+                        if (active) {
+                            ownerName = null
+                        }
+                    }
+                )
+            }
+            onDispose { active = false }
+        }
+
+        DetailView(
+            campsite = campsite,
+            codeGenerator = codeGenerator,
+            onBack = onBack,
+            account = account,
+            imageUrl = imageUrl,
+            ownerName = ownerName,
+            statusText = when {
+                model.error != null -> "Unable to load campsite details."
+                model.isLoading -> "Loading campsite details..."
+                else -> "Campsite not found."
+            },
+            onManageLottery = onManageLottery
+        )
+    }
+
+    /**
      * Displays a campsite and provides navigation back to the previous screen.
      *
      * @param campsite Campsite to display, or null while unavailable.
      * @param codeGenerator Function that generates the campsite QR code.
      * @param onBack Called when the entrant presses Back.
+     * @param account Current account used to determine which controls are displayed.
      * @param imageUrl Resolved promotional image URL, or null if unavailable.
      * @param ownerName Owner's display name, falling back to the stored owner ID.
      * @param statusText Message displayed when the campsite is unavailable.
-     * @param canManageLottery Whether to display the existing owner controls.
      * @param onManageLottery Called when the owner opens lottery management.
      */
     @Composable
@@ -59,34 +144,27 @@ class CampsiteDetailView {
         campsite: Campsite?,
         codeGenerator: (String, Int) -> ImageBitmap,
         onBack: () -> Unit,
+        account: Account? = null,
         imageUrl: String? = null,
         ownerName: String? = null,
         statusText: String = "Campsite not found.",
-        canManageLottery: Boolean = false,
         onManageLottery: (String) -> Unit = {}
     ) {
         Scaffold(
             bottomBar = {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .navigationBarsPadding()
+                    modifier = Modifier.fillMaxWidth().navigationBarsPadding()
                         .padding(horizontal = 20.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.End
                 ) {
-                    OutlinedButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("DetailsBack")
-                    ) {
+                    OutlinedButton(onClick = onBack, modifier = Modifier.testTag("DetailsBack")) {
                         Text("BACK")
                     }
                 }
             }
         ) { contentPadding ->
             Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(contentPadding)
+                modifier = Modifier.fillMaxSize().padding(contentPadding)
                     .verticalScroll(rememberScrollState())
                     .testTag("CampsiteDetailsScreen")
             ) {
@@ -122,10 +200,7 @@ class CampsiteDetailView {
                         Text("Owner: $owner")
                         Text("Description", style = MaterialTheme.typography.titleMedium)
                         Text(campsite.description.ifBlank { "Not provided" })
-                        Text(
-                            "Rules and cancellation policy",
-                            style = MaterialTheme.typography.titleMedium
-                        )
+                        Text("Rules and cancellation policy", style = MaterialTheme.typography.titleMedium)
 
                         val policies = (listOf(campsite.rules) + campsite.rulesPolicies)
                             .filter { policy -> policy.isNotBlank() }
@@ -133,7 +208,7 @@ class CampsiteDetailView {
                         Text(policies.joinToString("\n").ifBlank { "Not provided" })
                         Text("Availability (booking period): ${availabilityText(campsite)}")
 
-                        if (canManageLottery) {
+                        if (account?.userType == "owner" && account.id == campsite.ownerID) {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,
@@ -206,9 +281,7 @@ class CampsiteDetailView {
         var failed by remember(imageUrl) { mutableStateOf(false) }
 
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(153.dp)
+            modifier = Modifier.fillMaxWidth().height(153.dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
@@ -222,15 +295,13 @@ class CampsiteDetailView {
                         failed = true
                         loading = false
                     },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag(
-                            if (loading) {
-                                "CampsitePromoImageLoading"
-                            } else {
-                                "CampsitePromoImage"
-                            }
-                        )
+                    modifier = Modifier.fillMaxSize().testTag(
+                        if (loading) {
+                            "CampsitePromoImageLoading"
+                        } else {
+                            "CampsitePromoImage"
+                        }
+                    )
                 )
             }
 
@@ -272,22 +343,17 @@ class CampsiteDetailView {
             Text("Generate/Hide QR")
         }
         if (codeShow) {
-            Button(
-                onClick = {
-                    fileSaver.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "image/png"
-                        putExtra(Intent.EXTRA_TITLE, "campsite-qr.png")
-                    })
-                }
-            ) {
+            Button(onClick = {
+                fileSaver.launch(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "image/png"
+                    putExtra(Intent.EXTRA_TITLE, "campsite-qr.png")
+                })
+            }) {
                 Text("Download/Save QR")
             }
         }
-        Button(
-            onClick = { onManageLottery(campsite.id) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
+        Button(onClick = { onManageLottery(campsite.id) }, modifier = Modifier.fillMaxWidth()) {
             Text("Manage Lottery")
         }
     }

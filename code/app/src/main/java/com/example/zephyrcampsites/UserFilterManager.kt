@@ -78,9 +78,7 @@ class UserFilterManager {
         // Acquires current filters from currentUserFilters
         var startDate by remember { mutableStateOf(currentUserFilters.startDate as Date) }
         var endDate by remember { mutableStateOf(currentUserFilters.endDate as Date) }
-        val guests: TextFieldState = rememberTextFieldState(
-            initialText = currentUserFilters.guests?.toString().orEmpty()
-        )
+        val guests: TextFieldState = rememberTextFieldState(initialText = currentUserFilters.guests?.toString().orEmpty())
 
         // Configurations for filter options
         val distanceOptions = listOf(15, 30, 50, 100) // List of selectable distances (in km)

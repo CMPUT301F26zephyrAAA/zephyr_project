@@ -72,11 +72,7 @@ class AccountsController {
             return
         }
 
-        accountsModel.getAccount(
-            deviceID = deviceId,
-            onResult = onResult,
-            onError = onError
-        )
+        accountsModel.getAccount(deviceID = deviceId, onResult = onResult, onError = onError)
     }
 
     /***

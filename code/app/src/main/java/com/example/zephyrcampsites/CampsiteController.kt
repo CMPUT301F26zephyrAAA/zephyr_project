@@ -129,11 +129,7 @@ class CampsiteController(val model: CampsiteModel) {
         onResult: (String) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        model.getCampsiteImage(
-            path = path,
-            onResult = onResult,
-            onError = onError
-        )
+        model.getCampsiteImage(path = path, onResult = onResult, onError = onError)
     }
 
     /**

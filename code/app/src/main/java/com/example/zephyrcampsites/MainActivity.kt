@@ -1,4 +1,3 @@
-
 package com.example.zephyrcampsites
 
 import android.os.Bundle
@@ -11,23 +10,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
-import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import androidx.compose.runtime.getValue
-import androidx.navigation.compose.currentBackStackEntryAsState
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -38,7 +33,7 @@ sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
     data object Profile : GeneralScreen("GeneralScreen/Profile")
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
-    data object RegisterCampsite: GeneralScreen("GeneralScreen/RegisterCampsite")
+    data object RegisterCampsite : GeneralScreen("GeneralScreen/RegisterCampsite")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
@@ -48,17 +43,13 @@ sealed class GeneralScreen(val route: String) {
  * Identifies the current device and connects the models, controllers, and app screens.
  */
 class MainActivity : ComponentActivity() {
-
     private val accountsController = AccountsController()
     private val currentAccount = mutableStateOf<Account?>(null)
     private val accountLoading = mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        val locationClient: FusedLocationProviderClient =
-            LocationServices.getFusedLocationProviderClient(this)
-
+        val locationClient = LocationServices.getFusedLocationProviderClient(this)
         enableEdgeToEdge()
 
         // Identify the user automatically when the app launches.
@@ -66,9 +57,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             ZephyrCampsitesTheme {
-                val navHostController: NavHostController =
-                    rememberNavController()
-
+                val navHostController = rememberNavController()
                 val qrHandler = remember { QRCodeHandler() }
                 val campsiteSummaryView = remember { CampsiteSummaryView() }
                 val campsiteModel = remember { CampsiteModel() }
@@ -79,62 +68,38 @@ class MainActivity : ComponentActivity() {
 
                 // Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
-                
                 val lotteryController = remember(lotteryModel) {
                     LotteryController(lotteryModel)
                 }
-
                 val lotteryView = remember(lotteryController) {
                     LotteryView(lotteryController)
                 }
 
-                // Current account, identified using the device ID.
-                val account = currentAccount.value
-
                 // Navigate after account initialization finishes.
+                val account = currentAccount.value
                 LaunchedEffect(accountLoading.value, account?.id) {
                     if (!accountLoading.value) {
-
                         val destination = if (account != null) {
                             CampsiteScreens.SummaryView.route
                         } else {
                             GeneralScreen.AccountError.route
                         }
-
                         navHostController.navigate(destination) {
-                            popUpTo(GeneralScreen.AccountLoading.route) {
-                                inclusive = true
-                            }
+                            popUpTo(GeneralScreen.AccountLoading.route) { inclusive = true }
                             launchSingleTop = true
                         }
                     }
                 }
 
-                // Column containing the profile button and navigation.
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                ) {
-
-
-                    val currentBackStackEntry by
-                    navHostController.currentBackStackEntryAsState()
+                Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
+                    val currentBackStackEntry by navHostController.currentBackStackEntryAsState()
                     val currentRoute = currentBackStackEntry?.destination?.route
 
                     // Show the profile button only on the campsite browsing screen.
-                    if (
-                        !accountLoading.value &&
-                        account != null &&
+                    if (!accountLoading.value && account != null &&
                         currentRoute == CampsiteScreens.SummaryView.route
                     ) {
-                        Button(
-                            onClick = {
-                                navHostController.navigate(
-                                    GeneralScreen.Profile.route
-                                )
-                            }
-                        ) {
+                        Button(onClick = { navHostController.navigate(GeneralScreen.Profile.route) }) {
                             Text("My Profile")
                         }
                     }
@@ -154,174 +119,72 @@ class MainActivity : ComponentActivity() {
                         }
 
                         // Account loading screen.
-                        composable(
-                            route = GeneralScreen.AccountLoading.route
-                        ) {
+                        composable(route = GeneralScreen.AccountLoading.route) {
                             Text("Account loading...")
                         }
 
                         // Account error screen with Retry.
-                        composable(
-                            route = GeneralScreen.AccountError.route
-                        ) {
+                        composable(route = GeneralScreen.AccountError.route) {
                             Column {
                                 Text("Unable to load account.")
-
-                                Button(
-                                    onClick = {
-                                        navHostController.navigate(
-                                            GeneralScreen.AccountLoading.route
-                                        ) {
-                                            popUpTo(
-                                                GeneralScreen.AccountError.route
-                                            ) {
-                                                inclusive = true
-                                            }
-                                            launchSingleTop = true
-                                        }
-
-                                        initializeUser()
+                                Button(onClick = {
+                                    navHostController.navigate(GeneralScreen.AccountLoading.route) {
+                                        popUpTo(GeneralScreen.AccountError.route) { inclusive = true }
+                                        launchSingleTop = true
                                     }
-                                ) {
+                                    initializeUser()
+                                }) {
                                     Text("Retry")
                                 }
                             }
                         }
 
                         // Campsite summary screen.
-                        composable(
-                            route = CampsiteScreens.SummaryView.route
-                        ) {
+                        composable(route = CampsiteScreens.SummaryView.route) {
                             campsiteSummaryView.SummaryView(
                                 onClick = {
-                                    navHostController.navigate(
-                                        GeneralScreen.RegisterCampsite.route
-                                    )
+                                    navHostController.navigate(GeneralScreen.RegisterCampsite.route)
                                 },
                                 openDetail = { id ->
-                                    navHostController.navigate(
-                                        CampsiteScreens.DetailView.createRoute(id)
-                                    )
+                                    navHostController.navigate(CampsiteScreens.DetailView.createRoute(id))
                                 },
                                 filterPage = {
-                                    navHostController.navigate(
-                                        CampsiteScreens.FilterPage.route
-                                    )
+                                    navHostController.navigate(CampsiteScreens.FilterPage.route)
                                 },
-                                searchHandler = { userFilters ->
-                                    campsiteController.search(userFilters)
-                                },
-                                imageLoader = { id ->
-                                    campsiteController.imageGetter(id)
-                                },
+                                searchHandler = { campsiteController.search(it) },
+                                imageLoader = { campsiteController.imageGetter(it) },
                                 locationClient = locationClient
                             )
                         }
 
                         // QR scanning screen.
-                        composable(
-                            route = GeneralScreen.QRScan.route
-                        ) {
+                        composable(route = GeneralScreen.QRScan.route) {
                             qrHandler.QRScan(
                                 campsiteNav = { id ->
-                                    navHostController.navigate(
-                                        CampsiteScreens.DetailView.createRoute(id)
-                                    )
+                                    navHostController.navigate(CampsiteScreens.DetailView.createRoute(id))
                                 },
-                                accountNav = { },
-                                lotteryNav = { }
+                                accountNav = {},
+                                lotteryNav = {}
                             )
                         }
 
                         // Campsite details screen.
                         composable(
                             route = CampsiteScreens.DetailView.route,
-                            arguments = listOf(
-                                navArgument("id") {
-                                    type = NavType.IntType
-                                }
-                            )
+                            arguments = listOf(navArgument("id") { type = NavType.IntType })
                         ) { backStackEntry ->
+                            val campsiteId = backStackEntry.arguments?.getInt("id")
+                                ?: return@composable
 
-                            val campsiteId =
-                                backStackEntry.arguments?.getInt("id")
-                                    ?: return@composable
-
-                            val campsite = if (
-                                campsiteModel.isLoading || campsiteModel.error != null
-                            ) {
-                                null
-                            } else {
-                                campsiteController.retrieveId(campsiteId)
-                            }
-                            val promotionalPath = campsite?.promoImagePaths
-                                ?.firstOrNull { path -> path.isNotBlank() }
-                                ?: campsite?.imagePath.orEmpty()
-                            val ownerId = campsite?.ownerID.orEmpty()
-                            var imageUrl by remember(promotionalPath) {
-                                mutableStateOf<String?>(null)
-                            }
-                            var ownerName by remember(ownerId) {
-                                mutableStateOf<String?>(null)
-                            }
-
-                            DisposableEffect(promotionalPath, ownerId) {
-                                var active = true
-                                if (promotionalPath.isNotBlank()) {
-                                    campsiteController.loadCampsiteImage(
-                                        path = promotionalPath,
-                                        onResult = { url ->
-                                            if (active) {
-                                                imageUrl = url
-                                            }
-                                        },
-                                        onError = {
-                                            if (active) {
-                                                imageUrl = null
-                                            }
-                                        }
-                                    )
-                                }
-                                if (ownerId.isNotBlank()) {
-                                    accountsController.findAccount(
-                                        deviceId = ownerId,
-                                        onResult = { owner ->
-                                            if (active) {
-                                                ownerName = owner?.name
-                                            }
-                                        },
-                                        onError = {
-                                            if (active) {
-                                                ownerName = null
-                                            }
-                                        }
-                                    )
-                                }
-                                onDispose {
-                                    active = false
-                                }
-                            }
-
-                            campsiteDetailView.DetailView(
-                                campsite = campsite,
+                            campsiteDetailView.DetailScreen(
+                                campsiteId = campsiteId,
+                                controller = campsiteController,
+                                accountsController = accountsController,
+                                account = account,
+                                codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
                                 onBack = { navHostController.popBackStack() },
-                                imageUrl = imageUrl,
-                                ownerName = ownerName,
-                                statusText = when {
-                                    campsiteModel.error != null -> "Unable to load campsite details."
-                                    campsiteModel.isLoading -> "Loading campsite details..."
-                                    else -> "Campsite not found."
-                                },
-                                canManageLottery = account != null && campsite != null &&
-                                    account.userType == "owner" &&
-                                    account.id == campsite.ownerID,
-                                codeGenerator = { type, id ->
-                                    qrHandler.qRGenerate(type, id)
-                                },
-                                onManageLottery = { selectedCampsiteId ->
-                                    navHostController.navigate(
-                                        "${GeneralScreen.LotterySettings.route}/$selectedCampsiteId"
-                                    )
+                                onManageLottery = { id ->
+                                    navHostController.navigate("${GeneralScreen.LotterySettings.route}/$id")
                                 }
                             )
                         }
@@ -329,45 +192,35 @@ class MainActivity : ComponentActivity() {
                         // Lottery settings screen.
                         composable(
                             route = "${GeneralScreen.LotterySettings.route}/{campsiteId}",
-                            arguments = listOf(
-                                navArgument("campsiteId") {
-                                    type = NavType.StringType
-                                }
-                            )
+                            arguments = listOf(navArgument("campsiteId") { type = NavType.StringType })
                         ) { backStackEntry ->
-
-                            val campsiteId = backStackEntry.arguments
-                                ?.getString("campsiteId")
+                            val campsiteId = backStackEntry.arguments?.getString("campsiteId")
                                 ?: return@composable
-
                             lotteryView.LotterySettingsView(campsiteId)
                         }
 
-                        // Entrant profile screen
+                        // Entrant profile screen.
                         composable(route = GeneralScreen.Profile.route) {
                             val profileAccount = currentAccount.value
-
                             if (profileAccount != null) {
                                 AccountsView().ProfileOverviewView(
                                     account = profileAccount,
-                                    onEdit = {navHostController.navigate(GeneralScreen.PersonalInformation.route)},
-                                    onBack = {navHostController.popBackStack()}
+                                    onEdit = {
+                                        navHostController.navigate(GeneralScreen.PersonalInformation.route)
+                                    },
+                                    onBack = { navHostController.popBackStack() }
                                 )
                             }
                         }
 
                         composable(route = GeneralScreen.PersonalInformation.route) {
                             val profileAccount = currentAccount.value
-
                             if (profileAccount != null) {
                                 AccountsView().ProfileView(
                                     account = profileAccount,
                                     accountsController = accountsController,
-                                    onSaved = {updatedAccount ->
-                                        currentAccount.value = updatedAccount
-                                    },
-                                    onBack = {navHostController.popBackStack()
-                                    }
+                                    onSaved = { currentAccount.value = it },
+                                    onBack = { navHostController.popBackStack() }
                                 )
                             }
                         }
@@ -377,11 +230,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Loads the current account and updates the account initialization status.
+     */
     // AI use: ChatGPT
     // https://chatgpt.com/share/6ae95606-2174-83ed-945d-28ed82129f67
     private fun initializeUser() {
         accountLoading.value = true
-
         accountsController.initializeAccount(
             context = this,
             onSuccess = { account ->
@@ -391,7 +246,6 @@ class MainActivity : ComponentActivity() {
             onError = { exception ->
                 currentAccount.value = null
                 accountLoading.value = false
-
                 Toast.makeText(
                     this,
                     "Failed to load account: ${exception.message}",
