@@ -115,22 +115,39 @@ class AccountsController {
 
                 onError = {exception ->
                     onError(exception.message ?: "Failed to updated profile")
-                })
+                }
+            )
         }
 
     /**
-     * Deletes an account.
+     * Updates the notification preference for an account.
      *
-     * @param targetAccount Account being deleted.
-     * @param onSuccess Called when the account is successfully deleted.
-     * @param onError Called if profile deletion fails.
+     * @param account Account to update.
+     * @param enabled New notification preference.
+     * @param onSuccess Called when the preference is successfully updated.
+     * @param onError Called if the preference cannot be updated.
      */
-    fun deleteProfile(
-        targetAccount: Account,
-        onSuccess: () -> Unit,
-        onError: (Exception) -> Unit
+    fun updateNotificationPreference(
+        account: Account,
+        enabled: Boolean,
+        onSuccess: (Account) -> Unit,
+        onError: (String) -> Unit
     ) {
-        accountsModel.deleteAccount(targetAccount, onSuccess, onError)
+        val db = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+
+        db.collection("accounts")
+            .document(account.id)
+            .update("notificationsEnabled", enabled)
+            .addOnSuccessListener {
+                account.notificationsEnabled = enabled
+                onSuccess(account)
+            }
+            .addOnFailureListener { exception ->
+                onError(
+                    exception.message
+                        ?: "Failed to update notification preference."
+                )
+            }
     }
 }
 

@@ -8,6 +8,9 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import java.util.Date
 import com.google.firebase.firestore.GeoPoint
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
  *
@@ -20,7 +23,7 @@ import com.google.firebase.firestore.GeoPoint
 class CampsiteModel : ObservableModel<CampsiteModel>() {
     val campsites = mutableStateListOf<Campsite>()
     val connector = FirebaseConnector("campsite")
-    private val waitlistConnector = FirebaseConnector("waitlist")
+    private val waitlistConnector = FirebaseConnector("waitingList")
     private val lotteryConnector = FirebaseConnector("lottery")
     private var campsiteListener: ListenerRegistration? = null
     var error: FirebaseFirestoreException? by mutableStateOf(null)
@@ -110,24 +113,114 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
      * @param onSuccess Called when successfully deleted campsite from Firebase.
      * @param onFailure Called when failed to delete campsite from Firebase.
      */
+
     fun deleteCampsite(
         target: Campsite,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
-        //US 03.01.01
-        //waitlistConnector.deleteWaitlistsOfCampsite(target, onSuccess, onFailure) - cannot implement yet
-        lotteryConnector.deleteLotteriesOfCampsite(target, onSuccess, onFailure)
-        // TODO: Trigger notification dispatcher for target.ownerID and waitlist participants
-        //Reference link - https://kotlinlang.org/docs/exceptions.html#throw-exceptions-with-precondition-functions
-        try {
-            connector.remove(target)
-            notifyObservers(this)
-            onSuccess()
-        } catch (e: Exception) {
-            onFailure(e.message ?: "Failed to delete campsite.")
-        }
+        val db = Firebase.firestore
+        val lotteryConnector = FirebaseConnector("lottery")
+        val waitingListConnector = FirebaseConnector("waitingList")
+
+        // Find lotteries associated with the campsite.
+        lotteryConnector.db
+            .whereEqualTo("campsiteId", target.id)
+            .get()
+            .addOnSuccessListener { lotteries ->
+
+                val lotteryDocs = lotteries.documents
+
+                // Close all associated lotteries.
+                val closeBatch = db.batch()
+
+                lotteryDocs.forEach { lottery ->
+                    closeBatch.update(
+                        lottery.reference,
+                        "registrationEnd",
+                        System.currentTimeMillis()
+                    )
+                }
+
+                closeBatch.commit()
+                    .addOnSuccessListener {
+
+                        val documentsToDelete =
+                            mutableListOf<DocumentReference>()
+
+                        // Find waiting-list entries for each lottery.
+                        fun loadWaitingLists(index: Int) {
+
+                            if (index >= lotteryDocs.size) {
+
+                                // Include lottery documents.
+                                lotteryDocs.forEach { lottery ->
+                                    documentsToDelete.add(lottery.reference)
+                                }
+
+                                // Delete related documents.
+                                val deleteBatch = db.batch()
+
+                                documentsToDelete.forEach { document ->
+                                    deleteBatch.delete(document)
+                                }
+
+                                deleteBatch.commit()
+                                    .addOnSuccessListener {
+
+                                        // Delete campsite last.
+                                        connector.remove(
+                                            target,
+                                            onSuccess = onSuccess,
+                                            onFailure = onFailure
+                                        )
+                                    }
+                                    .addOnFailureListener { error ->
+                                        onFailure(
+                                            error.message ?: "Cleanup failed."
+                                        )
+                                    }
+
+                                return
+                            }
+
+                            waitingListConnector.db
+                                .whereEqualTo(
+                                    "lotteryId",
+                                    lotteryDocs[index].id
+                                )
+                                .get()
+                                .addOnSuccessListener { waitingLists ->
+
+                                    waitingLists.documents.forEach { document ->
+                                        documentsToDelete.add(document.reference)
+                                    }
+
+                                    loadWaitingLists(index + 1)
+                                }
+                                .addOnFailureListener { error ->
+                                    onFailure(
+                                        error.message
+                                            ?: "Failed to load waiting lists."
+                                    )
+                                }
+                        }
+
+                        loadWaitingLists(0)
+                    }
+                    .addOnFailureListener { error ->
+                        onFailure(
+                            error.message ?: "Failed to close lotteries."
+                        )
+                    }
+            }
+            .addOnFailureListener { error ->
+                onFailure(
+                    error.message ?: "Failed to load lotteries."
+                )
+            }
     }
+
 
     /**
      * Gets a campsite's image.

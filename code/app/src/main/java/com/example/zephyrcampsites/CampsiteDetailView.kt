@@ -71,7 +71,9 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         ratingController: RatingController? = null,
-        onRateCampsite: (String) -> Unit = {}
+        onRateCampsite: (String) -> Unit = {},
+        isAdmin: Boolean = false,
+        onDeleteSuccess: () -> Unit = {}
     ) {
         val model = controller.model
         val campsite = if (model.isLoading || model.error != null) {
@@ -136,7 +138,10 @@ class CampsiteDetailView {
             lottery = lottery,
             waitingListController = waitingListController,
             ratingController = ratingController,
-            onRateCampsite = onRateCampsite
+            onRateCampsite = onRateCampsite,
+            isAdmin = isAdmin,
+            campsiteModel = model,
+            onDeleteSuccess = onDeleteSuccess
         )
     }
 
@@ -168,7 +173,10 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         ratingController: RatingController? = null,
-        onRateCampsite: (String) -> Unit = {}
+        onRateCampsite: (String) -> Unit = {},
+        isAdmin: Boolean = false,
+        campsiteModel: CampsiteModel? = null,
+        onDeleteSuccess: () -> Unit = {}
     ) {
         val accountId = account?.id
         var joined by remember(lottery?.id, accountId) { mutableStateOf(false) }
@@ -178,6 +186,9 @@ class CampsiteDetailView {
         var leaving by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var showLeaveConfirmation by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var joinError by remember(lottery?.id, accountId) { mutableStateOf("") }
+        var showDeleteConfirmation by remember(campsite?.id) { mutableStateOf(false) }
+        var deletingCampsite by remember(campsite?.id) { mutableStateOf(false) }
+        var deleteError by remember(campsite?.id) { mutableStateOf<String?>(null) }
 
         LaunchedEffect(lottery?.id, accountId, waitingListController) {
             joinError = ""
@@ -390,9 +401,84 @@ class CampsiteDetailView {
                                 onManageLottery = onManageLottery
                             )
                         }
+
+                        if (isAdmin && campsiteModel != null) {
+
+                            deleteError?.let { error ->
+                                Text(
+                                    text = error,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    showDeleteConfirmation = true
+                                },
+                                enabled = !deletingCampsite,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    if (deletingCampsite) "Removing..."
+                                    else "REMOVE CAMPSITE"
+                                )
+                            }
+                        }
                     }
                 }
             }
+        }
+
+        if (showDeleteConfirmation && campsite != null && campsiteModel != null) {
+
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = {
+                    if (!deletingCampsite) {
+                        showDeleteConfirmation = false
+                    }
+                },
+                title = {
+                    Text("Remove campsite?")
+                },
+                text = {
+                    Text(
+                        "Are you sure you want to remove '${campsite.name}'? " +
+                                "Its associated lotteries and waiting lists will also be removed."
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showDeleteConfirmation = false
+                            deletingCampsite = true
+                            deleteError = null
+
+                            campsiteModel.deleteCampsite(
+                                target = campsite,
+                                onSuccess = {
+                                    deletingCampsite = false
+                                    onDeleteSuccess()
+                                },
+                                onFailure = { error ->
+                                    deletingCampsite = false
+                                    deleteError = error
+                                }
+                            )
+                        }
+                    ) {
+                        Text("REMOVE")
+                    }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            showDeleteConfirmation = false
+                        }
+                    ) {
+                        Text("CANCEL")
+                    }
+                }
+            )
         }
     }
 

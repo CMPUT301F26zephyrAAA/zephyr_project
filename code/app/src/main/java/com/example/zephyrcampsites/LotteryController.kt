@@ -94,19 +94,4 @@ class LotteryController(
     fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
         lotteryModel.updateWaitlistCapacity(lotteryId, newCapacity)
     }
-
-    /**
-     * Deletes all lotteries associated with a campsite.
-     *
-     * @param campsiteId Campsite to delete lotteries for.
-     * @param onSuccess Called when lotteries are successfully deleted.
-     * @param onFailure Called when lotteries cannot be deleted.
-     */
-    fun deleteLotteriesOfCampsite(
-        campsiteId: String,
-        onSuccess: () -> Unit,
-        onFailure: (Exception) -> Unit
-    ) {
-        lotteryModel.deleteLotteriesOfCampsite(campsiteId, onSuccess, onFailure)
-    }
 }

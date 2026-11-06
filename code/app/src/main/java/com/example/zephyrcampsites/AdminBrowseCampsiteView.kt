@@ -1,30 +1,15 @@
+
 package com.example.zephyrcampsites
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 
-
-/**
- * Displays all registered campsites. Updates automatically when firestore updates.
- *
- * @param model Model of campsites
- * @param onCampsiteSelected When a campsite item is clicked
- * @param onBack Returns to the previous screen
- */
 @Composable
 fun AdminCampsiteListView(
     model: CampsiteModel,
@@ -35,79 +20,123 @@ fun AdminCampsiteListView(
         modifier = Modifier
             .fillMaxSize()
             .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Browse Campsites",
+        Text(
+            "BROWSE CAMPSITES",
             style = MaterialTheme.typography.headlineMedium
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        if (model.isLoading) {
-            Text("Loading...")
-        } else if (model.error != null) {
-            Text("Error: ${model.error}", color = MaterialTheme.colorScheme.error)
-        }
 
-        if(model.campsites.isEmpty()) {
+        if (model.isLoading) {
+            Text("Loading campsites...")
+        } else if (model.error != null) {
+            Text(
+                "Error: ${model.error?.message}",
+                color = MaterialTheme.colorScheme.error
+            )
+        } else if (model.campsites.isEmpty()) {
             Text("No campsites registered.")
-        }
-        else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 items(
                     model.campsites,
                     key = { it.id }
-                ) {
-                    campsite -> AdminCampsiteItem(campsite, onClick = {onCampsiteSelected(campsite)})
+                ) { campsite ->
+                    AdminCampsiteItem(
+                        campsite = campsite,
+                        model = model,
+                        onClick = {
+                            onCampsiteSelected(campsite)
+                        }
+                    )
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.weight(1f, fill = false))
+
+        OutlinedButton(
+            onClick = onBack,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("BACK")
         }
     }
 }
 
-/**
- * Displays details of a selected campsite with options to delete or go back to browse.
- *
- * @param campsite Selected Campsite
- * @param onClick Returns to the campsite browse list
- */
 @Composable
 fun AdminCampsiteItem(
     campsite: Campsite,
+    model: CampsiteModel,
     onClick: () -> Unit
 ) {
     OutlinedButton(
-        onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("CampsiteItem_${campsite.id}")
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier
-            .padding(8.dp)
-            .fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            CampsiteAdminImage(campsite.imagePath, model)
+
             Text(
-                text = if(campsite.name.isBlank()){
-                    "Unnamed campsite"
-                } else {
-                    campsite.name
-                },
+                campsite.name.ifBlank { "Unnamed campsite" },
                 style = MaterialTheme.typography.titleMedium
             )
-            Text("Location: ${campsite.location}")
-            Text("OwnerID: ${campsite.ownerID}")
-            Text("Max Occupancy: ${campsite.maxOccupancy}")
-            Text("Price per night: ${campsite.pricePerNight}")
 
-            val average = campsite.rating.average()
+            Text("Location: ${campsite.location}")
+            Text("Owner: ${campsite.ownerID}")
+            Text("Maximum occupancy: ${campsite.maxOccupancy}")
+
+            val rating = campsite.averageRating
+                ?: campsite.rating.takeIf { it.isNotEmpty() }
+                    ?.average()
 
             Text(
-                text = "Rating: ${
-                    if(average.isNaN()) {
-                        "Not Rated"
-                    } else {
-                        average
-                    }
-                }"
+                "Rating: ${rating?.let {
+                    String.format("%.1f", it)
+                } ?: "Not rated"}"
             )
         }
+    }
+}
+
+@Composable
+fun CampsiteAdminImage(
+    path: String,
+    model: CampsiteModel
+) {
+    var imageUrl by remember(path) {
+        mutableStateOf<String?>(null)
+    }
+
+    LaunchedEffect(path) {
+        imageUrl = null
+
+        if (path.isNotBlank()) {
+            model.getCampsiteImage(
+                path = path,
+                onResult = { imageUrl = it },
+                onError = { imageUrl = null }
+            )
+        }
+    }
+
+    if (imageUrl != null) {
+        AsyncImage(
+            model = imageUrl,
+            contentDescription = "Campsite image",
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+        )
+    } else {
+        Text("No campsite image")
     }
 }

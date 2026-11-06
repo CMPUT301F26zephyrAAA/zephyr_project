@@ -58,12 +58,17 @@ class FirebaseConnector(target: String) {
      *
      * @param target Object to add, can be anything that inherits from DataHolder (base class that data classes inherits from).
      */
-    fun remove(target: DataHolder) {
+    fun remove(target: DataHolder,
+               onSuccess: () -> Unit = {},
+               onFailure: (String) -> Unit = {}) {
         db.document(target.id).delete()
-            .addOnCompleteListener { task ->
-                if (!task.isSuccessful) {
-                    throw IllegalStateException("Database operation failed.")
-                }
+            .addOnSuccessListener {
+                onSuccess()
+            }
+            .addOnFailureListener { exception ->
+                onFailure(
+                    exception.message ?: "Database operation failed."
+                )
             }
     }
 
