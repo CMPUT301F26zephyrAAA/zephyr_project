@@ -68,6 +68,7 @@ class MainActivity : ComponentActivity() {
                     CampsiteController(campsiteModel)
                 }
                 val campsiteDetailView = remember { CampsiteDetailView() }
+                val ratingController = remember { RatingController() }
 
                 // Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
@@ -221,7 +222,18 @@ class MainActivity : ComponentActivity() {
                                     navHostController.navigate("${GeneralScreen.LotterySettings.route}/$id")
                                 },
                                 lottery = campsiteLottery,
-                                waitingListController = waitingListController
+                                waitingListController = waitingListController,
+                                ratingController = ratingController,
+                                onRateCampsite = { id -> navHostController.navigate(CampsiteScreens.RateCampsite.createRoute(id)) }
+                            )
+                        }
+
+                        composable(CampsiteScreens.RateCampsite.route,
+                            arguments = listOf(navArgument("id") { type = NavType.IntType })) { entry ->
+                            val id = entry.arguments?.getInt("id") ?: return@composable
+                            RatingView().RatingScreen(
+                                campsite = campsiteController.retrieveId(id), account = account, controller = ratingController,
+                                onSaved = { navHostController.popBackStack() }, onBack = { navHostController.popBackStack() }
                             )
                         }
 

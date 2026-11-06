@@ -23,4 +23,16 @@
     <string name="settings_notifications_title">App Notifications</string>
     <string name="settings_notifications_description">Receive notifications on your phone whenever there is an update on your lottery or reservation.</string>
     <string name="settings_saving">Saving notification preference...</string>
+    <string name="rating_title">RATE CAMPSITE</string>
+    <string name="rating_your_rating">Your Rating:</string>
+    <string name="rating_review_label">Review (optional):</string>
+    <string name="rating_review_placeholder">Write a review</string>
+    <string name="rating_submit">SUBMIT</string>
+    <string name="rating_back">BACK</string>
+    <string name="rating_saving">SAVING...</string>
+    <string name="rating_loading">Checking your past stays...</string>
+    <string name="rating_not_eligible">You can rate this campsite after a non-cancelled stay has ended.</string>
+    <string name="rating_missing_campsite">Campsite unavailable</string>
+    <string name="rating_retry">Retry</string>
+    <string name="rating_star_description">%1$d out of 5 stars</string>
 </resources>
