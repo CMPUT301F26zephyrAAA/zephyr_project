@@ -69,7 +69,7 @@ class CampsiteDetailView {
         codeGenerator: (String, Int) -> ImageBitmap,
         onBack: () -> Unit,
         onManageLottery: (String) -> Unit,
-        onEdit: (Int) -> Unit
+        onEdit: (Int) -> Unit,
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         ratingController: RatingController? = null,
@@ -137,7 +137,7 @@ class CampsiteDetailView {
                 else -> "Campsite not found."
             },
             onManageLottery = onManageLottery,
-            onEdit = onEdit
+            onEdit = onEdit,
             lottery = lottery,
             waitingListController = waitingListController,
             ratingController = ratingController,
@@ -172,7 +172,6 @@ class CampsiteDetailView {
         isLoading: Boolean = false,
         hasError: Boolean = false,
         onEdit: (Int) -> Unit = {},
-        onManageLottery: (String) -> Unit = {},
         onManageLottery: (String) -> Unit = {},
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
