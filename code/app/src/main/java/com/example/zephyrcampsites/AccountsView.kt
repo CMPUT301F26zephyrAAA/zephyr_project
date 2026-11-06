@@ -1,6 +1,7 @@
 package com.example.zephyrcampsites
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,7 +9,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -19,9 +23,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 
 /**
@@ -34,6 +40,7 @@ class AccountsView {
      * Displays the main profile page
      * @param account Current entrants account
      * @param onEdit opens the personal information editing screen
+     * @param onPolicy Opens the app policy and guidelines.
      * @param onBack returns to the previous screen
      */
 
@@ -41,6 +48,7 @@ class AccountsView {
     fun ProfileOverviewView(
         account: Account,
         onEdit: () -> Unit,
+        onPolicy: () -> Unit,
         onBack: () -> Unit
     ){
         Column(modifier = Modifier
@@ -86,8 +94,18 @@ class AccountsView {
                 }
             }
 
-            Text("App Policy and Guidelines", style = MaterialTheme.typography.titleMedium)
-            Text("Read terms and agreement")
+            OutlinedButton(
+                onClick = onPolicy,
+                modifier = Modifier.fillMaxWidth().testTag("PolicyAndGuidelinesEntry")
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f).padding(vertical = 8.dp)) {
+                        Text(stringResource(R.string.policy_entry_title))
+                        Text(stringResource(R.string.policy_entry_description), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                }
+            }
             Text("Account and App Settings", style = MaterialTheme.typography.titleMedium)
             Text("Change settings related to notifications, app themes, etc")
             Text("DELETE PROFILE", color = MaterialTheme.colorScheme.onSurfaceVariant)
