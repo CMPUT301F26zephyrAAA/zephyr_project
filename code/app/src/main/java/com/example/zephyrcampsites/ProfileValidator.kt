@@ -15,7 +15,7 @@ class ProfileValidator {
         if (name.isBlank()) {
             return "Name cannot be blank"
         }
-        //https://www.geeksforgeeks.org/kotlin/kotlin-regular-expression/
+        //CI-01 https://www.geeksforgeeks.org/kotlin/kotlin-regular-expression/
         if (!email.matches(Regex("^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"))) {
             return "Invalid email address"
         }
