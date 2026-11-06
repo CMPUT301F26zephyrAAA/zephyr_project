@@ -81,6 +81,8 @@ class WaitingListModel {
                 ?: throw IllegalStateException("Lottery registration end is missing")
 
             val currentTime = System.currentTimeMillis()
+            val existingRegistration = transaction.get(registrationRef)
+
             if (currentTime < registrationStart) {
                 throw IllegalStateException("Lottery registration has not started")
             }
@@ -89,9 +91,13 @@ class WaitingListModel {
                 throw IllegalStateException("Lottery registration has closed")
             }
 
-            val existingRegistration = transaction.get(registrationRef)
-
-            if (existingRegistration.exists()) {
+            if (!WaitingListValidator.canJoin(
+                    currentTime = currentTime,
+                    registrationStart = registrationStart,
+                    registrationEnd = registrationEnd,
+                    alreadyJoined = existingRegistration.exists()
+                )
+            ) {
                 throw IllegalStateException("You have already joined this lottery")
             }
 

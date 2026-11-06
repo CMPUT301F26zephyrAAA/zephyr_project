@@ -163,6 +163,7 @@ class CampsiteDetailView {
         val accountId = account?.id
         var joined by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var checkingMembership by remember(lottery?.id, accountId) { mutableStateOf(true) }
+        var membershipError by remember (lottery?.id, accountId) {mutableStateOf(false)}
         var joining by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var leaving by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var showLeaveConfirmation by remember(lottery?.id, accountId) { mutableStateOf(false) }
@@ -170,20 +171,25 @@ class CampsiteDetailView {
 
         LaunchedEffect(lottery?.id, accountId, waitingListController) {
             joinError = ""
+            membershipError = false
+
             if (lottery == null || accountId.isNullOrBlank() || waitingListController == null) {
                 checkingMembership = false
             } else {
                 checkingMembership = true
+
                 waitingListController.isEntrantJoined(
                     lotteryId = lottery.id,
                     accountId = accountId,
                     onResult = { isJoined ->
                         joined = isJoined
+                        membershipError = false
                         checkingMembership = false
                     },
                     onError = { error ->
                         joinError = error
-                        checkingMembership = true
+                        membershipError = true
+                        checkingMembership = false
                     }
                 )
             }
@@ -274,6 +280,7 @@ class CampsiteDetailView {
                                 },
                                 enabled = !joined &&
                                         !checkingMembership &&
+                                        !membershipError &&
                                         !joining &&
                                         !leaving &&
                                         System.currentTimeMillis() >= lottery.registrationStart &&
@@ -289,6 +296,7 @@ class CampsiteDetailView {
                                     }
                                 )
                             }
+
                             if (joinError.isNotEmpty()) {
                                 Text(
                                     text = joinError,

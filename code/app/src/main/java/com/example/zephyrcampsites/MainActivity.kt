@@ -184,12 +184,24 @@ class MainActivity : ComponentActivity() {
                                 ?: return@composable
 
                             val now = System.currentTimeMillis()
-                            val campsiteLottery = lotteryModel.lotteries
+
+                            val campsiteLotteries = lotteryModel.lotteries.filter { lottery ->
+                                lottery.campsiteId == campsiteId.toString() &&
+                                        now < lottery.bookingStart
+                            }
+
+                            val campsiteLottery = campsiteLotteries
                                 .filter { lottery ->
-                                    lottery.campsiteId == campsiteId.toString() &&
-                                            now < lottery.bookingStart
+                                    now >= lottery.registrationStart &&
+                                            now < lottery.registrationEnd
                                 }
                                 .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries
+                                    .filter { lottery ->
+                                        now >= lottery.registrationStart
+                                    }
+                                    .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries.minByOrNull { it.registrationStart }
 
                             campsiteDetailView.DetailScreen(
                                 campsiteId = campsiteId,
