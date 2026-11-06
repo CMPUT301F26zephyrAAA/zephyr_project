@@ -24,7 +24,9 @@ jobs:
       run: chmod +x gradlew
       working-directory: ./code
     - name: Create google-services.json
-      run: echo "${{ secrets.GOOGLE_SERVICES_JSON }}" > code/app/google-services.json
+      run: |
+        mkdir -p code/app
+        echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > code/app/google-services.json
       working-directory: ./code
     - name: Build with Gradle
       run: ./gradlew build
