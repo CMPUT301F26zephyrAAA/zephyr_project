@@ -366,7 +366,6 @@ class LotteryView (
                 ) {
                     Text("Update Booking Period")
                 }
-
             }
 
         }

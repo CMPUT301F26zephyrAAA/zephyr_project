@@ -240,4 +240,30 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             }
         )
     }
+
+    /**
+     * Deletes all lotteries associated with a campsite.
+     *
+     * @param campsiteId Campsite to delete lotteries for.
+     * @param onSuccess Called when lotteries are successfully deleted.
+     * @param onFailure Called when lotteries cannot be deleted.
+     */
+    fun deleteLotteriesOfCampsite(
+        campsiteId: String,
+        onSuccess: () -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
+        try{
+            val matches = lotteries.filter { it.campsiteId == campsiteId }
+            if(matches.isNotEmpty()){
+                onSuccess()
+                return
+            }
+            for(lottery in matches){
+                connector.remove(lottery.id)
+            }
+        } catch (e: Exception) {
+            onFailure(e)
+        }
+    }
 }

@@ -20,6 +20,8 @@ import com.google.firebase.firestore.GeoPoint
 class CampsiteModel : ObservableModel<CampsiteModel>() {
     val campsites = mutableStateListOf<Campsite>()
     val connector = FirebaseConnector("campsite")
+    private val waitlistConnector = FirebaseConnector("waitlist")
+    private val lotteryConnector = FirebaseConnector("lottery")
     private var campsiteListener: ListenerRegistration? = null
     var error: FirebaseFirestoreException? by mutableStateOf(null)
         private set
@@ -113,9 +115,9 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
-        //IMPLEMENT - Close active lotteries and waitlists for this campsite.
-        // TODO: Add backend/database call to update associated lottery/waitlist statuses to "CLOSED"
-        //IMPLEMENT - Notify owner and any affected waitlist entrants.
+        //US 03.01.01
+        //waitlistConnector.deleteWaitlistsOfCampsite(target, onSuccess, onFailure) - cannot implement yet
+        lotteryConnector.deleteLotteriesOfCampsite(target, onSuccess, onFailure)
         // TODO: Trigger notification dispatcher for target.ownerID and waitlist participants
         //Reference link - https://kotlinlang.org/docs/exceptions.html#throw-exceptions-with-precondition-functions
         try {

@@ -77,6 +77,9 @@ class LotteryController(
 
     /**
      * Updates the number of winners for a lottery.
+     *
+     * @param lotteryId ID of the lottery to update.
+     * @param newCount New number of winners.
      */
     fun updateNumberOfWinners(lotteryId: String, newCount: Int) {
         lotteryModel.updateNumberOfWinners(lotteryId, newCount)
@@ -84,8 +87,26 @@ class LotteryController(
 
     /**
      * Updates the waitlist capacity for a lottery.
+     *
+     * @param lotteryId ID of the lottery to update.
+     * @param newCapacity New waitlist capacity.
      */
     fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
         lotteryModel.updateWaitlistCapacity(lotteryId, newCapacity)
+    }
+
+    /**
+     * Deletes all lotteries associated with a campsite.
+     *
+     * @param campsiteId Campsite to delete lotteries for.
+     * @param onSuccess Called when lotteries are successfully deleted.
+     * @param onFailure Called when lotteries cannot be deleted.
+     */
+    fun deleteLotteriesOfCampsite(
+        campsiteId: String,
+        onSuccess: () -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
+        lotteryModel.deleteLotteriesOfCampsite(campsiteId, onSuccess, onFailure)
     }
 }
