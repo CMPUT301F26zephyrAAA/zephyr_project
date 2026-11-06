@@ -1,10 +1,13 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf
-import com.google.firebase.firestore.GeoPoint
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
-
+import java.util.Date
+import com.google.firebase.firestore.GeoPoint
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
  *
@@ -12,15 +15,17 @@ import com.google.firebase.firestore.ListenerRegistration
  * @property connector Instance of Firebase connector for campsite collection
  * @property campsiteListener Used to hold listener of Firebase, so listening can be canceled when needed.
  * @property error Holds error from Firebase if needed.
+ * @property isLoading Whether the first campsite snapshot is still loading.
  */
 class CampsiteModel : ObservableModel<CampsiteModel>() {
-    val campsites = mutableStateListOf(
-        Campsite("1"),
-        Campsite("2")
-    )
+    val campsites = mutableStateListOf<Campsite>()
     val connector = FirebaseConnector("campsite")
     private var campsiteListener: ListenerRegistration? = null
-    var error : FirebaseFirestoreException? = null
+    var error: FirebaseFirestoreException? by mutableStateOf(null)
+        private set
+
+    var isLoading: Boolean by mutableStateOf(true)
+        private set
 
     /**
      * Registers a new campsite for an owner
@@ -34,6 +39,8 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
      * @param tags Tags for the campsite
      * @param rules Rules & cancellation policy
      * @param toggle if entrants must accept rules before reserving
+     * @param onSuccess Called after the campsite is saved.
+     * @param onFailure Called if the campsite cannot be saved.
      */
     fun registerCampsite(
         ownerId: String,
@@ -45,6 +52,9 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         tags: List<String>,
         rules: String,
         toggle: Boolean,
+        geolocation: GeoPoint,
+        startDate: Date,
+        endDate: Date,
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -59,6 +69,10 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         newCampsite.tags = tags
         newCampsite.rules = rules
         newCampsite.toggle = toggle
+        newCampsite.geolocation = geolocation
+        newCampsite.bookingPeriodStart = startDate
+        newCampsite.bookingPeriodEnd = endDate
+
         connector.add(newCampsite,
             onSuccess = {
                 notifyObservers(this)
@@ -115,6 +129,21 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
     }
 
     /**
+     * Retrieves a campsite image URL asynchronously.
+     *
+     * @param path HTTPS URL or Firebase Storage path of the image.
+     * @param onResult Called when the image URL is available.
+     * @param onError Called if the image URL cannot be retrieved.
+     */
+    fun getCampsiteImage(
+        path: String,
+        onResult: (String) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        connector.resourceGetter(path = path, result = onResult, onError = onError)
+    }
+
+    /**
      * Stops the listener to the Firebase Firestore.
      */
     fun stopListening() {
@@ -126,10 +155,14 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         campsiteListener = connector.initializeListener(
             localList = campsites,
             type = Campsite::class.java,
-            onError = {thrownError ->
+            onError = { thrownError ->
                 error = thrownError
-                println(thrownError)
-              },
-            onSuccess = {error = null})
+                isLoading = false
+            },
+            onSuccess = {
+                error = null
+                isLoading = false
+            }
+        )
     }
 }

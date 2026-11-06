@@ -24,16 +24,6 @@ import androidx.navigation.navArgument
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import androidx.compose.runtime.remember
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.unit.dp
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Button
-import androidx.compose.material3.Text
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.navigation.compose.currentBackStackEntryAsState
 
@@ -50,6 +40,7 @@ sealed class GeneralScreen(val route: String) {
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
+    data object Policy : GeneralScreen("GeneralScreen/Policy")
 }
 
 class MainActivity : ComponentActivity() {
@@ -89,14 +80,18 @@ class MainActivity : ComponentActivity() {
                     LotteryController(lotteryModel)
                 }
 
-                    val lotteryView = remember(lotteryController) {
-                        LotteryView(lotteryController)
-                    }
+                val lotteryView = remember(lotteryController) {
+                    LotteryView(lotteryController)
+                }
 
-                // Current account, identified using the device ID.
-                val account = currentAccount.value
+                // Waiting-list registration for entrants.
+                val waitingListModel = remember { WaitingListModel() }
+                val waitingListController = remember(waitingListModel) {
+                    WaitingListController(waitingListModel)
+                }
 
                 // Navigate after account initialization finishes.
+                val account = currentAccount.value
                 LaunchedEffect(accountLoading.value, account?.id) {
                     if (!accountLoading.value) {
 
@@ -252,18 +247,38 @@ class MainActivity : ComponentActivity() {
                                 backStackEntry.arguments?.getInt("id")
                                     ?: return@composable
 
-                            campsiteDetailView.DetailView(
-                                campsite = campsiteController.retrieveId(
-                                    campsiteId
-                                ),
-                                codeGenerator = { type, id ->
-                                    qrHandler.qRGenerate(type, id)
-                                },
-                                onManageLottery = { selectedCampsiteId ->
-                                    navHostController.navigate(
-                                        "${GeneralScreen.LotterySettings.route}/$selectedCampsiteId"
-                                    )
+                            val now = System.currentTimeMillis()
+
+                            val campsiteLotteries = lotteryModel.lotteries.filter { lottery ->
+                                lottery.campsiteId == campsiteId.toString() &&
+                                        now < lottery.bookingStart
+                            }
+
+                            val campsiteLottery = campsiteLotteries
+                                .filter { lottery ->
+                                    now >= lottery.registrationStart &&
+                                            now < lottery.registrationEnd
                                 }
+                                .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries
+                                    .filter { lottery ->
+                                        now >= lottery.registrationStart
+                                    }
+                                    .maxByOrNull { it.registrationStart }
+                                ?: campsiteLotteries.minByOrNull { it.registrationStart }
+
+                            campsiteDetailView.DetailScreen(
+                                campsiteId = campsiteId,
+                                controller = campsiteController,
+                                accountsController = accountsController,
+                                account = account,
+                                codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
+                                onBack = { navHostController.popBackStack() },
+                                onManageLottery = { id ->
+                                    navHostController.navigate("${GeneralScreen.LotterySettings.route}/$id")
+                                },
+                                lottery = campsiteLottery,
+                                waitingListController = waitingListController
                             )
                         }
 
@@ -340,10 +355,17 @@ class MainActivity : ComponentActivity() {
                             if (profileAccount != null) {
                                 AccountsView().ProfileOverviewView(
                                     account = profileAccount,
-                                    onEdit = {navHostController.navigate(GeneralScreen.PersonalInformation.route)},
-                                    onBack = {navHostController.popBackStack()}
+                                    onEdit = {
+                                        navHostController.navigate(GeneralScreen.PersonalInformation.route)
+                                    },
+                                    onPolicy = { navHostController.navigate(GeneralScreen.Policy.route) },
+                                    onBack = { navHostController.popBackStack() }
                                 )
                             }
+                        }
+
+                        composable(route = GeneralScreen.Policy.route) {
+                            PolicyView().PolicyAndGuidelinesView(onBack = { navHostController.popBackStack() })
                         }
 
                         composable(route = GeneralScreen.PersonalInformation.route) {
@@ -361,50 +383,8 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                        composable(
-                            route = "lotteryDetails/{lotteryId}",
-                            arguments = listOf(
-                                navArgument("lotteryId") {
-                                    type = NavType.StringType
-                                }
-                            )
-                        ) { backStackEntry ->
 
-                            val lotteryId = backStackEntry.arguments
-                                ?.getString("lotteryId") ?: return@composable
 
-                            lotteryView.LotteryDetailsView(
-                                lotteryId = lotteryId,
-                                onEditClick = {
-                                    navHostController.navigate("editLottery/$lotteryId")
-                                },
-                                onBackClick = {
-                                    navHostController.popBackStack()
-                                }
-                            )
-                        }
-                        composable(
-                            route = "editLottery/{lotteryId}",
-                            arguments = listOf(
-                                navArgument("lotteryId") {
-                                    type = NavType.StringType
-                                }
-                            )
-                        ) { backStackEntry ->
-
-                            val lotteryId = backStackEntry.arguments
-                                ?.getString("lotteryId") ?: return@composable
-
-                            lotteryView.EditLotteryView(
-                                lotteryId = lotteryId,
-                                onSaveClick = {
-                                    navHostController.popBackStack()
-                                },
-                                onBackClick = {
-                                    navHostController.popBackStack()
-                                }
-                            )
-                        }
                     }
                 }
             }

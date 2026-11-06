@@ -25,3 +25,5 @@ val SecondaryGreenDark = Color(0xFF00AD6E)
 val SecondaryBackgroundLight = Color(0xFFABABAB)
 
 val SecondaryBackgroundDark = Color(0xFF242424)
+
+val ProfileMenuGreen = Color(0xFF1A3C34)
