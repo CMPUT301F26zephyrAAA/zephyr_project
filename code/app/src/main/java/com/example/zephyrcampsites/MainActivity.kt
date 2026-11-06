@@ -83,6 +83,13 @@ class MainActivity : ComponentActivity() {
                     LotteryView(lotteryController)
                 }
 
+                // Waiting-list registration for entrants.
+                val waitingListModel = remember { WaitingListModel() }
+
+                val waitingListController = remember(waitingListModel) {
+                    WaitingListController(waitingListModel)
+                }
+
                 // Current account, identified using the device ID.
                 val account = currentAccount.value
 
@@ -242,6 +249,15 @@ class MainActivity : ComponentActivity() {
                                 backStackEntry.arguments?.getInt("id")
                                     ?: return@composable
 
+                            val now = System.currentTimeMillis()
+                            val campsiteLottery = lotteryModel.lotteries
+                                .filter { lottery ->
+                                    lottery.campsiteId == campsiteId.toString() &&
+                                            now < lottery.bookingStart
+                                }
+                                .maxByOrNull { it.registrationStart } //https://stackoverflow.com/questions/66664730/maxbyornull-function-in-kotlin
+
+
                             campsiteDetailView.DetailView(
                                 campsite = campsiteController.retrieveId(
                                     campsiteId
@@ -253,7 +269,10 @@ class MainActivity : ComponentActivity() {
                                     navHostController.navigate(
                                         "${GeneralScreen.LotterySettings.route}/$selectedCampsiteId"
                                     )
-                                }
+                                },
+                                lottery = campsiteLottery,
+                                accountId = account?.id,
+                                waitingListController = waitingListController
                             )
                         }
 
