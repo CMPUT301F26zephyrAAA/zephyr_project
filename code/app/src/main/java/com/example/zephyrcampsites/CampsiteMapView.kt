@@ -2,6 +2,7 @@ package com.example.zephyrcampsites
 
 import android.annotation.SuppressLint
 import android.view.MotionEvent
+import android.view.ViewGroup
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -56,6 +57,7 @@ class CampsiteMapView {
                         modifier = Modifier.fillMaxSize().testTag("CampsiteMapBrowser"),
                         factory = { context ->
                             WebView(context).apply {
+                                layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                                 contentDescription = description
                                 settings.javaScriptEnabled = true
                                 settings.allowFileAccess = false
