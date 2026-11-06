@@ -43,6 +43,7 @@ sealed class GeneralScreen(val route: String) {
     data object AccountError : GeneralScreen("GeneralScreen/AccountError")
     data object PersonalInformation : GeneralScreen("GeneralScreen/PersonalInformation")
     data object Policy : GeneralScreen("GeneralScreen/Policy")
+    data object Settings : GeneralScreen("GeneralScreen/Settings")
 }
 
 class MainActivity : ComponentActivity() {
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
                     CampsiteController(campsiteModel)
                 }
                 val campsiteDetailView = remember { CampsiteDetailView() }
+                val ratingController = remember { RatingController() }
 
                 // Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
@@ -289,7 +291,18 @@ class MainActivity : ComponentActivity() {
                                     navHostController.navigate("${GeneralScreen.LotterySettings.route}/$id")
                                 },
                                 lottery = campsiteLottery,
-                                waitingListController = waitingListController
+                                waitingListController = waitingListController,
+                                ratingController = ratingController,
+                                onRateCampsite = { id -> navHostController.navigate(CampsiteScreens.RateCampsite.createRoute(id)) }
+                            )
+                        }
+
+                        composable(CampsiteScreens.RateCampsite.route,
+                            arguments = listOf(navArgument("id") { type = NavType.IntType })) { entry ->
+                            val id = entry.arguments?.getInt("id") ?: return@composable
+                            RatingView().RatingScreen(
+                                campsite = campsiteController.retrieveId(id), account = account, controller = ratingController,
+                                onSaved = { navHostController.popBackStack() }, onBack = { navHostController.popBackStack() }
                             )
                         }
 
@@ -373,6 +386,7 @@ class MainActivity : ComponentActivity() {
                                         navHostController.navigate(GeneralScreen.PersonalInformation.route)
                                     },
                                     onPolicy = { navHostController.navigate(GeneralScreen.Policy.route) },
+                                    onSettings = { navHostController.navigate(GeneralScreen.Settings.route) },
                                     onBack = { navHostController.popBackStack() }
                                 )
                             }
@@ -380,6 +394,20 @@ class MainActivity : ComponentActivity() {
 
                         composable(route = GeneralScreen.Policy.route) {
                             PolicyView().PolicyAndGuidelinesView(onBack = { navHostController.popBackStack() })
+                        }
+
+                        composable(route = GeneralScreen.Settings.route) {
+                            val settingsAccount = currentAccount.value ?: return@composable
+                            SettingsView().SettingsScreen(
+                                account = settingsAccount,
+                                accountsController = accountsController,
+                                onSaved = { updated ->
+                                    currentAccount.value = currentAccount.value?.copy(
+                                        notificationsEnabled = updated.notificationsEnabled
+                                    )
+                                },
+                                onBack = { navHostController.popBackStack() }
+                            )
                         }
 
                         composable(route = GeneralScreen.PersonalInformation.route) {

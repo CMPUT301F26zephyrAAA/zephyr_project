@@ -35,15 +35,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.os.ConfigurationCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 /**
  * Class for managing/editing user filters. Can be instantiated alone to access the FilterSetter method.
@@ -101,6 +102,8 @@ class UserFilterManager {
         var alertTriggered by remember { mutableStateOf(false) } // Flag to track if an alert is being triggered (for invalid input)
 
         val focusManager = LocalFocusManager.current
+
+        val userLocale = ConfigurationCompat.getLocales(LocalConfiguration.current)[0] // Gets locale in a composable way, allows update if changed while app is open. Ref: https://stackoverflow.com/a/70617283
 
         Card(modifier = Modifier
             .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
@@ -169,7 +172,7 @@ class UserFilterManager {
                 }
                 Row(modifier = Modifier.fillMaxWidth()) {
                     if (dateSelected || datesTriggered) {
-                        val formatter = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        val formatter = SimpleDateFormat("MMM dd, yyyy", userLocale)
                         Text(
                             text = "${formatter.format(currentUserFilters.startDate as Date)} to ${formatter.format(currentUserFilters.endDate as Date)}",
                             color = MaterialTheme.colorScheme.onBackground
