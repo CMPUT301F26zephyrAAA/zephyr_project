@@ -17,4 +17,5 @@ data class Lottery(
     var bookingEnd: Long = 0L
     var numberOfWinners: Int = 1
     var waitlistCapacity: Int? = null
+    var entrantCount: Long = 0L
 }

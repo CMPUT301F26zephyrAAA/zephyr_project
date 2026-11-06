@@ -539,7 +539,7 @@ class CampsiteDetailView {
             }
         }
         Button(onClick = { onManageLottery(campsite.id) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Create Lottery")
+            Text("Manage Lottery")
         }
     }
 

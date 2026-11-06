@@ -88,6 +88,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.bookingEnd = bookingEnd
         lottery.numberOfWinners = numberOfWinners
         lottery.waitlistCapacity = waitlistCapacity
+        lottery.entrantCount = 0L
 
         // Save the lottery and confirm the result.
         connector.addWithCallback(
@@ -357,6 +358,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             this.bookingEnd = lottery.bookingEnd
             this.numberOfWinners = lottery.numberOfWinners
             this.waitlistCapacity = lottery.waitlistCapacity
+            this.entrantCount = lottery.entrantCount
         }
 
         updatedLottery.lotteryName = lotteryName.trim()

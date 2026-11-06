@@ -189,6 +189,7 @@ class CampsiteDetailViewTest {
                     campsite = campsite,
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
+                    showOwnerView = true,
                     account = Account(campsite.ownerID).apply { userType = "owner" },
                     onManageLottery = { id -> managedId = id }
                 )
