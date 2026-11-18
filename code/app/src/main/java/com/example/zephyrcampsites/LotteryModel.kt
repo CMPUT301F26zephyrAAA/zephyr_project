@@ -89,6 +89,10 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.numberOfWinners = numberOfWinners
         lottery.waitlistCapacity = waitlistCapacity
         lottery.entrantCount = 0L
+        // A new lottery has not started its winner draw yet.
+        lottery.drawCompleted = false
+        lottery.drawCompletedAt = 0L
+        lottery.drawStatus = "PENDING"
 
         // Save the lottery and confirm the result.
         connector.addWithCallback(

@@ -15,4 +15,11 @@ data class WaitingUser(
 
     /** Time the entrant joined, in ms since unix epoch */
     var joinedAt : Long = 0L
+
+    // Stores the entrant's lottery result.
+    var drawStatus: String = "WAITING"
+
+    // Stores the entrant's position in the backup list.
+    // Zero means the entrant is not on the backup list.
+    var backupPosition: Int = 0
 }
