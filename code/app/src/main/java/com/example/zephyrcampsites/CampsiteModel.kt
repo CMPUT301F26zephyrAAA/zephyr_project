@@ -8,6 +8,7 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import java.util.Date
 import com.google.firebase.firestore.GeoPoint
+import android.net.Uri
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
@@ -56,6 +57,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         geolocation: GeoPoint,
         startDate: Date,
         endDate: Date,
+        imageUris: List<Uri> = emptyList(),
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -74,13 +76,39 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         newCampsite.bookingPeriodStart = startDate
         newCampsite.bookingPeriodEnd = endDate
 
-        connector.add(newCampsite,
-            onSuccess = {
-                notifyObservers(this)
-                onSuccess()
-            },
-            onFailure = onFailure
-        )
+        val uploadedImage = mutableListOf<String>()
+
+        fun saveImage() {
+            newCampsite.promoImagePaths = uploadedImage.toList()
+
+            connector.add(
+                newCampsite,
+                onSuccess = {
+                    notifyObservers(this)
+                    onSuccess()
+                },
+                onFailure = onFailure
+            )
+        }
+
+        fun uploadAnotherImage(index: Int) {
+            if (index >= imageUris.size) {
+                saveImage()
+                return
+            }
+            connector.uploadCampsiteImage(
+                campsiteId = newCampsite.id,
+                imageUri = imageUris[index],
+                onSuccess = {path ->
+                    uploadedImage.add(path)
+                    uploadAnotherImage(index + 1)
+                },
+                onFailure = {error ->
+                    onFailure("Failed to upload image: $error")
+                }
+            )
+        }
+        uploadAnotherImage(0)
     }
 
     /**

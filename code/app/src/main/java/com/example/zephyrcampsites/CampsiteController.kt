@@ -4,6 +4,7 @@ import android.location.Location
 import com.google.firebase.firestore.GeoPoint
 import java.util.Date
 import java.util.Calendar
+import android.net.Uri
 
 /**
  * Controller class for anything campsite related.
@@ -42,6 +43,7 @@ class CampsiteController(val model: CampsiteModel) {
         geolocation: GeoPoint,
         startDate: Date,
         endDate: Date,
+        imageUris: List<Uri> = emptyList(),
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -66,6 +68,7 @@ class CampsiteController(val model: CampsiteModel) {
             geolocation = geolocation,
             startDate = startDate,
             endDate = endDate,
+            imageUris = imageUris,
             onSuccess = onSuccess,
             onFailure = onFailure
         )
