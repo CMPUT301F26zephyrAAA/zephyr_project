@@ -17,6 +17,7 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.storage
 import com.google.firebase.firestore.FieldValue
+import android.net.Uri
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.

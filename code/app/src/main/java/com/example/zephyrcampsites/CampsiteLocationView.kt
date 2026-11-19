@@ -20,7 +20,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 @Composable
 
 fun CampsiteLocationView(
-    onPublish: (GeoPoint, Date, Date) -> Unit,
+    onPublish: (GeoPoint, Date, Date, List<Uri>) -> Unit,
     onBack: () -> Unit,
     campsite: Campsite? = null
 ) {
@@ -117,7 +117,8 @@ fun CampsiteLocationView(
                     onPublish(
                         GeoPoint(lat!!, lon!!),
                         startDate!!,
-                        endDate!!
+                        endDate!!,
+                        selectedImages
                     )
                 }
             ) {

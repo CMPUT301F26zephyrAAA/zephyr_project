@@ -190,7 +190,7 @@ fun CampsiteFormView(
     } else {
         CampsiteLocationView(
             campsite = campsite,
-            onPublish = { geoPoint, startDate, endDate ->
+            onPublish = { geoPoint, startDate, endDate, selectedImages ->
                 val input = CampsiteFormInput(
                     name,
                     location,
@@ -212,6 +212,7 @@ fun CampsiteFormView(
                         geolocation = geoPoint,
                         startDate = startDate,
                         endDate = endDate,
+                        imageUris = selectedImages,
                         onSuccess = {
                             registered = false
                             onDone()
