@@ -524,6 +524,7 @@ class CampsiteDetailView {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,
+                                canEdit = account?.userType == "owner" && account.id == campsite.ownerID,
                                 onEdit = onEdit,
                                 onManageLottery = onManageLottery
                             )
@@ -636,26 +637,28 @@ class CampsiteDetailView {
     }
 
     /**
-     * Displays the existing QR export and lottery-management controls for an owner.
+     * Displays QR, lottery management, and allowed editing controls in owner view.
      *
      * @param campsite Campsite being managed.
      * @param codeGenerator Function that generates the campsite QR code.
+     * @param canEdit Whether the current account owns the campsite and can edit it.
+     * @param onEdit Called when the owner opens the campsite editor.
      * @param onManageLottery Called when the owner opens lottery management.
      */
     @Composable
     private fun ownerControls(
         campsite: Campsite,
         codeGenerator: (String, Int) -> ImageBitmap,
+        canEdit: Boolean,
         onEdit: (Int) -> Unit,
         onManageLottery: (String) -> Unit
     ) {
         val numericId = campsite.id.toIntOrNull() ?: return
 
-        Button(
-            onClick = { onEdit(numericId) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("EDIT DETAILS")
+        if (canEdit) {
+            Button(onClick = { onEdit(numericId) }, modifier = Modifier.fillMaxWidth()) {
+                Text("EDIT DETAILS")
+            }
         }
         var codeShow by remember(campsite.id) { mutableStateOf(false) }
         val code = remember(campsite.id) { codeGenerator("campsite", numericId) }
