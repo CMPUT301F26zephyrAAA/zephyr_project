@@ -46,6 +46,16 @@ import java.util.Locale
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.runtime.mutableIntStateOf
 
 /**
  * Displays campsite details, promotional imagery, and existing owner controls.
@@ -338,7 +348,7 @@ class CampsiteDetailView {
                         }
                     }
                 } else {
-                    promotionalImage(imageUrl = imageUrl, campsiteName = campsite.name)
+                    promotionalImage(imageUrl = imageUrl, campsiteName = campsite.name, compressedImages = campsite.compressedImages)
 
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -590,46 +600,190 @@ class CampsiteDetailView {
      * @param campsiteName Campsite name used in the image's accessibility description.
      */
     @Composable
-    private fun promotionalImage(imageUrl: String?, campsiteName: String) {
-        var loading by remember(imageUrl) { mutableStateOf(true) }
-        var failed by remember(imageUrl) { mutableStateOf(false) }
+    private fun promotionalImage(imageUrl: String?, campsiteName: String, compressedImages:List<String>) {
+        val images = compressedImages.filter { it.isNotBlank() }
 
-        Box(
-            modifier = Modifier.fillMaxWidth().height(153.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
+        var currentIndex by remember(images) {
+            mutableIntStateOf(0)
+        }
+
+        val currentImage = images.getOrNull(currentIndex)
+
+        val bitmap by produceState<android.graphics.Bitmap?>(
+            initialValue = null,
+            key1 = currentImage
         ) {
-            if (!imageUrl.isNullOrBlank() && !failed) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = "Promotional image of $campsiteName",
-                    contentScale = ContentScale.Crop,
-                    onSuccess = { loading = false },
-                    onError = {
-                        failed = true
-                        loading = false
-                    },
-                    modifier = Modifier.fillMaxSize().testTag(
+            value = withContext(Dispatchers.Default) {
+                try {
+                    if (currentImage.isNullOrBlank()) {
+                        null
+                    } else {
+                        val bytes = Base64.decode(
+                            currentImage,
+                            Base64.DEFAULT
+                        )
+
+                        BitmapFactory.decodeByteArray(
+                            bytes,
+                            0,
+                            bytes.size
+                        )
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+
+        var loading by remember(imageUrl) {
+            mutableStateOf(true)
+        }
+
+        var failed by remember(imageUrl) {
+            mutableStateOf(false)
+        }
+
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    bitmap != null -> {
+                        Image(
+                            bitmap = bitmap!!.asImageBitmap(),
+                            contentDescription =
+                                "Image ${currentIndex + 1} of $campsiteName",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                                .testTag("CampsitePromoImage")
+                        )
+                    }
+
+                    !currentImage.isNullOrBlank() -> {
+                        Text("Loading image...")
+                    }
+
+                    !imageUrl.isNullOrBlank() && !failed -> {
+                        AsyncImage(
+                            model = imageUrl,
+                            contentDescription =
+                                "Promotional image of $campsiteName",
+                            contentScale = ContentScale.Crop,
+                            onSuccess = { loading = false },
+                            onError = {
+                                failed = true
+                                loading = false
+                            },
+                            modifier = Modifier.fillMaxSize()
+                                .testTag("CampsitePromoImage")
+                        )
+
                         if (loading) {
-                            "CampsitePromoImageLoading"
-                        } else {
-                            "CampsitePromoImage"
+                            Text("Loading image...")
                         }
-                    )
+                    }
+
+                    else -> {
+                        Text(
+                            "No promotional image",
+                            modifier = Modifier.testTag(
+                                "CampsiteImagePlaceholder"
+                            )
+                        )
+                    }
+                }
+            }
+
+            if (images.isEmpty() && (imageUrl.isNullOrBlank() || failed)) {
+                Icon(
+                    imageVector = Icons.Default.Landscape,
+                    contentDescription = "Default campsite image"
                 )
             }
 
-            if (imageUrl.isNullOrBlank() || failed || loading) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (imageUrl.isNullOrBlank() || failed) { Icon(Icons.Default.Landscape, contentDescription = "Default campsite image") }
-                Text(
-                    text = if (imageUrl.isNullOrBlank() || failed) {
-                        "No promotional image"
-                    } else {
-                        "Loading image..."
-                    },
-                    modifier = Modifier.testTag("CampsiteImagePlaceholder")
-                )
+            if (images.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            currentIndex =
+                                (currentIndex - 1 + images.size) % images.size
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Previous image"
+                        )
+                    }
+
+                    Text(
+                        text = "${currentIndex + 1} / ${images.size}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    IconButton(
+                        onClick = {
+                            currentIndex = (currentIndex + 1) % images.size
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Next image"
+                        )
+                    }
+                }
+            }
+
+            if (images.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            currentIndex =
+                                (currentIndex - 1 + images.size) %
+                                        images.size
+                        }
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Previous image"
+                        )
+                    }
+
+                    Text(
+                        text = "${currentIndex + 1} / ${images.size}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    IconButton(
+                        onClick = {
+                            currentIndex =
+                                (currentIndex + 1) % images.size
+                        }
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Next image"
+                        )
+                    }
                 }
             }
         }

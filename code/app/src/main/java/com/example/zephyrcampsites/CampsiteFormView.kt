@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 private fun FormFields(
@@ -69,6 +70,7 @@ fun CampsiteFormView(
     var feedback by remember { mutableStateOf<String?>(null) }
     var registered by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf(1) } //Step 1 (Owner Based on UI)
+    val context = LocalContext.current
 
     if (step == 1) {
         Scaffold{ padding ->
@@ -206,7 +208,9 @@ fun CampsiteFormView(
                 if (campsite == null) {
                     registered = true
 
+
                     controller.registerCampsite(
+                        context = context,
                         ownerId = ownerId,
                         input = input,
                         geolocation = geoPoint,
@@ -222,6 +226,7 @@ fun CampsiteFormView(
                             feedback = it
                         }
                     )
+
                 } else if (account == null) {
                     feedback = "Unable to identify current account."
                 } else {

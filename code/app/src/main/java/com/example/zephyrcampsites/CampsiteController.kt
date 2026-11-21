@@ -5,6 +5,7 @@ import com.google.firebase.firestore.GeoPoint
 import java.util.Date
 import java.util.Calendar
 import android.net.Uri
+import android.content.Context
 
 /**
  * Controller class for anything campsite related.
@@ -37,7 +38,9 @@ class CampsiteController(val model: CampsiteModel) {
      * @param onSuccess This is called after the campsite is successfully created
      * @param onFailure This is called if there is a problem with registration
      */
+
     fun registerCampsite(
+        context: Context,
         ownerId: String,
         input: CampsiteFormInput,
         geolocation: GeoPoint,
@@ -51,18 +54,23 @@ class CampsiteController(val model: CampsiteModel) {
             onFailure("Unable to reach database.")
             return
         }
+
         if (validate(input).hasErrors) {
             onFailure("Please fix highlighted fields.")
             return
         }
+
         model.registerCampsite(
+            context = context,
             ownerId = ownerId,
             name = input.name.trim(),
             location = input.location.trim(),
             description = input.description.trim(),
             maxOccupancy = input.maxOccupancy.trim().toInt(),
             pricePerNight = input.pricePerNight.trim().toDouble(),
-            tags = input.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() },
+            tags = input.tags.split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() },
             rules = input.rules.trim(),
             toggle = input.toggle,
             geolocation = geolocation,
@@ -73,6 +81,7 @@ class CampsiteController(val model: CampsiteModel) {
             onFailure = onFailure
         )
     }
+
 
 
     /**
