@@ -8,6 +8,11 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import java.util.Date
 import com.google.firebase.firestore.GeoPoint
+import android.net.Uri
+import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.FirebaseFirestore
@@ -58,6 +63,7 @@ class CampsiteModel(
      * @param onFailure Called if the campsite cannot be saved.
      */
     fun registerCampsite(
+        context: Context,
         ownerId: String,
         name: String,
         location: String,
@@ -70,6 +76,7 @@ class CampsiteModel(
         geolocation: GeoPoint,
         startDate: Date,
         endDate: Date,
+        imageUris: List<Uri> = emptyList(),
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -88,13 +95,49 @@ class CampsiteModel(
         newCampsite.bookingPeriodStart = startDate
         newCampsite.bookingPeriodEnd = endDate
 
-        connector.add(newCampsite,
-            onSuccess = {
-                notifyObservers(this)
-                onSuccess()
-            },
-            onFailure = onFailure
-        )
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val compressedImages = mutableListOf<String>()
+
+                for (imageUri in imageUris) {
+                    val compressedImage =
+                        ImageCompressionUtil.compressImage(
+                            context = context,
+                            imageUri = imageUri
+                        )
+
+                    compressedImages.add(compressedImage)
+                }
+
+                newCampsite.compressedImages =
+                    compressedImages.toList()
+
+                val imageBytes = compressedImages.sumOf {
+                    it.toByteArray(Charsets.UTF_8).size
+                }
+
+                require(imageBytes <= 700 * 1024) {
+                    "Images are too large for this campsite document."
+                }
+
+                connector.add(
+                    newCampsite,
+                    onSuccess = {
+                        notifyObservers(this@CampsiteModel)
+                        onSuccess()
+                    },
+                    onFailure = onFailure
+                )
+
+            } catch (e: Exception) {
+                onFailure(
+                    "Failed to process campsite images: ${e.message}"
+                )
+            }
+        }
+
+
     }
 
     /**
