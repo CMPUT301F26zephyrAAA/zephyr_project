@@ -13,19 +13,33 @@ import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.firestore
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.storage.FirebaseStorage
+import com.google.firebase.storage.storage
+import com.google.firebase.firestore.FieldValue
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
  *
+ * @param firestore Database used for campsites and related registrations.
+ * @param storage Optional Storage instance for local emulator tests.
  * @property campsites Local list of campsites, will be updated by snapshot listener
  * @property connector Instance of Firebase connector for campsite collection
  * @property campsiteListener Used to hold listener of Firebase, so listening can be canceled when needed.
  * @property error Holds error from Firebase if needed.
  * @property isLoading Whether the first campsite snapshot is still loading.
  */
-class CampsiteModel : ObservableModel<CampsiteModel>() {
+class CampsiteModel(
+    private val firestore: FirebaseFirestore = Firebase.firestore,
+    private val storage: FirebaseStorage? = null,
+) : ObservableModel<CampsiteModel>() {
     val campsites = mutableStateListOf<Campsite>()
-    val connector = FirebaseConnector("campsite")
+    val connector = FirebaseConnector("campsite", firestore)
     private var campsiteListener: ListenerRegistration? = null
     var error: FirebaseFirestoreException? by mutableStateOf(null)
         private set
@@ -188,16 +202,66 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
 
 
     /**
-     * Deletes a given campsite.
-     * Caller needs to handle IllegalStateException in case of failure to communicate with Firestore.
+     * Closes related registrations, removes waiting list entries and lotteries, then deletes the
+     * campsite.
      *
-     * @param target Campsite to delete.
+     * @param target Campsite to remove.
+     * @param onSuccess Called after Firestore confirms deletion.
+     * @param onFailure Called if the campsite or related records cannot be removed.
      */
     fun deleteCampsite(
-        target: Campsite
+        target: Campsite,
+        onSuccess: () -> Unit = {},
+        onFailure: (String) -> Unit = {},
     ) {
-        connector.remove(target)
-        notifyObservers(this)
+        val fail: (Exception) -> Unit = { onFailure(it.message ?: "Failed to remove campsite.") }
+        firestore
+            .collection("lottery")
+            .whereEqualTo("campsiteId", target.id)
+            .get(Source.SERVER)
+            .addOnSuccessListener { lotteries ->
+                if (lotteries.size() > 499) {
+                    onFailure("Too many related lotteries to remove at once.")
+                    return@addOnSuccessListener
+                }
+                val closeBatch = firestore.batch()
+                lotteries.documents.forEach {
+                    closeBatch.update(it.reference, "registrationEnd", System.currentTimeMillis())
+                }
+                closeBatch
+                    .commit()
+                    .addOnSuccessListener {
+                        val queries =
+                            lotteries.documents.map { lottery ->
+                                firestore
+                                    .collection("waitingList")
+                                    .whereEqualTo("lotteryId", lottery.id)
+                                    .get(Source.SERVER)
+                            }
+                        Tasks.whenAllSuccess<QuerySnapshot>(queries)
+                            .addOnSuccessListener { lists ->
+                                val entries = lists.flatMap { it.documents }
+                                if (entries.size + lotteries.size() + 1 > 500) {
+                                    onFailure("Too many related records to remove at once.")
+                                    return@addOnSuccessListener
+                                }
+                                val batch = firestore.batch()
+                                entries.forEach { batch.delete(it.reference) }
+                                lotteries.documents.forEach { batch.delete(it.reference) }
+                                batch.delete(connector.db.document(target.id))
+                                batch
+                                    .commit()
+                                    .addOnSuccessListener {
+                                        notifyObservers(this)
+                                        onSuccess()
+                                    }
+                                    .addOnFailureListener(fail)
+                            }
+                            .addOnFailureListener(fail)
+                    }
+                    .addOnFailureListener(fail)
+            }
+            .addOnFailureListener(fail)
     }
 
     /**
@@ -251,5 +315,69 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
                 isLoading = false
             }
         )
+    }
+
+    /**
+     * Removes one selected image and clears every matching reference on this campsite.
+     *
+     * @param campsite Campsite containing the selected image.
+     * @param path Selected image path, kept separate from the mutable campsite fields.
+     * @param onSuccess Called after Storage deletion and reference cleanup succeed.
+     * @param onError Called if the image is stale, invalid, or cannot be removed.
+     */
+    fun removeImage(
+        campsite: Campsite,
+        path: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (path.isBlank()) {
+            onError(IllegalArgumentException("No campsite image exists."))
+            return
+        }
+        val reference = connector.db.document(campsite.id)
+        reference
+            .get(Source.SERVER)
+            .addOnSuccessListener { document ->
+                val promotional = document.get("promoImagePaths") as? List<*> ?: emptyList<Any>()
+                if (
+                    !document.exists() ||
+                        (document.getString("imagePath") != path && path !in promotional)
+                ) {
+                    onError(
+                        IllegalStateException(
+                            "The selected campsite image has changed. Refresh the list."
+                        )
+                    )
+                    return@addOnSuccessListener
+                }
+                connector.removeImage(
+                    path,
+                    storage ?: Firebase.storage,
+                    onSuccess = {
+                        firestore
+                            .runTransaction { transaction ->
+                                val current = transaction.get(reference)
+                                check(current.exists()) { "Campsite no longer exists." }
+                                val updates =
+                                    mutableMapOf<String, Any>(
+                                        "promoImagePaths" to FieldValue.arrayRemove(path)
+                                    )
+                                if (current.getString("imagePath") == path) {
+                                    updates["imagePath"] = ""
+                                }
+                                transaction.update(reference, updates)
+                                true
+                            }
+                            .addOnSuccessListener {
+                                notifyObservers(this)
+                                onSuccess()
+                            }
+                            .addOnFailureListener(onError)
+                    },
+                    onError = onError,
+                )
+            }
+            .addOnFailureListener(onError)
     }
 }

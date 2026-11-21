@@ -138,5 +138,53 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
             onError = { onError("Unable to save notification preference. Please try again.") }
         )
     }
+
+    /**
+     * Removes a profile only for an identified administrator.
+     *
+     * @param account Current administrator account.
+     * @param targetAccount Profile to remove.
+     * @param onSuccess Called after deletion succeeds.
+     * @param onError Called when access or deletion fails.
+     */
+    fun deleteProfile(
+        account: Account?,
+        targetAccount: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            onError(IllegalArgumentException("Only administrators can remove profiles."))
+            return
+        }
+        if (targetAccount.id.isBlank() || targetAccount.id.contains("/")) {
+            onError(IllegalArgumentException("Invalid profile ID."))
+            return
+        }
+        accountsModel.deleteAccount(targetAccount, account.id, onSuccess, onError)
+    }
+
+    /**
+     * Requests removal of a selected profile image for an administrator.
+     *
+     * @param account Current administrator.
+     * @param targetAccount Profile containing the image.
+     * @param path Selected image path.
+     * @param onSuccess Called after removal succeeds.
+     * @param onError Called when access or removal fails.
+     */
+    fun removeProfileImage(
+        account: Account?,
+        targetAccount: Account,
+        path: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            onError(IllegalArgumentException("Only administrators can remove images."))
+            return
+        }
+        accountsModel.removeProfileImage(targetAccount, path, onSuccess, onError)
+    }
 }
 

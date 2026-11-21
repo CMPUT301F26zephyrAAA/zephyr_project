@@ -160,6 +160,27 @@ class CampsiteController(val model: CampsiteModel) {
     }
 
     /**
+     * Removes a campsite only for the identified administrator.
+     *
+     * @param account Current account.
+     * @param campsite Campsite to remove.
+     * @param onSuccess Called after deletion succeeds.
+     * @param onFailure Called when access or deletion fails.
+     */
+    fun removeCampsite(
+        account: Account?,
+        campsite: Campsite,
+        onSuccess: () -> Unit,
+        onFailure: (String) -> Unit,
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            onFailure("Only administrators can remove campsites.")
+            return
+        }
+        model.deleteCampsite(campsite, onSuccess, onFailure)
+    }
+
+    /**
      * Search function for specified filters.
      * All params can be null if filter was not used.
      * Calls on helper functions to do actual checks, this function only checks that all checks were true.
@@ -311,4 +332,26 @@ class CampsiteController(val model: CampsiteModel) {
         return (max - occupied >= guests)
     }
 
+    /**
+     * Requests removal of a selected campsite image for an administrator.
+     *
+     * @param account Current administrator.
+     * @param campsite Campsite containing the image.
+     * @param path Selected image path.
+     * @param onSuccess Called after removal succeeds.
+     * @param onError Called when access or removal fails.
+     */
+    fun removeImage(
+        account: Account?,
+        campsite: Campsite,
+        path: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            onError(IllegalArgumentException("Only administrators can remove images."))
+            return
+        }
+        model.removeImage(campsite, path, onSuccess, onError)
+    }
 }

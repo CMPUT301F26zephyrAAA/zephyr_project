@@ -1,0 +1,8 @@
+// Local emulator fixtures only. The blocked folder tests failed deletions.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /test-images/{path=**} { allow read, write: if true; }
+    match /blocked/{path=**} { allow read, create, update: if true; }
+  }
+}

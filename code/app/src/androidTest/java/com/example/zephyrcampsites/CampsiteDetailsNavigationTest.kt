@@ -72,7 +72,7 @@ class CampsiteDetailsNavigationTest {
         composeTestRule.onNodeWithTag("CampsiteSearch").assertTextContains("Pine")
         composeTestRule.onNodeWithTag("FilterButton").performClick()
         composeTestRule.onNodeWithTag("GuestsEntry").assertTextContains("3")
-        composeTestRule.onNodeWithText("Current selected date: ").assertExists()
+        composeTestRule.onNodeWithText("Current selected date: ", substring = true).assertExists()
         composeTestRule.onNodeWithTag("DistanceLimitMenu").assertTextContains("50km")
         composeTestRule.runOnIdle {
             assertEquals("Pine", filters.searchString)

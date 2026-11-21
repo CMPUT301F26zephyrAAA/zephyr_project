@@ -7,22 +7,28 @@ class LotteryController(
 ) {
 
     fun createLottery(
+        lotteryName: String,
         campsiteId: String,
         registrationStart: Long,
         registrationEnd: Long,
         bookingStart: Long,
         bookingEnd: Long,
         numberOfWinners: Int,
-        waitlistCapacity: Int?
-    ) {
-        lotteryModel.createLottery(
+        waitlistCapacity: Int?,
+        onSuccess: (String) -> Unit,
+        onFailure: (Exception) -> Unit
+    ): String {
+        return lotteryModel.createLottery(
+            lotteryName = lotteryName,
             campsiteId = campsiteId,
             registrationStart = registrationStart,
             registrationEnd = registrationEnd,
             bookingStart = bookingStart,
             bookingEnd = bookingEnd,
             numberOfWinners = numberOfWinners,
-            waitlistCapacity = waitlistCapacity
+            waitlistCapacity = waitlistCapacity,
+            onSuccess = onSuccess,
+            onFailure = onFailure
         )
     }
 
@@ -88,4 +94,39 @@ class LotteryController(
     fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
         lotteryModel.updateWaitlistCapacity(lotteryId, newCapacity)
     }
+
+    /**
+    Find a lottery using its ID.*/
+    fun getLotteryById(lotteryId: String): Lottery? {
+        return lotteryModel.lotteries.find {
+            it.id == lotteryId
+        }
+    }
+
+    fun updateLottery(
+        lotteryId: String,
+        lotteryName: String,
+        registrationStart: Long,
+        registrationEnd: Long,
+        bookingStart: Long,
+        bookingEnd: Long,
+        numberOfWinners: Int,
+        waitlistCapacity: Int?,
+        onSuccess: () -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
+        lotteryModel.updateLottery(
+            lotteryId = lotteryId,
+            lotteryName = lotteryName,
+            registrationStart = registrationStart,
+            registrationEnd = registrationEnd,
+            bookingStart = bookingStart,
+            bookingEnd = bookingEnd,
+            numberOfWinners = numberOfWinners,
+            waitlistCapacity = waitlistCapacity,
+            onSuccess = onSuccess,
+            onFailure = onFailure
+        )
+    }
 }
+
