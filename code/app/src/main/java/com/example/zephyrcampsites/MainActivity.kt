@@ -504,7 +504,11 @@ class MainActivity : ComponentActivity() {
                         }
 
 
-
+                        // AI Citation [AI-13]
+                        // OpenAI, ChatGPT was used to assist with Delete Profile
+                        // navigation, Compose state management, Firebase callbacks,
+                        // and device account reinitialization.
+                        // AI usage and citation documented in the GitHub Wiki.
                         composable(route = GeneralScreen.DeleteProfile.route) {
 
                             val profileAccount = currentAccount.value

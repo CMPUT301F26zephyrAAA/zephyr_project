@@ -198,6 +198,11 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             .addOnFailureListener { exception -> onError(exception) }
     }
 
+    // AI Citation [AI-12]
+    // OpenAI, ChatGPT was used to assist with understanding
+    // Firestore transactions, waiting-list cleanup, and
+    // reservation handling during entrant profile deletion.
+    // AI usage and citation documented in the GitHub Wiki.
     /**
      * Permanently deletes the profile of an entrant.
      *

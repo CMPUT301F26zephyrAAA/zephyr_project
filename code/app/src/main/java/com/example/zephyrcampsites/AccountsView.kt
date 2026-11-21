@@ -296,6 +296,10 @@ class AccountsView {
         }
     }
 
+    // AI Citation [AI-09], [AI-10], [AI-11]
+    // OpenAI, ChatGPT was used to assist with the Delete Profile
+    // UI, confirmation dialog, button styling, and Compose test tags.
+    // AI usage and citations documented in the GitHub Wiki.
     /**
      * Displays the confirmation screen for deleting an entrant's profile.
      *
@@ -427,7 +431,7 @@ class AccountsView {
                 text = {
                     Column {
                         Text(
-                            "Your profile and waiting-list entries will be removed " + "This action cannot be undone."
+                            "Your profile and waiting-list entries will be removed. " + "This action cannot be undone."
                         )
 
                         if (hasActiveReservations) {
