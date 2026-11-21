@@ -9,6 +9,10 @@ import com.google.firebase.firestore.ListenerRegistration
 import java.util.Date
 import com.google.firebase.firestore.GeoPoint
 import android.net.Uri
+import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
@@ -45,6 +49,7 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
      * @param onFailure Called if the campsite cannot be saved.
      */
     fun registerCampsite(
+        context: Context,
         ownerId: String,
         name: String,
         location: String,
@@ -76,39 +81,49 @@ class CampsiteModel : ObservableModel<CampsiteModel>() {
         newCampsite.bookingPeriodStart = startDate
         newCampsite.bookingPeriodEnd = endDate
 
-        val uploadedImage = mutableListOf<String>()
 
-        fun saveImage() {
-            newCampsite.promoImagePaths = uploadedImage.toList()
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val compressedImages = mutableListOf<String>()
 
-            connector.add(
-                newCampsite,
-                onSuccess = {
-                    notifyObservers(this)
-                    onSuccess()
-                },
-                onFailure = onFailure
-            )
-        }
+                for (imageUri in imageUris) {
+                    val compressedImage =
+                        ImageCompressionUtil.compressImage(
+                            context = context,
+                            imageUri = imageUri
+                        )
 
-        fun uploadAnotherImage(index: Int) {
-            if (index >= imageUris.size) {
-                saveImage()
-                return
-            }
-            connector.uploadCampsiteImage(
-                campsiteId = newCampsite.id,
-                imageUri = imageUris[index],
-                onSuccess = {path ->
-                    uploadedImage.add(path)
-                    uploadAnotherImage(index + 1)
-                },
-                onFailure = {error ->
-                    onFailure("Failed to upload image: $error")
+                    compressedImages.add(compressedImage)
                 }
-            )
+
+                newCampsite.compressedImages =
+                    compressedImages.toList()
+
+                val imageBytes = compressedImages.sumOf {
+                    it.toByteArray(Charsets.UTF_8).size
+                }
+
+                require(imageBytes <= 700 * 1024) {
+                    "Images are too large for this campsite document."
+                }
+
+                connector.add(
+                    newCampsite,
+                    onSuccess = {
+                        notifyObservers(this@CampsiteModel)
+                        onSuccess()
+                    },
+                    onFailure = onFailure
+                )
+
+            } catch (e: Exception) {
+                onFailure(
+                    "Failed to process campsite images: ${e.message}"
+                )
+            }
         }
-        uploadAnotherImage(0)
+
+
     }
 
     /**
