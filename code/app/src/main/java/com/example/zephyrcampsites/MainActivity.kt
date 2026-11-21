@@ -45,6 +45,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.dp
 sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
     data object Profile : GeneralScreen("GeneralScreen/Profile")
+    data object DeleteProfile : GeneralScreen("GeneralScreen/DeleteProfile")
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
     data object RegisterCampsite: GeneralScreen("GeneralScreen/RegisterCampsite")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
@@ -240,9 +242,7 @@ class MainActivity : ComponentActivity() {
                                         navHostController.navigate(
                                             GeneralScreen.AccountLoading.route
                                         ) {
-                                            popUpTo(
-                                                GeneralScreen.AccountError.route
-                                            ) {
+                                            popUpTo(GeneralScreen.AccountLoading.route) {
                                                 inclusive = true
                                             }
                                             launchSingleTop = true
@@ -497,10 +497,132 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onPolicy = { navHostController.navigate(GeneralScreen.Policy.route) },
                                     onSettings = { navHostController.navigate(GeneralScreen.Settings.route) },
+                                    onDelete = { navHostController.navigate(GeneralScreen.DeleteProfile.route) },
                                     onBack = { navHostController.popBackStack() }
                                 )
                             }
                         }
+
+
+                        // AI Citation [AI-13]
+                        // OpenAI, ChatGPT was used to assist with Delete Profile
+                        // navigation, Compose state management, Firebase callbacks,
+                        // and device account reinitialization.
+                        // AI usage and citation documented in the GitHub Wiki.
+                        composable(route = GeneralScreen.DeleteProfile.route) {
+
+                            val profileAccount = currentAccount.value
+                            val context = LocalContext.current
+                            val accountsModel = remember { AccountsModel() }
+
+                            var hasActiveReservations by remember {
+                                mutableStateOf(false)
+                            }
+
+                            var isCheckingReservations by remember {
+                                mutableStateOf(true)
+                            }
+
+                            var isDeleting by remember {
+                                mutableStateOf(false)
+                            }
+
+                            var errorMessage by remember {
+                                mutableStateOf<String?>(null)
+                            }
+
+                            // Check reservations when the screen opens.
+                            LaunchedEffect(profileAccount?.id) {
+                                isCheckingReservations = true
+                                errorMessage = null
+
+                                if (profileAccount == null) {
+                                    errorMessage = "Account not found."
+                                    isCheckingReservations = false
+                                } else {
+                                    accountsModel.hasActiveReservations(
+                                        accountId = profileAccount.id,
+                                        onResult = { hasActive ->
+                                            hasActiveReservations = hasActive
+                                            isCheckingReservations = false
+                                        },
+                                        onError = { exception ->
+                                            errorMessage = exception.message
+                                                ?: "Unable to check reservations."
+                                            isCheckingReservations = false
+                                        }
+                                    )
+                                }
+                            }
+
+                            AccountsView().DeleteProfileView(
+                                hasActiveReservations = hasActiveReservations,
+                                isCheckingReservations = isCheckingReservations,
+                                isDeleting = isDeleting,
+                                errorMessage = errorMessage,
+
+                                onConfirm = {
+                                    if (
+                                        !isDeleting &&
+                                        !isCheckingReservations &&
+                                        errorMessage == null &&
+                                        profileAccount != null
+                                    ) {
+                                        isDeleting = true
+                                        errorMessage = null
+
+                                        accountsController.deleteOwnProfile(
+                                            context = context,
+                                            account = profileAccount,
+
+                                            onSuccess = {
+                                                // Reset the current account state.
+                                                accountLoading.value = true
+                                                currentAccount.value = null
+
+                                                // Return to the account loading screen.
+                                                navHostController.navigate(
+                                                    GeneralScreen.AccountLoading.route
+                                                ) {
+                                                    popUpTo(navHostController.graph.id) {
+                                                        inclusive = false
+                                                    }
+                                                    launchSingleTop = true
+                                                }
+
+                                                // Initialize a fresh account for this device.
+                                                accountsController.initializeAccount(
+                                                    context = context,
+
+                                                    onSuccess = { newAccount ->
+                                                        currentAccount.value = newAccount
+                                                        accountLoading.value = false
+                                                    },
+
+                                                    onError = {
+                                                        currentAccount.value = null
+                                                        accountLoading.value = false
+                                                    }
+                                                )
+                                            },
+
+                                            onError = { message ->
+                                                isDeleting = false
+                                                errorMessage = message
+                                            }
+                                        )
+                                    }
+                                },
+
+                                onCancel = {
+                                    if (!isDeleting) {
+                                        navHostController.popBackStack()
+                                    }
+                                }
+                            )
+                        }
+
+
 
                         composable(route = GeneralScreen.Policy.route) {
                             PolicyView().PolicyAndGuidelinesView(onBack = { navHostController.popBackStack() })
