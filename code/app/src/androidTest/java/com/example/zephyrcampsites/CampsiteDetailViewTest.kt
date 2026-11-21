@@ -181,6 +181,17 @@ class CampsiteDetailViewTest {
     }
 
     @Test
+    fun differentOwnerCannotEditInOwnerView() {
+        showDetails(
+            account = Account("other-owner").apply { userType = "owner" },
+            showOwnerView = true
+        )
+
+        composeTestRule.onNodeWithText("Manage Lottery").assertExists()
+        composeTestRule.onNodeWithText("EDIT DETAILS").assertDoesNotExist()
+    }
+
+    @Test
     fun ownerCanStillGenerateQrAndOpenLotteryManagement() {
         var managedId: String? = null
         composeTestRule.setContent {
@@ -196,6 +207,7 @@ class CampsiteDetailViewTest {
             }
         }
 
+        composeTestRule.onNodeWithText("EDIT DETAILS").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithText("Generate/Hide QR").performScrollTo().performClick()
         composeTestRule.onNodeWithContentDescription("Generated QR code of ${campsite.name}")
             .assertExists()
@@ -210,12 +222,14 @@ class CampsiteDetailViewTest {
      * @param imageUrl Local fixture image path, or null for the placeholder.
      * @param ownerName Owner name supplied to the view.
      * @param account Account viewing the campsite.
+     * @param showOwnerView Whether the owner preview is enabled.
      * @param onBack Called when Back is pressed.
      */
     private fun showDetails(
         imageUrl: String? = null,
         ownerName: String? = "Jordan Lee",
         account: Account = Account("entrant-demo"),
+        showOwnerView: Boolean = false,
         onBack: () -> Unit = {}
     ) {
         composeTestRule.setContent {
@@ -223,10 +237,12 @@ class CampsiteDetailViewTest {
                 CampsiteDetailView().DetailView(
                     campsite = campsite,
                     codeGenerator = { _, _ ->
-                        throw AssertionError("Accounts that do not own the campsite must not generate QR codes.")
+                        check(showOwnerView) { "The QR code must not be generated outside owner view." }
+                        ImageBitmap(2, 2)
                     },
                     onBack = onBack,
                     account = account,
+                    showOwnerView = showOwnerView,
                     imageUrl = imageUrl,
                     ownerName = ownerName
                 )
