@@ -268,10 +268,6 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                 firestore.collection("reservation")
                     .whereEqualTo("accountId", accountId)
-                    .get(Source.SERVER),
-
-                firestore.collectionGroup("ratings")
-                    .whereEqualTo("accountId", accountId)
                     .get(Source.SERVER)
             )
 
@@ -280,8 +276,6 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                     val entries = results[0].documents
                     val reservations = results[1].documents
-                    val ratings = results[2].documents
-
                     // Step 4: Identify affected lotteries.
                     val lotteryIds = entries.mapNotNull {
                         it.getString("lotteryId")
@@ -301,33 +295,25 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                             .document(lotteryId)
                     }
 
-                    val ratingCampsitePaths = ratings.map { rating ->
-                        rating.reference.parent.parent
-                    }
+                    // Find campsites associated with the entrant's reservations.
+                    val ratingCampsiteRefs = reservations
+                        .mapNotNull { it.getString("campsiteId") }
+                        .filter { it.isNotBlank() && !it.contains("/") }
+                        .distinct()
+                        .map { campsiteId ->
+                            firestore.collection("campsite").document(campsiteId)
+                        }
 
-                    if (ratingCampsitePaths.any { it == null }) {
-                        fail(IllegalStateException("Rating has no parent campsite."))
-                        return@addOnSuccessListener
-                    }
-
-                    val ratingCampsiteRefs = ratingCampsitePaths
-                        .filterNotNull()
-                        .distinctBy { it.path }
-
-                    if (ratingCampsiteRefs.size != ratings.size &&
-                        ratingCampsiteRefs.size != ratings.mapNotNull {
-                            it.reference.parent.parent?.path
-                        }.distinct().size
-                    ) {
-                        fail(IllegalStateException("Invalid rating campsite reference."))
-                        return@addOnSuccessListener
+                    // Ratings use the entrant's account ID as their document ID.
+                    val ratingRefs = ratingCampsiteRefs.map { campsiteRef ->
+                        campsiteRef.collection("ratings").document(accountId)
                     }
 
                     val operationCount =
                         entries.size +
                                 reservations.size +
                                 lotteryRefs.size +
-                                ratings.size +
+                                ratingRefs.size +
                                 ratingCampsiteRefs.size + 1
 
                     if (operationCount > 500) {
@@ -357,8 +343,8 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                             transaction.get(it.reference)
                         }
 
-                        val savedRatings = ratings.map {
-                            transaction.get(it.reference)
+                        val savedRatings = ratingRefs.map {
+                            transaction.get(it)
                         }
 
                         val savedRatingCampsites = ratingCampsiteRefs.map {
@@ -450,7 +436,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                 transaction.update(reservation.reference, updates)
                             }
                         // Step 8B: Remove ratings belonging to the deleted entrant.
-// Update campsite rating aggregates in the same transaction.
+// Update campsite rating aggregates if the campsite still exists.
                         val ratingsByCampsite = savedRatings
                             .filter { it.exists() }
                             .groupBy { rating ->
@@ -464,48 +450,56 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                 ratingsByCampsite[campsite.reference.path].orEmpty()
 
                             if (campsiteRatings.isNotEmpty()) {
-                                check(campsite.exists()) {
-                                    "Campsite for saved rating no longer exists."
-                                }
 
-                                val scores = (campsite.get("rating") as? List<*>)
-                                    ?.map { value ->
-                                        val number = value as? Number
-                                            ?: error("Invalid campsite rating.")
+                                if (!campsite.exists()) {
+                                    // The campsite was deleted, but its ratings may remain.
+                                    // Delete orphaned ratings without updating the campsite.
+                                    campsiteRatings.forEach { rating ->
+                                        transaction.delete(rating.reference)
+                                    }
 
-                                        check(number.toDouble() == number.toInt().toDouble()) {
-                                            "Invalid campsite rating."
+                                } else {
+                                    // Campsite exists: remove the entrant's rating
+                                    // and recalculate its rating aggregate.
+                                    val scores = (campsite.get("rating") as? List<*>)
+                                        ?.map { value ->
+                                            val number = value as? Number
+                                                ?: error("Invalid campsite rating.")
+
+                                            check(number.toDouble() == number.toInt().toDouble()) {
+                                                "Invalid campsite rating."
+                                            }
+
+                                            number.toInt()
+                                        }
+                                        ?: error("Campsite rating list is missing.")
+
+                                    val updatedScores = scores.toMutableList()
+
+                                    campsiteRatings.forEach { rating ->
+                                        val score = rating.getLong("score")?.toInt()
+                                            ?: error("Saved rating has no valid score.")
+
+                                        check(updatedScores.remove(score)) {
+                                            "Saved rating was not found in campsite aggregate."
                                         }
 
-                                        number.toInt()
-                                    }
-                                    ?: error("Campsite rating list is missing.")
-
-                                val updatedScores = scores.toMutableList()
-
-                                campsiteRatings.forEach { rating ->
-                                    val score = rating.getLong("score")?.toInt()
-                                        ?: error("Saved rating has no valid score.")
-
-                                    check(updatedScores.remove(score)) {
-                                        "Saved rating was not found in campsite aggregate."
+                                        transaction.delete(rating.reference)
                                     }
 
-                                    transaction.delete(rating.reference)
+                                    val updates = mutableMapOf<String, Any>(
+                                        "rating" to updatedScores
+                                    )
+
+                                    updates["averageRating"] =
+                                        if (updatedScores.isEmpty()) {
+                                            FieldValue.delete()
+                                        } else {
+                                            updatedScores.average()
+                                        }
+
+                                    transaction.update(campsite.reference, updates)
                                 }
-
-                                val updates = mutableMapOf<String, Any>(
-                                    "rating" to updatedScores
-                                )
-
-                                updates["averageRating"] =
-                                    if (updatedScores.isEmpty()) {
-                                        FieldValue.delete()
-                                    } else {
-                                        updatedScores.average()
-                                    }
-
-                                transaction.update(campsite.reference, updates)
                             }
                         }
                         // Step 9: Delete the entrant's account.
