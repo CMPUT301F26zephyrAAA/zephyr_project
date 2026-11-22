@@ -11,6 +11,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Holds the selected parent record and image path used by administrative image removal. */
 data class AdminImage(
@@ -18,6 +24,8 @@ data class AdminImage(
     val ownerName: String,
     val path: String,
     val type: String,
+    val isCompressed: Boolean = false,
+    val imageIndex: Int = -1,
 )
 
 /** Observes profile and campsite image references for the authorized administrator. */
@@ -58,20 +66,44 @@ fun AdminBrowseImageView(
             .map {
                 AdminImage(it.id, it.name.ifBlank { "Unnamed Profile" }, it.imagePath, "profile")
             }
+
     val campsiteImages =
         campsiteModel.campsites.flatMap { campsite ->
-            (listOf(campsite.imagePath) + campsite.promoImagePaths)
-                .filter { it.isNotBlank() }
-                .distinct()
-                .map {
-                    AdminImage(
-                        campsite.id,
-                        campsite.name.ifBlank { "Unnamed Campsite" },
-                        it,
-                        "campsite",
-                    )
-                }
+
+            val legacyImages =
+                (listOf(campsite.imagePath) + campsite.promoImagePaths)
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .map { path ->
+                        AdminImage(
+                            ownerId = campsite.id,
+                            ownerName = campsite.name.ifBlank { "Unnamed Campsite" },
+                            path = path,
+                            type = "campsite",
+                            isCompressed = false
+                        )
+                    }
+
+            val compressedImages =
+                campsite.compressedImages
+                    .mapIndexedNotNull { index, encodedImage ->
+                        if (encodedImage.isBlank()) {
+                            null
+                        } else {
+                            AdminImage(
+                                ownerId = campsite.id,
+                                ownerName = campsite.name.ifBlank { "Unnamed Campsite" },
+                                path = encodedImage,
+                                type = "campsite",
+                                isCompressed = true,
+                                imageIndex = index
+                            )
+                        }
+                    }
+
+            legacyImages + compressedImages
         }
+
     AdminImageBrowser(
         account,
         profileImages + campsiteImages,
@@ -134,19 +166,35 @@ fun AdminImageBrowser(
                         Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(images, key = { "${it.type}:${it.ownerId}:${it.path}" }) { item ->
+                        items(
+                            images,
+                            key = {
+                                if (it.isCompressed) {
+                                    "${it.type}:${it.ownerId}:compressed:${it.imageIndex}"
+                                } else {
+                                    "${it.type}:${it.ownerId}:${it.path}"
+                                }
+                            }
+                        ) { item ->
                             OutlinedButton(
                                 onClick = { selected = item },
                                 modifier =
                                     Modifier.fillMaxWidth()
-                                        .testTag("AdminImage_${item.ownerId}_${item.path}"),
+                                        .testTag("AdminImage_${item.ownerId}_${if (item.isCompressed) item.imageIndex else item.path}"),
                             ) {
                                 Column {
-                                    StorageImage(
-                                        item.path,
-                                        loadImage,
-                                        Modifier.fillMaxWidth().height(150.dp),
-                                    )
+                                    if (item.isCompressed) {
+                                        AdminCompressedImage(
+                                            encodedImage = item.path,
+                                            modifier = Modifier.fillMaxWidth().height(150.dp)
+                                        )
+                                    } else {
+                                        StorageImage(
+                                            item.path,
+                                            loadImage,
+                                            Modifier.fillMaxWidth().height(150.dp)
+                                        )
+                                    }
                                     Text(item.ownerName)
                                     Text("Type: ${item.type}")
                                 }
@@ -156,7 +204,18 @@ fun AdminImageBrowser(
             }
             OutlinedButton(onClick = onBack) { Text("BACK") }
         } else {
-            StorageImage(image.path, loadImage, Modifier.fillMaxWidth().height(250.dp))
+            if (image.isCompressed) {
+                AdminCompressedImage(
+                    encodedImage = image.path,
+                    modifier = Modifier.fillMaxWidth().height(250.dp)
+                )
+            } else {
+                StorageImage(
+                    image.path,
+                    loadImage,
+                    Modifier.fillMaxWidth().height(250.dp)
+                )
+            }
             Text("Owner: ${image.ownerName}")
             Text("Type: ${image.type}")
             removalError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -248,6 +307,41 @@ fun StorageImage(
                 },
             )
         loading -> CircularProgressIndicator()
+        else -> Text("Image unavailable")
+    }
+}
+
+@Composable
+fun AdminCompressedImage(
+    encodedImage: String,
+    modifier: Modifier = Modifier
+) {
+    val result by produceState<Pair<Boolean, android.graphics.Bitmap?>>(
+        initialValue = false to null,
+        key1 = encodedImage
+    ) {
+        val decoded = withContext(Dispatchers.Default) {
+            try {
+                val bytes = Base64.decode(encodedImage, Base64.DEFAULT)
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            } catch (e: Exception) {
+                null
+            }
+        }
+        value = true to decoded
+    }
+
+    val finished = result.first
+    val bitmap = result.second
+
+    when {
+        bitmap != null -> Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Compressed campsite image",
+            modifier = modifier,
+            contentScale = ContentScale.Fit
+        )
+        !finished -> CircularProgressIndicator()
         else -> Text("Image unavailable")
     }
 }

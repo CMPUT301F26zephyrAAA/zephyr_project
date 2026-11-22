@@ -17,6 +17,11 @@ import com.google.android.gms.tasks.Tasks
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.storage
 import com.google.firebase.firestore.FieldValue
+import android.net.Uri
+import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Model class for Campsites. Also creates snapshot listener for self of the corresponding Firebase collection.
@@ -58,6 +63,7 @@ class CampsiteModel(
      * @param onFailure Called if the campsite cannot be saved.
      */
     fun registerCampsite(
+        context: Context,
         ownerId: String,
         name: String,
         location: String,
@@ -70,6 +76,7 @@ class CampsiteModel(
         geolocation: GeoPoint,
         startDate: Date,
         endDate: Date,
+        imageUris: List<Uri> = emptyList(),
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -88,13 +95,46 @@ class CampsiteModel(
         newCampsite.bookingPeriodStart = startDate
         newCampsite.bookingPeriodEnd = endDate
 
-        connector.add(newCampsite,
-            onSuccess = {
-                notifyObservers(this)
-                onSuccess()
-            },
-            onFailure = onFailure
-        )
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val compressedImages = mutableListOf<String>()
+
+                for (imageUri in imageUris) {
+                    val compressedImage =
+                        ImageCompressionUtil.compressImage(
+                            context = context,
+                            imageUri = imageUri
+                        )
+
+                    compressedImages.add(compressedImage)
+                }
+
+                newCampsite.compressedImages =
+                    compressedImages.toList()
+
+                val imageBytes = compressedImages.sumOf {
+                    it.toByteArray(Charsets.UTF_8).size
+                }
+
+                require(imageBytes <= 700 * 1024) {
+                    "Images are too large for this campsite document."
+                }
+
+                connector.add(
+                    newCampsite,
+                    onSuccess = {
+                        notifyObservers(this@CampsiteModel)
+                        onSuccess()
+                    },
+                    onFailure = onFailure
+                )
+
+            } catch (e: Exception) {
+                onFailure(
+                    "Failed to process campsite images: ${e.message}"
+                )
+            }
+        }
     }
 
     /**
@@ -122,15 +162,17 @@ class CampsiteModel(
      * 2026-11-06.
      */
     fun updateCampsiteDetails(
+        context: Context,
         campsite: Campsite,
         input: CampsiteFormInput,
         geolocation: GeoPoint,
         startDate: Date,
         endDate: Date,
+        imageUris: List<Uri> = emptyList(),
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
-        val updatedFields = mapOf<String, Any>(
+        val updatedFields = mutableMapOf<String, Any>(
             "name" to input.name.trim(),
             "location" to input.location.trim(),
             "description" to input.description.trim(),
@@ -146,15 +188,73 @@ class CampsiteModel(
             "bookingPeriodEnd" to endDate
         )
 
-        connector.updateFields(
-            documentId = campsite.id,
-            fields = updatedFields,
-            onSuccess = {
-                notifyObservers(this)
-                onSuccess()
-            },
-            onFailure = onFailure
-        )
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                // Declare outside the if block
+                val newCompressedImages = mutableListOf<String>()
+
+                if (imageUris.isNotEmpty()) {
+                    for (imageUri in imageUris) {
+                        val compressedImage =
+                            ImageCompressionUtil.compressImage(
+                                context = context,
+                                imageUri = imageUri
+                            )
+
+                        newCompressedImages.add(compressedImage)
+                    }
+                }
+
+                val reference = connector.db.document(campsite.id)
+
+                firestore.runTransaction { transaction ->
+                    val document = transaction.get(reference)
+
+                    check(document.exists()) {
+                        "Campsite no longer exists."
+                    }
+
+                    val currentImages =
+                        (document.get("compressedImages") as? List<*>)
+                            ?.filterIsInstance<String>()
+                            ?: emptyList()
+
+                    val updatedImages = currentImages + newCompressedImages
+
+                    val totalImageBytes = updatedImages.sumOf {
+                        it.toByteArray(Charsets.UTF_8).size
+                    }
+
+                    require(totalImageBytes <= 700 * 1024) {
+                        "Too many images. Please select fewer photos."
+                    }
+
+                    val fieldsToUpdate = updatedFields.toMutableMap()
+
+                    if (newCompressedImages.isNotEmpty()) {
+                        fieldsToUpdate["compressedImages"] = updatedImages
+                    }
+
+                    transaction.update(reference, fieldsToUpdate)
+
+                    true
+                }
+                    .addOnSuccessListener {
+                        notifyObservers(this@CampsiteModel)
+                        onSuccess()
+                    }
+                    .addOnFailureListener { exception ->
+                        onFailure(
+                            exception.message ?: "Failed to update campsite."
+                        )
+                    }
+
+            } catch (e: Exception) {
+                onFailure(
+                    "Failed to update campsite: ${e.message}"
+                )
+            }
+        }
     }
 
 
@@ -234,6 +334,52 @@ class CampsiteModel(
             result = uri
         })
         return result
+    }
+
+    fun removeCompressedImage(
+        campsite: Campsite,
+        imageIndex: Int,
+        expectedImage: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val reference = connector.db.document(campsite.id)
+
+        firestore.runTransaction { transaction ->
+            val document = transaction.get(reference)
+
+            check(document.exists()) {
+                "Campsite no longer exists."
+            }
+
+            val images = (document.get("compressedImages") as? List<*>)
+                ?.filterIsInstance<String>()
+                ?: emptyList()
+
+            check(imageIndex in images.indices) {
+                "The selected image no longer exists. Refresh the list."
+            }
+
+            check(images[imageIndex] == expectedImage) {
+                "The selected image has changed. Refresh the list."
+            }
+
+            val updatedImages = images.toMutableList()
+            updatedImages.removeAt(imageIndex)
+
+            transaction.update(
+                reference,
+                "compressedImages",
+                updatedImages
+            )
+
+            true
+        }
+            .addOnSuccessListener {
+                notifyObservers(this)
+                onSuccess()
+            }
+            .addOnFailureListener(onError)
     }
 
     /**
