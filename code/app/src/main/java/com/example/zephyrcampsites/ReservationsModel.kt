@@ -35,6 +35,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
             .get(Source.SERVER)
             .addOnSuccessListener { snapshot ->
                 try {
+
                     val results = snapshot.documents.mapNotNull { document ->
 
                         // Cancelled reservations are not shown in active or past lists.
@@ -42,28 +43,37 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                             return@mapNotNull null
                         }
 
+                        // Skip reservations with missing or invalid dates.
                         val start = document.getTimestamp("bookedPeriodStart")
-                            ?: error("Reservation ${document.id} has no valid start date.")
+                            ?: return@mapNotNull null
 
                         val end = document.getTimestamp("bookedPeriodEnd")
-                            ?: error("Reservation ${document.id} has no valid end date.")
+                            ?: return@mapNotNull null
 
-                        require(start.toDate().before(end.toDate())) {
-                            "Reservation ${document.id} has an invalid date range."
+                        if (!start.toDate().before(end.toDate())) {
+                            return@mapNotNull null
                         }
+
+                        // Skip reservations with missing required fields.
+                        val campsiteId = document.getString("campsiteId")
+                            ?: return@mapNotNull null
+
+                        if (campsiteId.isBlank()) {
+                            return@mapNotNull null
+                        }
+
+                        val cancelled = document.getBoolean("cancelled")
+                            ?: return@mapNotNull null
 
                         ReservedUser(
                             id = document.id,
                             accountId = accountId,
-                            campsiteId = document.getString("campsiteId")
-                                ?: error("Reservation ${document.id} has no campsite ID."),
+                            campsiteId = campsiteId,
                             bookedPeriodStart = start.toDate(),
                             bookedPeriodEnd = end.toDate(),
-                            cancelled = document.getBoolean("cancelled")
-                                ?: error("Reservation ${document.id} has no cancellation status.")
+                            cancelled = cancelled
                         )
                     }
-
                     onSuccess(results)
                 } catch (exception: Exception) {
                     onError(exception)

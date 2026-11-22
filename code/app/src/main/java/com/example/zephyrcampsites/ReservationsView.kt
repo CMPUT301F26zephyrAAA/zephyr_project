@@ -41,6 +41,8 @@ import java.util.Locale
 @Composable fun ReservationsView(
     activeReservations: List<ReservedUser>,
     pastReservations: List<ReservedUser>,
+    selectedTab: Int = 1,
+    onSelectedTabChange: (Int) -> Unit = {},
     campsiteForId: (String) -> Campsite?,
     onViewDetails: (ReservedUser) -> Unit,
     onLotteriesClick: () -> Unit,
@@ -56,10 +58,6 @@ import java.util.Locale
         }
     }
 ) {
-    var selectedTab by rememberSaveable {
-        mutableIntStateOf(1)
-    }
-
     val reservations = if (selectedTab == 1) {
         activeReservations
     } else
@@ -111,7 +109,7 @@ import java.util.Locale
                                 if (index == 0) {
                                     onLotteriesClick()
                                 } else {
-                                    selectedTab = index
+                                    onSelectedTabChange(index)
                                 }
                             }
                         )

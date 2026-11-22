@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
@@ -128,10 +132,16 @@ class ReservationsViewTest {
         )
 
         composeTestRule.setContent {
+            var selectedTab by remember {
+                mutableIntStateOf(1)
+            }
+
             MaterialTheme {
                 ReservationsView(
                     activeReservations = active,
                     pastReservations = past,
+                    selectedTab = selectedTab,
+                    onSelectedTabChange = { selectedTab = it },
                     campsiteForId = { id ->
                         campsites.find { it.id == id }
                     },

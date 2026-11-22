@@ -245,37 +245,47 @@ class MainActivity : ComponentActivity() {
                                     mutableStateOf<ReservedUser?>(null)
                                 }
 
+                                var selectedTripsTab by rememberSaveable {
+                                    mutableIntStateOf(1)
+                                }
+
+
                                 LaunchedEffect(entrantAccount.id, retryKey) {
                                     activeLoaded = false
                                     pastLoaded = false
                                     errorMessage = null
 
-                                    reservationsController.getActiveReservations(
+                                    reservationsController.getReservations(
                                         accountId = entrantAccount.id,
                                         onSuccess = { reservations ->
-                                            activeReservations = reservations
-                                            activeLoaded = true
-                                        },
-                                        onError = { exception ->
-                                            errorMessage = exception.message
-                                                ?: "Unable to load active reservations."
-                                            activeLoaded = true
-                                        }
-                                    )
+                                            // Use one timestamp for both reservation lists.
+                                            val cutoffTime = java.util.Date()
 
-                                    reservationsController.getPastReservations(
-                                        accountId = entrantAccount.id,
-                                        onSuccess = { reservations ->
-                                            pastReservations = reservations
+                                            activeReservations =
+                                                reservationsController.filterActiveReservations(
+                                                    reservations,
+                                                    cutoffTime
+                                                )
+
+                                            pastReservations =
+                                                reservationsController.filterPastReservations(
+                                                    reservations,
+                                                    cutoffTime
+                                                )
+
+                                            activeLoaded = true
                                             pastLoaded = true
                                         },
                                         onError = { exception ->
                                             errorMessage = exception.message
-                                                ?: "Unable to load past reservations."
+                                                ?: "Unable to load reservations."
+
+                                            activeLoaded = true
                                             pastLoaded = true
                                         }
                                     )
                                 }
+
 
                                 when {
                                     !activeLoaded || !pastLoaded ||
@@ -385,6 +395,8 @@ class MainActivity : ComponentActivity() {
                                             ReservationsView(
                                                 activeReservations = activeReservations,
                                                 pastReservations = pastReservations,
+                                                selectedTab = selectedTripsTab,
+                                                onSelectedTabChange = { selectedTripsTab = it },
 
                                                 campsiteForId = { campsiteId ->
                                                     campsiteModel.campsites.find {

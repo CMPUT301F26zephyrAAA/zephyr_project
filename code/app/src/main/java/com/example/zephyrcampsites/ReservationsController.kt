@@ -32,6 +32,23 @@ class ReservationsController(
     }
 
     /**
+     * Retrieves all reservations for an entrant in a single request.
+     * The caller can then classify active and past reservations
+     * using the same cutoff time.
+     */
+    fun getReservations(
+        accountId: String,
+        onSuccess: (List<ReservedUser>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        model.getEntrantReservations(
+            accountId = accountId,
+            onSuccess = onSuccess,
+            onError = onError
+        )
+    }
+
+    /**
      * Retrieves the entrant's active and upcoming reservations.
      *
      * A reservation is active or upcoming if it has not been cancelled,
