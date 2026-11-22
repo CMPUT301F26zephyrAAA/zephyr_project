@@ -39,10 +39,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
 
                     val results = snapshot.documents.mapNotNull { document ->
 
-                        // Cancelled reservations are not shown in active or past lists.
-                        if (document.getBoolean("cancelled") == true) {
-                            return@mapNotNull null
-                        }
+
 
                         // Skip reservations with missing or invalid dates.
                         val start = document.get("bookedPeriodStart") as? Timestamp
@@ -63,7 +60,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                             return@mapNotNull null
                         }
 
-                        val cancelled = document.getBoolean("cancelled")
+                        val cancelled = document.get("cancelled") as? Boolean
                             ?: return@mapNotNull null
 
                         ReservedUser(

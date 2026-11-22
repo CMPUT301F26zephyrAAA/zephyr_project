@@ -49,6 +49,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -217,13 +218,23 @@ class MainActivity : ComponentActivity() {
                             if (entrantAccount == null) {
                                 Text("Unable to load account.")
                             } else {
-                                var activeReservations by remember(entrantAccount.id) {
+                                var allReservations by remember(entrantAccount.id) {
                                     mutableStateOf<List<ReservedUser>>(emptyList())
                                 }
 
-                                var pastReservations by remember(entrantAccount.id) {
-                                    mutableStateOf<List<ReservedUser>>(emptyList())
+                                var cutoffTime by remember(entrantAccount.id) {
+                                    mutableStateOf(java.util.Date())
                                 }
+
+                                val activeReservations = reservationsController.filterActiveReservations(
+                                    allReservations,
+                                    cutoffTime
+                                )
+
+                                val pastReservations = reservationsController.filterPastReservations(
+                                    allReservations,
+                                    cutoffTime
+                                )
 
                                 var activeLoaded by remember(entrantAccount.id) {
                                     mutableStateOf(false)
@@ -258,20 +269,8 @@ class MainActivity : ComponentActivity() {
                                     reservationsController.getReservations(
                                         accountId = entrantAccount.id,
                                         onSuccess = { reservations ->
-                                            // Use one timestamp for both reservation lists.
-                                            val cutoffTime = java.util.Date()
-
-                                            activeReservations =
-                                                reservationsController.filterActiveReservations(
-                                                    reservations,
-                                                    cutoffTime
-                                                )
-
-                                            pastReservations =
-                                                reservationsController.filterPastReservations(
-                                                    reservations,
-                                                    cutoffTime
-                                                )
+                                            allReservations = reservations
+                                            cutoffTime = java.util.Date()
 
                                             activeLoaded = true
                                             pastLoaded = true
@@ -284,6 +283,13 @@ class MainActivity : ComponentActivity() {
                                             pastLoaded = true
                                         }
                                     )
+                                }
+
+                                LaunchedEffect(entrantAccount.id) {
+                                    while (true) {
+                                        delay(1_000L)
+                                        cutoffTime = java.util.Date()
+                                    }
                                 }
 
 

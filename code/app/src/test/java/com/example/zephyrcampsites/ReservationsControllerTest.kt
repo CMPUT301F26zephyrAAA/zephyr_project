@@ -138,7 +138,7 @@ class ReservationsControllerTest {
      * in either the active or past reservation list.
      */
     @Test
-    fun cancelledReservationsExcludedFromBothLists() {
+    fun cancelledReservationsExcludedFromActiveButIncludedInPast() {
         val cancelledUpcoming = reservation(
             "cancelled-upcoming",
             daysFromNow(1),
@@ -168,8 +168,13 @@ class ReservationsControllerTest {
             currentTime
         )
 
+        // Cancelled reservations must not appear in Active.
         assertTrue(active.isEmpty())
-        assertTrue(past.isEmpty())
+
+        // Cancelled reservations with past checkout dates appear in Past.
+        assertEquals(1, past.size)
+        assertEquals("cancelled-past", past[0].id)
+        assertTrue(past[0].cancelled)
     }
 
     /**

@@ -126,13 +126,9 @@ class ReservationsController(
     }
 
     /**
-     * Filters completed, non-cancelled reservations.
-     *
-     * Includes reservations whose checkout dates are at or before
-     * the current time. Invalid and cancelled reservations are excluded.
-     *
+     * Filters past reservations, including cancelled reservations whose checkout dates have passed.
      * @param reservations Reservations to filter.
-     * @param currentTime Time used to determine whether a reservation is completed.
+     * @param currentTime Time used to determine whether a reservation is past.
      * @return Past reservations sorted by checkout date, most recent first.
      */
     fun filterPastReservations(
@@ -144,8 +140,7 @@ class ReservationsController(
                 val start = reservation.bookedPeriodStart
                 val end = reservation.bookedPeriodEnd
 
-                !reservation.cancelled &&
-                        start != null &&
+                start != null &&
                         end != null &&
                         start.before(end) &&
                         !end.after(currentTime)
