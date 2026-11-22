@@ -506,6 +506,7 @@ class MainActivity : ComponentActivity() {
 
                             lotteryView.LotteryDetailsView(
                                 lotteryId = lotteryId,
+                                canEdit = ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId),
                                 onEditClick = {
                                     val campsiteId = lotteryController.getLotteryById(lotteryId)?.campsiteId
                                     if (ownsCampsite(campsiteId)) {
@@ -536,6 +537,11 @@ class MainActivity : ComponentActivity() {
                         ) { entry ->
                             val lotteryId = entry.arguments?.getString("lotteryId")
                                 ?: return@composable
+
+                            if (!ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId)) {
+                                Text("Only the campsite owner can edit its lottery.")
+                                return@composable
+                            }
 
                             if (!ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId)) {
                                 Text("Only the campsite owner can edit its lottery.")
