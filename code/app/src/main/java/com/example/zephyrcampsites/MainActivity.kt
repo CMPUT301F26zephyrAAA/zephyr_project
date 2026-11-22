@@ -128,6 +128,12 @@ class MainActivity : ComponentActivity() {
 
                 // Navigate after account initialization finishes.
                 val account = currentAccount.value
+                fun ownsCampsite(campsiteId: String?): Boolean {
+                    return account?.userType == "owner" && campsiteModel.campsites.any {
+                        it.id == campsiteId && it.ownerID == account.id
+                    }
+                }
+
                 LaunchedEffect(accountLoading.value, account?.id) {
                     if (!accountLoading.value) {
 
@@ -430,15 +436,18 @@ class MainActivity : ComponentActivity() {
                                 ?.getString("campsiteId")
                                 ?: return@composable
 
-                        lotteryView.LotterySettingsView(
-                            campsiteId = campsiteId,
-                            onLotteryCreated = { lotteryId ->
-                                navHostController.navigate("lotteryDetails/$lotteryId")
-                            },
-                            onBackClick = {
-                                navHostController.popBackStack()
+                            if (!ownsCampsite(campsiteId)) {
+                                Text("Only the campsite owner can manage its lottery.")
+                                return@composable
                             }
-                        )
+
+                            lotteryView.LotterySettingsView(
+                                campsiteId = campsiteId,
+                                onLotteryCreated = { lotteryId ->
+                                    navHostController.navigate("lotteryDetails/$lotteryId")
+                                },
+                                onBackClick = { navHostController.popBackStack() }
+                            )
                         }
 
                         composable(
@@ -454,6 +463,7 @@ class MainActivity : ComponentActivity() {
 
                             lotteryView.LotteryDetailsView(
                                 lotteryId = lotteryId,
+                                canEdit = ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId),
                                 onEditClick = {
                                     navHostController.navigate("editLottery/$lotteryId")
                                 },
@@ -473,6 +483,11 @@ class MainActivity : ComponentActivity() {
                         ) { backStackEntry ->
                             val lotteryId = backStackEntry.arguments
                                 ?.getString("lotteryId") ?: return@composable
+
+                            if (!ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId)) {
+                                Text("Only the campsite owner can edit its lottery.")
+                                return@composable
+                            }
 
                             lotteryView.EditLotteryView(
                                 lotteryId = lotteryId,
