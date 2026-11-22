@@ -25,10 +25,13 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
     //Open AI, ChatGPT was used for assistance understanding Android device identification
     //AI Usage and citation in WIKI
     fun getDeviceId(context: Context): String? {
-        return Settings.Secure.getString(
+        val deviceId = Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ANDROID_ID
         )
+
+        android.util.Log.d("DeviceIdCheck", "App device ID: $deviceId")
+        return deviceId
     }
 
     /**
@@ -138,7 +141,42 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
             onError = { onError("Unable to save notification preference. Please try again.") }
         )
     }
-
+    /**
+     * Allows an entrant to delete their own device linked profile
+     * @param context verify the current Device ID
+     * @param account Currently identified account
+     * @param onSuccess Called after fire base deletion succeeds.
+     * @param onError Called when validation or deletion fails.
+     */
+    fun deleteOwnProfile(
+        context: Context,
+        account: Account?,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ){
+        val deviceId = getDeviceId(context)
+        if(deviceId.isNullOrBlank()){
+            onError("Unable to identify device")
+            return
+        }
+        if (account == null || account.id != deviceId){
+            onError("You can only delete your own profile")
+            return
+        }
+        if (account.userType != "entrant"){
+            onError("This option is only available to entrants.")
+            return
+        }
+        accountsModel.deleteOwnAccount(
+            accountId = deviceId,
+            onSuccess = onSuccess,
+            onError = { exception ->
+                onError(
+                    exception.message ?: "Unable to delete profile"
+            )
+            }
+        )
+    }
     /**
      * Removes a profile only for an identified administrator.
      *
