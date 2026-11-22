@@ -4,6 +4,7 @@ import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
+import com.google.firebase.Timestamp
 
 /**
  * Model in charge of retrieving reservation records from Firestore
@@ -44,10 +45,10 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                         }
 
                         // Skip reservations with missing or invalid dates.
-                        val start = document.getTimestamp("bookedPeriodStart")
+                        val start = document.get("bookedPeriodStart") as? Timestamp
                             ?: return@mapNotNull null
 
-                        val end = document.getTimestamp("bookedPeriodEnd")
+                        val end = document.get("bookedPeriodEnd") as? Timestamp
                             ?: return@mapNotNull null
 
                         if (!start.toDate().before(end.toDate())) {
