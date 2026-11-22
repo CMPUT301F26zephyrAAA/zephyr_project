@@ -268,6 +268,10 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                 firestore.collection("reservation")
                     .whereEqualTo("accountId", accountId)
+                    .get(Source.SERVER),
+
+                firestore.collectionGroup("ratings")
+                    .whereEqualTo("accountId", accountId)
                     .get(Source.SERVER)
             )
 
@@ -276,6 +280,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                     val entries = results[0].documents
                     val reservations = results[1].documents
+                    val ratings = results[2].documents
 
                     // Step 4: Identify affected lotteries.
                     val lotteryIds = entries.mapNotNull {
@@ -296,11 +301,34 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                             .document(lotteryId)
                     }
 
-                    // Avoid oversized transactions.
+                    val ratingCampsitePaths = ratings.map { rating ->
+                        rating.reference.parent.parent
+                    }
+
+                    if (ratingCampsitePaths.any { it == null }) {
+                        fail(IllegalStateException("Rating has no parent campsite."))
+                        return@addOnSuccessListener
+                    }
+
+                    val ratingCampsiteRefs = ratingCampsitePaths
+                        .filterNotNull()
+                        .distinctBy { it.path }
+
+                    if (ratingCampsiteRefs.size != ratings.size &&
+                        ratingCampsiteRefs.size != ratings.mapNotNull {
+                            it.reference.parent.parent?.path
+                        }.distinct().size
+                    ) {
+                        fail(IllegalStateException("Invalid rating campsite reference."))
+                        return@addOnSuccessListener
+                    }
+
                     val operationCount =
                         entries.size +
                                 reservations.size +
-                                lotteryRefs.size + 1
+                                lotteryRefs.size +
+                                ratings.size +
+                                ratingCampsiteRefs.size + 1
 
                     if (operationCount > 500) {
                         fail(
@@ -327,6 +355,14 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                         val savedReservations = reservations.map {
                             transaction.get(it.reference)
+                        }
+
+                        val savedRatings = ratings.map {
+                            transaction.get(it.reference)
+                        }
+
+                        val savedRatingCampsites = ratingCampsiteRefs.map {
+                            transaction.get(it)
                         }
 
                         check(savedAccount.exists()) {
@@ -381,7 +417,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                             }
 
                         // Step 8: Cancel active/upcoming reservations and detach
-// all historical reservations from the deleted profile.
+                        // all historical reservations from the deleted profile.
                         val currentTime = System.currentTimeMillis()
 
                         savedReservations
@@ -398,11 +434,10 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                         .getTimestamp("bookedPeriodEnd")
                                         ?.toDate()
                                         ?.time
-                                        ?: error(
-                                            "Cannot delete profile: a reservation has no checkout date"
-                                        )
 
-                                    if (endTime > currentTime) {
+                                    // A missing checkout date is treated as potentially active.
+                                    // This prevents malformed reservation data from blocking deletion.
+                                    if (endTime == null || endTime > currentTime) {
                                         updates["cancelled"] = true
                                         updates["status"] = "cancelled"
                                         updates["cancelledBy"] = accountId
@@ -414,6 +449,65 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                                 transaction.update(reservation.reference, updates)
                             }
+                        // Step 8B: Remove ratings belonging to the deleted entrant.
+// Update campsite rating aggregates in the same transaction.
+                        val ratingsByCampsite = savedRatings
+                            .filter { it.exists() }
+                            .groupBy { rating ->
+                                rating.reference.parent.parent?.path
+                                    ?: error("Rating has no parent campsite.")
+                            }
+
+                        savedRatingCampsites.forEach { campsite ->
+
+                            val campsiteRatings =
+                                ratingsByCampsite[campsite.reference.path].orEmpty()
+
+                            if (campsiteRatings.isNotEmpty()) {
+                                check(campsite.exists()) {
+                                    "Campsite for saved rating no longer exists."
+                                }
+
+                                val scores = (campsite.get("rating") as? List<*>)
+                                    ?.map { value ->
+                                        val number = value as? Number
+                                            ?: error("Invalid campsite rating.")
+
+                                        check(number.toDouble() == number.toInt().toDouble()) {
+                                            "Invalid campsite rating."
+                                        }
+
+                                        number.toInt()
+                                    }
+                                    ?: error("Campsite rating list is missing.")
+
+                                val updatedScores = scores.toMutableList()
+
+                                campsiteRatings.forEach { rating ->
+                                    val score = rating.getLong("score")?.toInt()
+                                        ?: error("Saved rating has no valid score.")
+
+                                    check(updatedScores.remove(score)) {
+                                        "Saved rating was not found in campsite aggregate."
+                                    }
+
+                                    transaction.delete(rating.reference)
+                                }
+
+                                val updates = mutableMapOf<String, Any>(
+                                    "rating" to updatedScores
+                                )
+
+                                updates["averageRating"] =
+                                    if (updatedScores.isEmpty()) {
+                                        FieldValue.delete()
+                                    } else {
+                                        updatedScores.average()
+                                    }
+
+                                transaction.update(campsite.reference, updates)
+                            }
+                        }
                         // Step 9: Delete the entrant's account.
                         val profileImagePath = savedAccount.getString("imagePath").orEmpty()
 
