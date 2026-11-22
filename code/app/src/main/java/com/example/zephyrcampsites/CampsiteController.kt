@@ -358,4 +358,30 @@ class CampsiteController(val model: CampsiteModel) {
         }
         model.removeImage(campsite, path, onSuccess, onError)
     }
+
+    fun removeCompressedImage(
+        account: Account?,
+        campsite: Campsite,
+        imageIndex: Int,
+        expectedImage: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        if (account?.userType != "admin" || account.id.isBlank()) {
+            onError(
+                IllegalArgumentException(
+                    "Only administrators can remove images."
+                )
+            )
+            return
+        }
+
+        model.removeCompressedImage(
+            campsite = campsite,
+            imageIndex = imageIndex,
+            expectedImage = expectedImage,
+            onSuccess = onSuccess,
+            onError = onError
+        )
+    }
 }

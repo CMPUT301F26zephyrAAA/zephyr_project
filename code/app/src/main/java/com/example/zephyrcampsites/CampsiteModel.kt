@@ -317,6 +317,52 @@ class CampsiteModel(
         return result
     }
 
+    fun removeCompressedImage(
+        campsite: Campsite,
+        imageIndex: Int,
+        expectedImage: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val reference = connector.db.document(campsite.id)
+
+        firestore.runTransaction { transaction ->
+            val document = transaction.get(reference)
+
+            check(document.exists()) {
+                "Campsite no longer exists."
+            }
+
+            val images = (document.get("compressedImages") as? List<*>)
+                ?.filterIsInstance<String>()
+                ?: emptyList()
+
+            check(imageIndex in images.indices) {
+                "The selected image no longer exists. Refresh the list."
+            }
+
+            check(images[imageIndex] == expectedImage) {
+                "The selected image has changed. Refresh the list."
+            }
+
+            val updatedImages = images.toMutableList()
+            updatedImages.removeAt(imageIndex)
+
+            transaction.update(
+                reference,
+                "compressedImages",
+                updatedImages
+            )
+
+            true
+        }
+            .addOnSuccessListener {
+                notifyObservers(this)
+                onSuccess()
+            }
+            .addOnFailureListener(onError)
+    }
+
     /**
      * Retrieves a campsite image URL asynchronously.
      *

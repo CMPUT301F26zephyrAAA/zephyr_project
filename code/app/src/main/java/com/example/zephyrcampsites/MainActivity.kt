@@ -602,7 +602,9 @@ class MainActivity : ComponentActivity() {
                         ) {
                             AdminBrowseImageView(account, adminAccountsModel, campsiteModel,
                                 onRemove = { image, success, failure ->
+
                                     if (image.type == "profile") {
+
                                         accountsController.removeProfileImage(
                                             account,
                                             Account(image.ownerId),
@@ -610,14 +612,33 @@ class MainActivity : ComponentActivity() {
                                             success,
                                             failure,
                                         )
+
                                     } else {
-                                        val campsite =
-                                            campsiteModel.campsites.find { it.id == image.ownerId }
+
+                                        val campsite = campsiteModel.campsites.find {
+                                            it.id == image.ownerId
+                                        }
+
                                         if (campsite == null) {
                                             failure(
-                                                IllegalStateException("Campsite no longer exists.")
+                                                IllegalStateException(
+                                                    "Campsite no longer exists."
+                                                )
                                             )
-                                        } else
+
+                                        } else if (image.isCompressed) {
+
+                                            campsiteController.removeCompressedImage(
+                                                account = account,
+                                                campsite = campsite,
+                                                imageIndex = image.imageIndex,
+                                                expectedImage = image.path,
+                                                onSuccess = success,
+                                                onError = failure
+                                            )
+
+                                        } else {
+
                                             campsiteController.removeImage(
                                                 account,
                                                 campsite,
@@ -625,6 +646,7 @@ class MainActivity : ComponentActivity() {
                                                 success,
                                                 failure,
                                             )
+                                        }
                                     }
                                 },
                                 onBack = { navHostController.popBackStack() },
