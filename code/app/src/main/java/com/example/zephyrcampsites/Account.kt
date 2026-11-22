@@ -19,5 +19,5 @@ data class Account(
     var email: String = "",
     var phoneNumber: String = "",
     var notificationsEnabled: Boolean = true,
-    var imagePath: String = "",
+    var imagePath: String = ""
 ) : DataHolder(id)

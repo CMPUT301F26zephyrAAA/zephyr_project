@@ -90,12 +90,14 @@ class CampsiteController(val model: CampsiteModel) {
      * 2026-11-06.
      */
     fun updateCampsiteDetails(
+        context: Context,
         campsiteId: Int,
         account: Account,
         input: CampsiteFormInput,
         geolocation: GeoPoint,
         startDate: Date,
         endDate: Date,
+        imageUris: List<Uri> = emptyList(),
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
@@ -149,11 +151,13 @@ class CampsiteController(val model: CampsiteModel) {
 
         // Save validated changes
         model.updateCampsiteDetails(
+            context = context,
             campsite = campsite,
             input = input,
             geolocation = geolocation,
             startDate = startDate,
             endDate = endDate,
+            imageUris = imageUris,
             onSuccess = onSuccess,
             onFailure = onFailure
         )

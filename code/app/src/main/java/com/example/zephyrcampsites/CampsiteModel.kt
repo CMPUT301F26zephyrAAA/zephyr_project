@@ -162,15 +162,17 @@ class CampsiteModel(
      * 2026-11-06.
      */
     fun updateCampsiteDetails(
+        context: Context,
         campsite: Campsite,
         input: CampsiteFormInput,
         geolocation: GeoPoint,
         startDate: Date,
         endDate: Date,
+        imageUris: List<Uri> = emptyList(),
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     ) {
-        val updatedFields = mapOf<String, Any>(
+        val updatedFields = mutableMapOf<String, Any>(
             "name" to input.name.trim(),
             "location" to input.location.trim(),
             "description" to input.description.trim(),
@@ -186,15 +188,54 @@ class CampsiteModel(
             "bookingPeriodEnd" to endDate
         )
 
-        connector.updateFields(
-            documentId = campsite.id,
-            fields = updatedFields,
-            onSuccess = {
-                notifyObservers(this)
-                onSuccess()
-            },
-            onFailure = onFailure
-        )
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                if (imageUris.isNotEmpty()) {
+                    val newCompressedImages = mutableListOf<String>()
+
+                    for (imageUri in imageUris) {
+                        val compressedImage =
+                            ImageCompressionUtil.compressImage(
+                                context = context,
+                                imageUri = imageUri
+                            )
+
+                        newCompressedImages.add(compressedImage)
+                    }
+
+                    // Preserve existing images and append new ones
+                    val updatedImages =
+                        campsite.compressedImages + newCompressedImages
+
+                    // Keep image data below the chosen size budget
+                    val totalImageBytes = updatedImages.sumOf {
+                        it.toByteArray(Charsets.UTF_8).size
+                    }
+
+                    require(totalImageBytes <= 700 * 1024) {
+                        "Too many images. Please select fewer photos."
+                    }
+
+                    updatedFields["compressedImages"] = updatedImages
+                }
+
+                connector.updateFields(
+                    documentId = campsite.id,
+                    fields = updatedFields,
+                    onSuccess = {
+                        notifyObservers(this@CampsiteModel)
+                        onSuccess()
+                    },
+                    onFailure = onFailure
+                )
+
+            } catch (e: Exception) {
+                onFailure(
+                    "Failed to update campsite images: ${e.message}"
+                )
+            }
+        }
     }
 
 

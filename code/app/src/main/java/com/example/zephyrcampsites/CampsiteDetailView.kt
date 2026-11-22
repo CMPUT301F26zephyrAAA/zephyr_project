@@ -55,6 +55,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 
 /**
@@ -609,31 +610,41 @@ class CampsiteDetailView {
 
         val currentImage = images.getOrNull(currentIndex)
 
-        val bitmap by produceState<android.graphics.Bitmap?>(
-            initialValue = null,
-            key1 = currentImage
-        ) {
-            value = withContext(Dispatchers.Default) {
-                try {
-                    if (currentImage.isNullOrBlank()) {
-                        null
-                    } else {
-                        val bytes = Base64.decode(
-                            currentImage,
-                            Base64.DEFAULT
-                        )
 
-                        BitmapFactory.decodeByteArray(
-                            bytes,
-                            0,
-                            bytes.size
-                        )
+        val decodedImage = key(currentImage) {
+            val result by produceState<Pair<Boolean, android.graphics.Bitmap?>>(
+                initialValue = false to null,
+                key1 = currentImage
+            ) {
+                val decoded = withContext(Dispatchers.Default) {
+                    try {
+                        if (currentImage.isNullOrBlank()) {
+                            null
+                        } else {
+                            val bytes = Base64.decode(
+                                currentImage,
+                                Base64.DEFAULT
+                            )
+
+                            BitmapFactory.decodeByteArray(
+                                bytes,
+                                0,
+                                bytes.size
+                            )
+                        }
+                    } catch (e: Exception) {
+                        null
                     }
-                } catch (e: Exception) {
-                    null
                 }
+
+                value = true to decoded
             }
+
+            result
         }
+
+        val decodingFinished = decodedImage.first
+        val bitmap = decodedImage.second
 
         var loading by remember(imageUrl) {
             mutableStateOf(true)
@@ -656,7 +667,7 @@ class CampsiteDetailView {
                 when {
                     bitmap != null -> {
                         Image(
-                            bitmap = bitmap!!.asImageBitmap(),
+                            bitmap = bitmap.asImageBitmap(),
                             contentDescription =
                                 "Image ${currentIndex + 1} of $campsiteName",
                             contentScale = ContentScale.Crop,
@@ -665,8 +676,18 @@ class CampsiteDetailView {
                         )
                     }
 
-                    !currentImage.isNullOrBlank() -> {
-                        Text("Loading image...")
+                    !currentImage.isNullOrBlank() && !decodingFinished -> {
+                        Text(
+                            "Loading image...",
+                            modifier = Modifier.testTag("CampsiteImagePlaceholder")
+                        )
+                    }
+
+                    !currentImage.isNullOrBlank() && decodingFinished -> {
+                        Text(
+                            "No promotional image",
+                            modifier = Modifier.testTag("CampsiteImagePlaceholder")
+                        )
                     }
 
                     !imageUrl.isNullOrBlank() && !failed -> {

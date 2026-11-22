@@ -232,6 +232,8 @@ fun CampsiteFormView(
                 } else {
                     registered = true
                     controller.updateCampsiteDetails(
+                        context = context,
+                        imageUris = selectedImages,
                         campsiteId = campsite.id.toInt(),
                         account = account,
                         input = input,
