@@ -95,5 +95,17 @@ class LotteryCapacityTest {
         )
     }
 
+    @Test
+    fun capacityCannotBeLessThanCurrentEntrants() {
+        assertThrows(IllegalArgumentException::class.java) {
+            LotteryCapacityValidator.validateCapacityUpdate(
+                oldCapacity = 15,
+                newCapacity = 5,
+                registrationStarted = false,
+                entrantCount = 8L
+            )
+        }
+    }
+
 
 }
