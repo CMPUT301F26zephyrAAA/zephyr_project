@@ -246,26 +246,18 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                 "Only entrants can delete their own profiles."
             }
 
-            check(account.getBoolean("deletionPending") != true) {
-                "Profile deletion is already in progress."
+            if (account.getBoolean("deletionPending") != true) {
+                transaction.update(accountRef, "deletionPending", true)
             }
-
-            transaction.update(accountRef, "deletionPending", true)
 
             true
         }.addOnSuccessListener {
 
             // Restore the account if the cleanup cannot complete.
+            // Keep deletionPending set if cleanup fails.
+            // A later deletion attempt can resume the operation.
             val fail: (Exception) -> Unit = { error ->
-                accountRef
-                    .update("deletionPending", FieldValue.delete())
-                    .addOnSuccessListener {
-                        onError(error)
-                    }
-                    .addOnFailureListener { resetError ->
-                        error.addSuppressed(resetError)
-                        onError(error)
-                    }
+                onError(error)
             }
 
             // Step 3: Retrieve all related records.
@@ -388,40 +380,40 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                 transaction.delete(entry.reference)
                             }
 
-                        // Step 8: Cancel active/upcoming reservations.
+                        // Step 8: Cancel active/upcoming reservations and detach
+// all historical reservations from the deleted profile.
                         val currentTime = System.currentTimeMillis()
 
                         savedReservations
-                            .filter {
-                                it.exists() &&
-                                        it.getBoolean("cancelled") != true
-                            }
+                            .filter { it.exists() }
                             .forEach { reservation ->
 
-                                val endTime = reservation
-                                    .getTimestamp("bookedPeriodEnd")
-                                    ?.toDate()
-                                    ?.time
-                                    ?: error(
-                                        "Cannot delete profile: a reservation has no checkout date"
-                                    )
+                                val updates = mutableMapOf<String, Any>(
+                                    "accountId" to FieldValue.delete()
+                                )
 
-                                if (endTime > currentTime) {
-                                    transaction.update(
-                                        reservation.reference,
-                                        mapOf(
-                                            "cancelled" to true,
-                                            "status" to "cancelled",
-                                            "cancelledBy" to accountId,
-                                            "cancelledAt" to
-                                                    FieldValue.serverTimestamp(),
-                                            "cancellationReason" to
-                                                    "Profile deleted by entrant."
+                                // Only active/upcoming, non-cancelled reservations need cancellation.
+                                if (reservation.getBoolean("cancelled") != true) {
+                                    val endTime = reservation
+                                        .getTimestamp("bookedPeriodEnd")
+                                        ?.toDate()
+                                        ?.time
+                                        ?: error(
+                                            "Cannot delete profile: a reservation has no checkout date"
                                         )
-                                    )
-                                }
-                            }
 
+                                    if (endTime > currentTime) {
+                                        updates["cancelled"] = true
+                                        updates["status"] = "cancelled"
+                                        updates["cancelledBy"] = accountId
+                                        updates["cancelledAt"] = FieldValue.serverTimestamp()
+                                        updates["cancellationReason"] =
+                                            "Profile deleted by entrant."
+                                    }
+                                }
+
+                                transaction.update(reservation.reference, updates)
+                            }
                         // Step 9: Delete the entrant's account.
                         val profileImagePath = savedAccount.getString("imagePath").orEmpty()
 
