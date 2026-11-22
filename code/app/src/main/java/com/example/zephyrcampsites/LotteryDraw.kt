@@ -83,8 +83,14 @@ object LotteryDraw {
     ): Boolean {
 
         return when (currentStatus) {
+            // Start a new lottery draw.
             "PENDING" -> newStatus == "PROCESSING"
-            "PROCESSING" -> newStatus == "COMPLETED"
+
+            // Complete the draw or reset it after a safe recovery check.
+            "PROCESSING" -> newStatus == "COMPLETED" ||
+                    newStatus == "PENDING"
+
+            // A completed draw cannot be changed.
             else -> false
         }
     }

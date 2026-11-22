@@ -196,4 +196,18 @@ class LotteryDrawTest {
         )
     }
 
+    @Test
+    fun drawStatus_allowsResetAfterFailedDraw() {
+
+        // A processing lottery can return to pending for recovery.
+        assertTrue(
+            LotteryDraw.canChangeDrawStatus("PROCESSING", "PENDING")
+        )
+
+        // A completed lottery cannot be reset.
+        assertFalse(
+            LotteryDraw.canChangeDrawStatus("COMPLETED", "PENDING")
+        )
+    }
+
 }

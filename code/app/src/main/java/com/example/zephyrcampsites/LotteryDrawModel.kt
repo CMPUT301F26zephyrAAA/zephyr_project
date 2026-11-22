@@ -15,6 +15,9 @@ class LotteryDrawModel(
     // Stores the results of each lottery draw.
     private val drawResults = firestore.collection("lotteryDrawResults")
 
+    // Keep track of draws already started by this app instance.
+    private val activeDraws = mutableSetOf<String>()
+
     /**
      * Gets all registered entrants for a specific lottery.
      *
@@ -174,6 +177,9 @@ class LotteryDrawModel(
         }
 
         val lotteryRef = lotteries.document(lotteryId)
+
+        // Get the document where draw results are stored.
+        val resultRef = drawResults.document(lotteryId)
         // Give this draw attempt its own unique ID.
         val drawAttemptId = java.util.UUID.randomUUID().toString()
 
@@ -181,6 +187,15 @@ class LotteryDrawModel(
 
             // Read the latest lottery data.
             val document = transaction.get(lotteryRef)
+
+            // Check whether this lottery already has saved results.
+            val resultDocument = transaction.get(resultRef)
+
+            if (resultDocument.exists()) {
+                throw IllegalStateException(
+                    "Lottery results already exist. Cannot start another draw."
+                )
+            }
 
             if (!document.exists()) {
                 throw IllegalStateException("Lottery not found")
@@ -228,6 +243,7 @@ class LotteryDrawModel(
     fun releaseLotteryDraw(
         lotteryId: String,
         onSuccess: () -> Unit,
+        drawAttemptId: String,
         onError: (String) -> Unit
     ) {
         if (lotteryId.isBlank()) {
@@ -235,11 +251,28 @@ class LotteryDrawModel(
             return
         }
 
+        // Make sure the draw attempt ID was provided.
+        if (drawAttemptId.isBlank()) {
+            onError("Draw attempt ID is missing")
+            return
+        }
+
         val lotteryRef = lotteries.document(lotteryId)
+        // Get the saved draw results document.
+        val resultRef = drawResults.document(lotteryId)
 
         firestore.runTransaction { transaction ->
             // Get the latest draw status.
             val document = transaction.get(lotteryRef)
+
+            // Check whether results were already saved.
+            val resultDocument = transaction.get(resultRef)
+
+            if (resultDocument.exists()) {
+                throw IllegalStateException(
+                    "Draw results already exist. Lottery cannot be reset."
+                )
+            }
 
             if (!document.exists()) {
                 throw IllegalStateException("Lottery not found")
@@ -253,10 +286,22 @@ class LotteryDrawModel(
                 throw IllegalStateException("Lottery cannot be reset")
             }
 
-            // Do not reset a processing draw without verifying its owner.
-            // A failed draw will need an authorized recovery process.
-            throw IllegalStateException(
-                "Automatic draw reset is disabled until draw ownership is implemented"
+            // Check that this attempt owns the lottery draw.
+            val savedAttemptId = document.getString("drawAttemptId")
+
+            if (drawAttemptId.isBlank() || savedAttemptId != drawAttemptId) {
+                throw IllegalStateException(
+                    "This draw attempt cannot reset the lottery"
+                )
+            }
+
+            // Reset the lottery so the draw can be tried again.
+            transaction.update(
+                lotteryRef,
+                mapOf(
+                    "drawStatus" to "PENDING",
+                    "drawAttemptId" to ""
+                )
             )
 
             true
@@ -281,6 +326,7 @@ class LotteryDrawModel(
             onError("Lottery ID is missing")
             return
         }
+
 
         // Load all entrants registered for this lottery.
         getLotteryEntrants(
@@ -646,6 +692,49 @@ class LotteryDrawModel(
             }
 
 
+    }
+    /**
+     * Checks for lotteries that are ready for drawing.
+     * Avoids starting the same draw multiple times locally.
+     */
+    fun checkPendingLotteryDraws(lotteries: List<Lottery>) {
+
+        val currentTime = System.currentTimeMillis()
+
+        lotteries.forEach { lottery ->
+
+            // Only start draws after registration ends.
+            if (lottery.registrationEnd <= currentTime &&
+                !lottery.drawCompleted &&
+                lottery.drawStatus == "PENDING" &&
+                activeDraws.add(lottery.id)
+            ) {
+                runLotteryDraw(
+                    lotteryId = lottery.id,
+                    numberOfWinners = lottery.numberOfWinners,
+
+                    onSuccess = {
+                        // Remove the draw from local tracking.
+                        activeDraws.remove(lottery.id)
+
+                        android.util.Log.d(
+                            "LotteryDraw",
+                            "Lottery draw completed: ${lottery.id}"
+                        )
+                    },
+
+                    onError = { error ->
+                        // Remove the draw so future checks can retry.
+                        activeDraws.remove(lottery.id)
+
+                        android.util.Log.e(
+                            "LotteryDraw",
+                            "Lottery draw failed: $error"
+                        )
+                    }
+                )
+            }
+        }
     }
 
 }
