@@ -188,12 +188,12 @@ class CampsiteModel(
             "bookingPeriodEnd" to endDate
         )
 
-
         CoroutineScope(Dispatchers.Main).launch {
             try {
-                if (imageUris.isNotEmpty()) {
-                    val newCompressedImages = mutableListOf<String>()
+                // Declare outside the if block
+                val newCompressedImages = mutableListOf<String>()
 
+                if (imageUris.isNotEmpty()) {
                     for (imageUri in imageUris) {
                         val compressedImage =
                             ImageCompressionUtil.compressImage(
@@ -203,12 +203,24 @@ class CampsiteModel(
 
                         newCompressedImages.add(compressedImage)
                     }
+                }
 
-                    // Preserve existing images and append new ones
-                    val updatedImages =
-                        campsite.compressedImages + newCompressedImages
+                val reference = connector.db.document(campsite.id)
 
-                    // Keep image data below the chosen size budget
+                firestore.runTransaction { transaction ->
+                    val document = transaction.get(reference)
+
+                    check(document.exists()) {
+                        "Campsite no longer exists."
+                    }
+
+                    val currentImages =
+                        (document.get("compressedImages") as? List<*>)
+                            ?.filterIsInstance<String>()
+                            ?: emptyList()
+
+                    val updatedImages = currentImages + newCompressedImages
+
                     val totalImageBytes = updatedImages.sumOf {
                         it.toByteArray(Charsets.UTF_8).size
                     }
@@ -217,22 +229,29 @@ class CampsiteModel(
                         "Too many images. Please select fewer photos."
                     }
 
-                    updatedFields["compressedImages"] = updatedImages
-                }
+                    val fieldsToUpdate = updatedFields.toMutableMap()
 
-                connector.updateFields(
-                    documentId = campsite.id,
-                    fields = updatedFields,
-                    onSuccess = {
+                    if (newCompressedImages.isNotEmpty()) {
+                        fieldsToUpdate["compressedImages"] = updatedImages
+                    }
+
+                    transaction.update(reference, fieldsToUpdate)
+
+                    true
+                }
+                    .addOnSuccessListener {
                         notifyObservers(this@CampsiteModel)
                         onSuccess()
-                    },
-                    onFailure = onFailure
-                )
+                    }
+                    .addOnFailureListener { exception ->
+                        onFailure(
+                            exception.message ?: "Failed to update campsite."
+                        )
+                    }
 
             } catch (e: Exception) {
                 onFailure(
-                    "Failed to update campsite images: ${e.message}"
+                    "Failed to update campsite: ${e.message}"
                 )
             }
         }
