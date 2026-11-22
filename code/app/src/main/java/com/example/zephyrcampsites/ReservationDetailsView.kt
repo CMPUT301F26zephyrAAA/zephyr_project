@@ -244,7 +244,7 @@ fun ReservationDetailsView(
                         fontSize = 14.sp
                     )
                 }
-            } else {
+            } else if (!reservation.cancelled) {
                 Button(
                     onClick = onRateCampsite,
                     modifier = Modifier
