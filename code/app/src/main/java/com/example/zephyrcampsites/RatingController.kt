@@ -18,7 +18,7 @@ class RatingController(private val model: RatingGateway = RatingModel()) {
         campsiteId: String, account: Account?,
         onResult: (CampsiteRating?) -> Unit, onError: (String) -> Unit
     ) {
-        if (account?.userType != "entrant" || !validId(account.id) || !validId(campsiteId)) {
+        if (account == null || "entrant" !in account.userType || !validId(campsiteId) || !validId(account.id)) {
             onResult(null)
             return
         }
@@ -38,7 +38,7 @@ class RatingController(private val model: RatingGateway = RatingModel()) {
         campsiteId: String, account: Account?, rating: CampsiteRating,
         onSuccess: () -> Unit, onError: (String) -> Unit
     ) {
-        if (account?.userType != "entrant" || !validId(account.id) || !validId(campsiteId)) {
+        if (account == null || "entrant" !in account.userType || !validId(campsiteId) || !validId(account.id)) {
             onError("Only an identified entrant can rate a campsite.")
             return
         }

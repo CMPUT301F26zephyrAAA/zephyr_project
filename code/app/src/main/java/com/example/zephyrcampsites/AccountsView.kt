@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -58,7 +59,8 @@ class AccountsView {
         onEdit: () -> Unit,
         onPolicy: () -> Unit,
         onSettings: () -> Unit,
-        onBack: () -> Unit
+        onBack: () -> Unit,
+        onDelete: () -> Unit
     ){
         Column(modifier = Modifier
             .fillMaxSize()
@@ -111,8 +113,16 @@ class AccountsView {
                     onClick = onSettings
                 )
             }
-            Text("DELETE PROFILE", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            OutlinedButton(onClick = onBack) {
+            OutlinedButton(onClick = onDelete) {
+                Text("DELETE PROFILE")
+            }
+            OutlinedButton(onClick = onBack,
+                modifier = Modifier.align(Alignment.End).padding(16.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2E7D32),
+                    contentColor = Color.White
+                )) {
                 Text("BACK")
             }
         }
@@ -140,8 +150,12 @@ class AccountsView {
                     .padding(start = 15.dp, top = 10.dp, end = 10.dp, bottom = 4.dp)
             ) {
                 Column(modifier = Modifier.padding(end = 28.dp, bottom = 28.dp)) {
-                    Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Light)
-                    Text(description, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraLight)
+                    Text(title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Light)
+                    Text(description,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.ExtraLight)
                 }
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -199,7 +213,8 @@ class AccountsView {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(text = "PERSONAL INFORMATION", style = MaterialTheme.typography.headlineMedium)
+            Text(text = "PERSONAL INFORMATION",
+                style = MaterialTheme.typography.headlineMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(

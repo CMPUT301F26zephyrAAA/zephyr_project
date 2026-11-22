@@ -88,14 +88,14 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
 
     @Composable
     fun SummaryView(
-        onClick: () -> Unit,
+        onClick: (() -> Unit)?,
         openDetail: (Int) -> Unit,
         searchHandler: (UserFilter) -> List<Campsite>,
         filterPage: () -> Unit,
         imageLoader: (Int) -> String,
         locationClient: FusedLocationProviderClient,
         showOwnerView: Boolean = false,
-        onViewChanged: (Boolean) -> Unit = {},
+        onViewChanged: ((Boolean) -> Unit)?,
         onViewAllLotteries: () -> Unit = {}
 
 
@@ -117,10 +117,12 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
             .pointerInput(Unit) { detectTapGestures(onTap = { focusManager.clearFocus() }) }
         ) {
             Spacer(modifier = Modifier.size(50.dp))
-            Row(modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
                 TextField(
                     state = searchString,
                     label = { Text("Campsite Search (Name/Location) ") },
@@ -134,10 +136,13 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                         performDefaultAction()
                     }
                 )
-                TextButton(onClick = {
-                    println("filter clicked")
-                    filterOpen = !filterOpen },
-                    modifier = Modifier.testTag("FilterButton")) {
+                TextButton(
+                    onClick = {
+                        println("filter clicked")
+                        filterOpen = !filterOpen
+                    },
+                    modifier = Modifier.testTag("FilterButton")
+                ) {
                     Icon(Icons.Filled.FilterList, contentDescription = "Filters")
                 }
             }
@@ -149,8 +154,8 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                         currentUserFilters.searchString = ""
                     },
                     currentUserFilters = currentUserFilters,
-                    onError = {
-                        title, text, dismiss -> ErrorDialog(title = title, text = text, dismiss = dismiss)
+                    onError = { title, text, dismiss ->
+                        ErrorDialog(title = title, text = text, dismiss = dismiss)
                         filterOpen = true
                     })
             }
@@ -161,49 +166,61 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
             } catch (_: java.lang.IllegalStateException) {
                 errorState = true
             }
-            LazyColumn(modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)) {
-                itemsIndexed(displayList) { _ , campsite ->
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                itemsIndexed(displayList) { _, campsite ->
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        CampsiteRow(item = campsite, onClick = { id -> openDetail(id) }, imageGrabber = imageLoader)
+                        CampsiteRow(
+                            item = campsite,
+                            onClick = { id -> openDetail(id) },
+                            imageGrabber = imageLoader
+                        )
                     }
                 }
             }
-            Row(modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 30.dp)) {
-                Button(onClick = onClick) {
-                    Text("testing button")
+            onClick?.let { register ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 30.dp)
+                ) {
+                    Button(onClick = register) {
+                        Text("testing button")
+                    }
                 }
             }
 
             if (showOwnerView) {
-            Button(
-                onClick = onViewAllLotteries,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-            ) {
-                Text("View All Lotteries")
-            }}
+                Button(
+                    onClick = onViewAllLotteries,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                ) {
+                    Text("View All Lotteries")
+                }
+            }
 
 
-            Button(
-                onClick = {
-                    onViewChanged(!showOwnerView)},
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 8.dp),
-                colors = buttonColors(
-                    containerColor = Color(0xFF1B5E20)
-                )
-            ) {
-                Text(
-                    if (showOwnerView) "Click to Test Entrant View"
-                    else "Click to Test Owner View",
-                    color = Color.White
-                )
+            onViewChanged?.let { changeView ->
+                Button(
+                    onClick = { changeView(!showOwnerView) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    colors = buttonColors(
+                        containerColor = Color(0xFF1B5E20)
+                    )
+                ) {
+                    Text(
+                        if (showOwnerView) "Click to Test Entrant View"
+                        else "Click to Test Owner View",
+                        color = Color.White
+                    )
+                }
             }
         }
         if (errorState) {

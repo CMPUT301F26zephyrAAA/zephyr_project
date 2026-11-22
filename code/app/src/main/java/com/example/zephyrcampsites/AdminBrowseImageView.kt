@@ -30,7 +30,7 @@ fun AdminBrowseImageView(
     onBack: () -> Unit,
     loadImage: (String, (String?) -> Unit) -> Unit,
 ) {
-    if (account?.userType != "admin" || account.id.isBlank()) {
+    if (account == null || "admin" !in account.userType || account.id.isBlank()) {
         Text("Administrator access required.")
         return
     }
@@ -97,7 +97,7 @@ fun AdminImageBrowser(
     onBack: () -> Unit,
     loadImage: (String, (String?) -> Unit) -> Unit,
 ) {
-    if (account?.userType != "admin" || account.id.isBlank()) {
+    if (account == null || "admin" !in account.userType || account.id.isBlank()) {
         Text("Administrator access required.")
         return
     }

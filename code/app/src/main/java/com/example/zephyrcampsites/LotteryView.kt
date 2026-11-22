@@ -323,7 +323,7 @@ class LotteryView (
     @Composable
     fun LotteryDetailsView(
         lotteryId: String,
-        onEditClick: () -> Unit,
+        onEditClick: (() -> Unit)?,
         onBackClick: () -> Unit
     ) {
         val lottery = lotteryController.getLotteryById(lotteryId)
@@ -448,15 +448,19 @@ class LotteryView (
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Button(
-                onClick = onEditClick,
-                modifier = Modifier.fillMaxWidth(0.5f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF19483D),
-                    contentColor = Color.White
-                )
-            ) {
-                Text("EDIT LOTTERY")
+            onEditClick?.let { edit ->
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Button(
+                    onClick = edit,
+                    modifier = Modifier.fillMaxWidth(0.5f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF19483D),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("EDIT LOTTERY")
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))

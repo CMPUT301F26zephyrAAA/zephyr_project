@@ -102,7 +102,7 @@ class CampsiteController(val model: CampsiteModel) {
         }
 
         // Only the campsite owner can edit it
-        if (account.userType != "owner" || account.id != campsite.ownerID) {
+        if ("owner" !in account.userType || account.id != campsite.ownerID) {
             onFailure("You do not have permission to edit this campsite.")
             return
         }
@@ -161,7 +161,7 @@ class CampsiteController(val model: CampsiteModel) {
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit,
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             onFailure("Only administrators can remove campsites.")
             return
         }
@@ -336,7 +336,7 @@ class CampsiteController(val model: CampsiteModel) {
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             onError(IllegalArgumentException("Only administrators can remove images."))
             return
         }

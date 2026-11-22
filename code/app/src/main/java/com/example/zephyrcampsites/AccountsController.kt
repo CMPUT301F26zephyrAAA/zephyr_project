@@ -140,6 +140,30 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
     }
 
     /**
+     * Requests deletion of the profile associated with this device.
+     *
+     * @param account Current administrator account.
+     * @param targetAccount Profile to remove.
+     * @param onSuccess Called after deletion succeeds.
+     * @param onError Called when access or deletion fails.
+     */
+    fun deleteOwnProfile(
+        context: Context,
+        account: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        val deviceId = getDeviceId(context)
+
+        if (deviceId.isNullOrBlank() || '/' in deviceId || deviceId != account.id) {
+            onError(IllegalArgumentException("You can only delete your own profile."))
+            return
+        }
+
+        accountsModel.deleteOwnProfile(account, onSuccess, onError)
+    }
+
+    /**
      * Removes a profile only for an identified administrator.
      *
      * @param account Current administrator account.
@@ -153,7 +177,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             onError(IllegalArgumentException("Only administrators can remove profiles."))
             return
         }
@@ -180,7 +204,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             onError(IllegalArgumentException("Only administrators can remove images."))
             return
         }

@@ -32,7 +32,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         accounts.document(deviceID).get().addOnSuccessListener { document ->
             if (document.exists()) {
                 val account = Account(document.id)
-                account.userType = document.getString("userType") ?: "entrant"
+                account.userType = accountRoles(document.get("userType"))
                 account.name = document.getString("name") ?: ""
                 account.email = document.getString("email") ?: ""
                 account.phoneNumber = document.getString("phoneNumber") ?: ""
@@ -58,7 +58,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         //[AI-02] OpenAI, ChatGPT, explanation of hashMapOf for constructing Firestore account document fields
         val accountData = hashMapOf(
             "id" to account.id,
-            "userType" to account.userType,
+            "userType" to accountRoles(null),
             "notificationsEnabled" to account.notificationsEnabled
         )
         accounts.document(account.id).set(accountData).addOnSuccessListener { onSuccess() }
@@ -154,7 +154,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                     snapshot?.documents.orEmpty().map { document ->
                         Account(
                             document.id,
-                            userType = document.getString("userType") ?: "entrant",
+                            userType = accountRoles(document.get("userType")),
                             name = document.getString("name") ?: "",
                             email = document.getString("email") ?: "",
                             phoneNumber = document.getString("phoneNumber") ?: "",
@@ -168,9 +168,25 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         }
     }
 
+    /** Removes an account and its related records at the account holder's request.
+     * @param targetAccount Profile to remove.
+     * @param onSuccess Called after the cleanup and deletion commit.
+     * @param onError Called when deletion fails.*/
+    fun deleteOwnProfile(
+        account: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        deleteAccountWithCleanup(
+            targetAccount = account,
+            actorId = account.id,
+            onSuccess = onSuccess,
+            onError = onError,
+        )
+    }
+
     /**
-     * Removes a profile, its waiting list entries, and its active reservations' availability holds.
-     *
+     * Removes a profile, its waiting-list entries, and its active reservation holds.
      * @param targetAccount Profile to remove.
      * @param adminId Administrator recorded on cancelled reservations.
      * @param onSuccess Called after the cleanup and deletion commit.
@@ -179,6 +195,28 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     open fun deleteAccount(
         targetAccount: Account,
         adminId: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        deleteAccountWithCleanup(
+            targetAccount = targetAccount,
+            actorId = adminId,
+            onSuccess = onSuccess,
+            onError = onError,
+        )
+    }
+
+    /**
+     * Removes a profile, its waiting list entries, and its active reservations' availability holds.
+     *
+     * @param targetAccount Profile to remove.
+     * @param actorId Administrator recorded on cancelled reservations.
+     * @param onSuccess Called after the cleanup and deletion commit.
+     * @param onError Called when deletion fails.
+     */
+    fun deleteAccountWithCleanup(
+        targetAccount: Account,
+        actorId: String,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
@@ -276,7 +314,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                                         mapOf(
                                                             "cancelled" to true,
                                                             "status" to "cancelled",
-                                                            "cancelledBy" to adminId,
+                                                            "cancelledBy" to actorId,
                                                             "cancelledAt" to
                                                                 FieldValue.serverTimestamp(),
                                                             "cancellationReason" to
