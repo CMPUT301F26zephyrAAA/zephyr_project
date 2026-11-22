@@ -323,6 +323,7 @@ class LotteryView (
     @Composable
     fun LotteryDetailsView(
         lotteryId: String,
+        canEdit: Boolean,
         onEditClick: () -> Unit,
         onBackClick: () -> Unit
     ) {
@@ -448,15 +449,17 @@ class LotteryView (
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            Button(
-                onClick = onEditClick,
-                modifier = Modifier.fillMaxWidth(0.5f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF19483D),
-                    contentColor = Color.White
-                )
-            ) {
-                Text("EDIT LOTTERY")
+            if (canEdit) {
+                Button(
+                    onClick = onEditClick,
+                    modifier = Modifier.fillMaxWidth(0.5f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF19483D),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text("EDIT LOTTERY")
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
