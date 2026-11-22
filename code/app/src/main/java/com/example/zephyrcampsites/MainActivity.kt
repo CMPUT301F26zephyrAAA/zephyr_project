@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -103,6 +104,7 @@ class MainActivity : ComponentActivity() {
             ZephyrCampsitesTheme {
                 val navHostController = rememberNavController()
                 var showOwnerView by rememberSaveable { mutableStateOf(false) }
+                var showOwnerRequired by rememberSaveable { mutableStateOf(false) }
 
                 val adminAccountsModel = remember { AccountsModel() }
                 val adminProfileView = remember { AdminBrowseProfileView() }
@@ -129,6 +131,14 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val account = currentAccount.value
+
+                fun ownsCampsite(campsiteId: String?): Boolean {
+                    val owner = account ?: return false
+                    val id = campsiteId?.toIntOrNull() ?: return false
+                    val campsite = campsiteController.retrieveId(id) ?: return false
+                    return owner.userType == "owner" && campsite.ownerID == owner.id
+                }
+
                 val isLoading = accountLoading.value
                 val isAdmin = !isLoading && account?.userType == "admin"
                 val onBack: () -> Unit = { navHostController.popBackStack() }
@@ -473,6 +483,11 @@ class MainActivity : ComponentActivity() {
                             val campsiteId = entry.arguments?.getString("campsiteId")
                                 ?: return@composable
 
+                            if (!ownsCampsite(campsiteId)) {
+                                Text("Only the campsite owner can manage its lottery.")
+                                return@composable
+                            }
+
                             lotteryView.LotterySettingsView(
                                 campsiteId = campsiteId,
                                 onLotteryCreated = { lotteryId ->
@@ -492,10 +507,27 @@ class MainActivity : ComponentActivity() {
                             lotteryView.LotteryDetailsView(
                                 lotteryId = lotteryId,
                                 onEditClick = {
-                                    navHostController.navigate("editLottery/$lotteryId")
+                                    val campsiteId = lotteryController.getLotteryById(lotteryId)?.campsiteId
+                                    if (ownsCampsite(campsiteId)) {
+                                        navHostController.navigate("editLottery/$lotteryId")
+                                    } else {
+                                        showOwnerRequired = true
+                                    }
                                 },
                                 onBackClick = onBack
                             )
+                            if (showOwnerRequired) {
+                                AlertDialog(
+                                    onDismissRequest = { showOwnerRequired = false },
+                                    title = { Text("Owner access required") },
+                                    text = { Text("Only the campsite owner can edit its lottery.") },
+                                    confirmButton = {
+                                        TextButton(onClick = { showOwnerRequired = false }) {
+                                            Text("OK")
+                                        }
+                                    }
+                                )
+                            }
                         }
 
                         composable(
@@ -504,6 +536,11 @@ class MainActivity : ComponentActivity() {
                         ) { entry ->
                             val lotteryId = entry.arguments?.getString("lotteryId")
                                 ?: return@composable
+
+                            if (!ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId)) {
+                                Text("Only the campsite owner can edit its lottery.")
+                                return@composable
+                            }
 
                             lotteryView.EditLotteryView(
                                 lotteryId = lotteryId,
@@ -900,35 +937,4 @@ private fun FeaturePage(title: String, onBack: () -> Unit) {
         Button(onClick = onBack) { Text("Back") }
         Text(title, style = MaterialTheme.typography.headlineMedium)
     }
-}
-
-@Composable
-fun AdminBrowseScreen(title: String, onBack: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(title, style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.weight(1f))
-        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) {
-            Text("BACK")
-        }
-    }
-}
-
-@Composable
-fun AdminTestingMenu(
-    onBrowseCampsites: () -> Unit,
-    onBrowseProfiles: () -> Unit,
-    onBrowseImages: () -> Unit,
-    onBack: () -> Unit
-) {
-    RolePage(
-        onBack = onBack,
-        actions = listOf(
-            RoleAction("Browse Campsites", onBrowseCampsites),
-            RoleAction("Browse Profiles", onBrowseProfiles),
-            RoleAction("Browse Images", onBrowseImages)
-        )
-    )
 }
