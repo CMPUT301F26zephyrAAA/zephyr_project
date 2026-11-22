@@ -524,7 +524,7 @@ class CampsiteDetailView {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,
-                                canEdit = account?.userType == "owner" && account.id == campsite.ownerID,
+                                ownsCampsite = account?.userType == "owner" && account.id == campsite.ownerID,
                                 onEdit = onEdit,
                                 onManageLottery = onManageLottery
                             )
@@ -637,11 +637,11 @@ class CampsiteDetailView {
     }
 
     /**
-     * Displays QR, lottery management, and allowed editing controls in owner view.
+     * Displays QR controls and limits editing and lottery management to the campsite owner.
      *
      * @param campsite Campsite being managed.
      * @param codeGenerator Function that generates the campsite QR code.
-     * @param canEdit Whether the current account owns the campsite and can edit it.
+     * @param ownsCampsite Whether the current account owns the campsite.
      * @param onEdit Called when the owner opens the campsite editor.
      * @param onManageLottery Called when the owner opens lottery management.
      */
@@ -649,13 +649,13 @@ class CampsiteDetailView {
     private fun ownerControls(
         campsite: Campsite,
         codeGenerator: (String, Int) -> ImageBitmap,
-        canEdit: Boolean,
+        ownsCampsite: Boolean,
         onEdit: (Int) -> Unit,
         onManageLottery: (String) -> Unit
     ) {
         val numericId = campsite.id.toIntOrNull() ?: return
 
-        if (canEdit) {
+        if (ownsCampsite) {
             Button(onClick = { onEdit(numericId) }, modifier = Modifier.fillMaxWidth()) {
                 Text("EDIT DETAILS")
             }
@@ -681,8 +681,10 @@ class CampsiteDetailView {
                 Text("Download/Save QR")
             }
         }
-        Button(onClick = { onManageLottery(campsite.id) }, modifier = Modifier.fillMaxWidth()) {
-            Text("Manage Lottery")
+        if (ownsCampsite) {
+            Button(onClick = { onManageLottery(campsite.id) }, modifier = Modifier.fillMaxWidth()) {
+                Text("Manage Lottery")
+            }
         }
     }
 

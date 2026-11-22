@@ -181,14 +181,15 @@ class CampsiteDetailViewTest {
     }
 
     @Test
-    fun differentOwnerCannotEditInOwnerView() {
+    fun differentOwnerCannotEditOrManageLotteryInOwnerView() {
         showDetails(
             account = Account("other-owner").apply { userType = "owner" },
             showOwnerView = true
         )
 
-        composeTestRule.onNodeWithText("Manage Lottery").assertExists()
+        composeTestRule.onNodeWithText("Generate/Hide QR").assertExists()
         composeTestRule.onNodeWithText("EDIT DETAILS").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Manage Lottery").assertDoesNotExist()
     }
 
     @Test
