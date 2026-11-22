@@ -17,7 +17,9 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
      * @param onSuccess called with the entrants reservations
      * @param onError called if retrieval or data validation fails
      */
-
+    // AI Citation [AI-14]
+    // OpenAI, ChatGPT was used to review Firestore reservation retrieval, validation, and error handling.
+    // AI usage and citation documented in the GitHub Wiki.
     fun getEntrantReservations(
         accountId: String,
         onSuccess: (List<ReservedUser>) -> Unit,
@@ -33,7 +35,13 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
             .get(Source.SERVER)
             .addOnSuccessListener { snapshot ->
                 try {
-                    val results = snapshot.documents.map { document ->
+                    val results = snapshot.documents.mapNotNull { document ->
+
+                        // Cancelled reservations are not shown in active or past lists.
+                        if (document.getBoolean("cancelled") == true) {
+                            return@mapNotNull null
+                        }
+
                         val start = document.getTimestamp("bookedPeriodStart")
                             ?: error("Reservation ${document.id} has no valid start date.")
 

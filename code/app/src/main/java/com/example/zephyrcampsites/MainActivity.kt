@@ -45,6 +45,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.mutableIntStateOf
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -54,6 +57,7 @@ import androidx.compose.ui.unit.dp
 sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
     data object Profile : GeneralScreen("GeneralScreen/Profile")
+    data object Trips : GeneralScreen("GeneralScreen/Trips")
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
     data object RegisterCampsite: GeneralScreen("GeneralScreen/RegisterCampsite")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
@@ -124,6 +128,11 @@ class MainActivity : ComponentActivity() {
                     WaitingListController(waitingListModel)
                 }
 
+                //Entrant reservation management
+                val reservationsController = remember {
+                    ReservationsController()
+                }
+
                 // Navigate after account initialization finishes.
                 val account = currentAccount.value
                 LaunchedEffect(accountLoading.value, account?.id) {
@@ -167,8 +176,17 @@ class MainActivity : ComponentActivity() {
                            horizontalArrangement = Arrangement.SpaceBetween,
                            verticalAlignment = Alignment.CenterVertically
                        ) {
-                           Button(onClick = { navHostController.navigate(GeneralScreen.Profile.route) }) {
+                           Button(onClick = {
+                               navHostController.navigate(GeneralScreen.Profile.route) })
+                           {
                                Text("My Profile")
+                           }
+                           Button(
+                               onClick = {
+                                   navHostController.navigate(GeneralScreen.Trips.route)
+                               }
+                           ) {
+                               Text("My Trips")
                            }
                            if (account.userType == "admin") {
                                Button(onClick = { navHostController.navigate(GeneralScreen.AdminMenu.route) }) { Text("ADMIN") }
@@ -181,6 +199,218 @@ class MainActivity : ComponentActivity() {
                         startDestination = GeneralScreen.AccountLoading.route,
                         modifier = Modifier.weight(1f)
                     ) {
+                        // AI Citation [AI-20], [AI-21]
+                        // OpenAI, ChatGPT assisted with reservation screen
+                        // integration, loading states, and details navigation.
+                        // AI usage and citations documented in the GitHub Wiki.
+                        composable(route = GeneralScreen.Trips.route) {
+                            val entrantAccount = currentAccount.value
+
+                            if (entrantAccount == null) {
+                                Text("Unable to load account.")
+                            } else {
+                                var activeReservations by remember(entrantAccount.id) {
+                                    mutableStateOf<List<ReservedUser>>(emptyList())
+                                }
+
+                                var pastReservations by remember(entrantAccount.id) {
+                                    mutableStateOf<List<ReservedUser>>(emptyList())
+                                }
+
+                                var activeLoaded by remember(entrantAccount.id) {
+                                    mutableStateOf(false)
+                                }
+
+                                var pastLoaded by remember(entrantAccount.id) {
+                                    mutableStateOf(false)
+                                }
+
+                                var errorMessage by remember(entrantAccount.id) {
+                                    mutableStateOf<String?>(null)
+                                }
+
+                                var retryKey by remember(entrantAccount.id) {
+                                    mutableIntStateOf(0)
+                                }
+
+                                var selectedReservation by remember {
+                                    mutableStateOf<ReservedUser?>(null)
+                                }
+
+                                LaunchedEffect(entrantAccount.id, retryKey) {
+                                    activeLoaded = false
+                                    pastLoaded = false
+                                    errorMessage = null
+
+                                    reservationsController.getActiveReservations(
+                                        accountId = entrantAccount.id,
+                                        onSuccess = { reservations ->
+                                            activeReservations = reservations
+                                            activeLoaded = true
+                                        },
+                                        onError = { exception ->
+                                            errorMessage = exception.message
+                                                ?: "Unable to load active reservations."
+                                            activeLoaded = true
+                                        }
+                                    )
+
+                                    reservationsController.getPastReservations(
+                                        accountId = entrantAccount.id,
+                                        onSuccess = { reservations ->
+                                            pastReservations = reservations
+                                            pastLoaded = true
+                                        },
+                                        onError = { exception ->
+                                            errorMessage = exception.message
+                                                ?: "Unable to load past reservations."
+                                            pastLoaded = true
+                                        }
+                                    )
+                                }
+
+                                when {
+                                    !activeLoaded || !pastLoaded ||
+                                            (campsiteModel.isLoading &&
+                                                    campsiteModel.error == null) -> {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            CircularProgressIndicator()
+                                            Text("Loading reservations...")
+                                        }
+                                    }
+
+                                    errorMessage != null || campsiteModel.error != null -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                errorMessage
+                                                    ?: "Unable to load campsite information."
+                                            )
+
+                                            Button(onClick = {
+                                                retryKey++
+                                            }) {
+                                                Text("Retry")
+                                            }
+                                        }
+                                    }
+
+
+                                    else -> {
+                                        val selected = selectedReservation
+
+                                        if (selected != null) {
+                                            // Check whether the selected reservation is past.
+                                            val isPast = pastReservations.any {
+                                                it.id == selected.id
+                                            }
+
+                                            // Find the matching campsite from already-loaded data.
+                                            val campsite = campsiteModel.campsites.find {
+                                                it.id == selected.campsiteId
+                                            }
+
+                                            ReservationDetailsView(
+                                                reservation = selected,
+                                                campsite = campsite,
+                                                isPast = isPast,
+
+                                                imageContent = { currentCampsite ->
+                                                    CampsiteAdminImage(
+                                                        path = currentCampsite.imagePath,
+                                                        loadImage = { path, callback ->
+                                                            campsiteController.loadCampsiteImage(
+                                                                path = path,
+                                                                onResult = { url -> callback(url) },
+                                                                onError = { callback(null) }
+                                                            )
+                                                        }
+                                                    )
+                                                },
+
+                                                onViewMap = {
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Map integration pending",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+
+                                                onMessageOwner = {
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Messaging integration pending",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+
+                                                onCancelReservation = {
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Cancellation integration pending",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+
+                                                onRateCampsite = {
+                                                    navHostController.navigate(
+                                                        CampsiteScreens.RateCampsite.createRoute(
+                                                            selected.campsiteId
+                                                        )
+                                                    )
+                                                },
+
+                                                onBack = {
+                                                    selectedReservation = null
+                                                }
+                                            )
+                                        } else {
+                                            ReservationsView(
+                                                activeReservations = activeReservations,
+                                                pastReservations = pastReservations,
+
+                                                campsiteForId = { campsiteId ->
+                                                    campsiteModel.campsites.find {
+                                                        it.id == campsiteId
+                                                    }
+                                                },
+
+                                                imageContent = { campsite ->
+                                                    CampsiteAdminImage(
+                                                        path = campsite.imagePath,
+                                                        loadImage = { path, callback ->
+                                                            campsiteController.loadCampsiteImage(
+                                                                path = path,
+                                                                onResult = { url -> callback(url) },
+                                                                onError = { callback(null) }
+                                                            )
+                                                        }
+                                                    )
+                                                },
+
+                                                onLotteriesClick = {
+                                                    navHostController.navigate("allLotteries")
+                                                },
+
+                                                onViewDetails = { reservation ->
+                                                    selectedReservation = reservation
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         composable("allLotteries") {
                             Column(
                                 modifier = Modifier

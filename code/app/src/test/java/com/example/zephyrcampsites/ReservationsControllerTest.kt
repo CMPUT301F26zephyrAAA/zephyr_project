@@ -6,7 +6,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Date
-
+// AI Citation [AI-17]
+// OpenAI, ChatGPT assisted with JUnit 4 unit tests
+// for active and past reservation filtering.
+// AI usage and citation documented in the GitHub Wiki.
 /**
  * Unit tests for the reservation filtering logic in ReservationsController.
  *

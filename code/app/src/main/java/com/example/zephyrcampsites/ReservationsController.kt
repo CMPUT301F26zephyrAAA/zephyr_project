@@ -2,7 +2,10 @@
 package com.example.zephyrcampsites
 
 import java.util.Date
-
+// AI Citation [AI-15], [AI-16]
+// OpenAI, ChatGPT assisted with reservation filtering,
+// sorting, date validation, and testability improvements.
+// AI usage and citations documented in the GitHub Wiki.
 /**
  * Controller responsible for retrieving and organizing an entrant's
  * active and past campsite reservations.
