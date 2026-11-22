@@ -160,7 +160,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
             return
         }
 
-        accountsModel.deleteOwnProfile(account, onSuccess, onError)
+        accountsModel.deleteOwnAccount(account, onSuccess, onError)
     }
 
     /**
