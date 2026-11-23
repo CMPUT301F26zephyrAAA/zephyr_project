@@ -390,6 +390,12 @@ class LotteryView (
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
+                "Waitlist Entrants: ${lottery.entrantCount}"
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
                 "Waitlist Limit: ${lottery.waitlistCapacity ?: "Unlimited"}"
             )
 

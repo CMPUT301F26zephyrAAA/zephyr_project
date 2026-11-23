@@ -247,23 +247,56 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         val lottery = lotteries.find { it.id == lotteryId }
             ?: throw IllegalArgumentException("Lottery not found.")
 
-        val registrationStarted =
-            System.currentTimeMillis() >= lottery.registrationStart
+        val firestore =
+            com.google.firebase.firestore.FirebaseFirestore.getInstance()
 
-        // Check if the capacity update is allowed.
-        LotteryCapacityValidator.validateCapacityUpdate(
-            oldCapacity = lottery.waitlistCapacity,
-            newCapacity = newCapacity,
-            registrationStarted = registrationStarted
-        )
+        val lotteryRef = firestore.collection("lottery").document(lotteryId)
 
-        lottery.waitlistCapacity = newCapacity
+        // Check the latest capacity and entrant count from Firebase.
+        firestore.runTransaction { transaction ->
+            val document = transaction.get(lotteryRef)
 
-        // Save the updated capacity to Firebase.
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
-            .collection("lottery")
-            .document(lotteryId)
-            .update("waitlistCapacity", newCapacity)
+            require(document.exists()) {
+                "Lottery not found."
+            }
+
+            val currentCount = document.getLong("entrantCount")
+                ?: throw IllegalStateException("Entrant count is missing.")
+
+            val oldCapacity = document.getLong("waitlistCapacity")?.toInt()
+
+            val registrationStart = document.getLong("registrationStart")
+                ?: throw IllegalStateException("Registration start is missing.")
+
+            val registrationStarted =
+                System.currentTimeMillis() >= registrationStart
+
+            // Check if the new capacity is allowed.
+            if (newCapacity != oldCapacity) {
+                LotteryCapacityValidator.validateCapacityUpdate(
+                    oldCapacity = oldCapacity,
+                    newCapacity = newCapacity,
+                    registrationStarted = registrationStarted,
+                    entrantCount = currentCount
+                )
+            }
+
+            // Save the new capacity.
+            transaction.update(lotteryRef, "waitlistCapacity", newCapacity)
+
+            true
+        }
+            .addOnSuccessListener {
+                // Update the local value after Firebase succeeds.
+                lottery.waitlistCapacity = newCapacity
+            }
+            .addOnFailureListener { exception ->
+                android.util.Log.e(
+                    "LotteryModel",
+                    "Failed to update waitlist capacity",
+                    exception
+                )
+            }
     }
 
     fun updateLottery(
@@ -362,23 +395,62 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         // Check that the winner count is valid.
         LotteryValidator().validateNumberOfWinners(numberOfWinners)
 
-        // Check whether the waitlist capacity can be changed.
-        if (waitlistCapacity != lottery.waitlistCapacity) {
-            val registrationStarted = now >= lottery.registrationStart
 
-            LotteryCapacityValidator.validateCapacityUpdate(
-                oldCapacity = lottery.waitlistCapacity,
-                newCapacity = waitlistCapacity,
-                registrationStarted = registrationStarted
-            )
-        }
+        // Save lottery settings using the latest data from Firebase.
+        val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        val lotteryRef = firestore.collection("lottery").document(lotteryId)
 
+        firestore.runTransaction { transaction ->
+            val document = transaction.get(lotteryRef)
 
-        // Update only the lottery settings without changing the entrant count.
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
-            .collection("lottery")
-            .document(lotteryId)
-            .update(
+            require(document.exists()) {
+                "Lottery not found."
+            }
+
+            val currentCount = document.getLong("entrantCount")
+                ?: throw IllegalStateException("Entrant count is missing.")
+            // Check the latest registration dates before saving.
+            val savedRegistrationStart = document.getLong("registrationStart")
+                ?: throw IllegalStateException("Registration start is missing.")
+
+            val savedRegistrationEnd = document.getLong("registrationEnd")
+                ?: throw IllegalStateException("Registration end is missing.")
+
+            val savedBookingStart = document.getLong("bookingStart")
+                ?: throw IllegalStateException("Booking start is missing.")
+
+            val savedBookingEnd = document.getLong("bookingEnd")
+                ?: throw IllegalStateException("Booking end is missing.")
+
+            if (System.currentTimeMillis() >= savedRegistrationStart) {
+                require(
+                    registrationStart == savedRegistrationStart &&
+                            registrationEnd == savedRegistrationEnd &&
+                            bookingStart == savedBookingStart &&
+                            bookingEnd == savedBookingEnd
+                ) {
+                    "Registration and booking dates cannot be changed after registration starts."
+                }
+            }
+
+            val oldCapacity = document.getLong("waitlistCapacity")?.toInt()
+            val registrationStarted =
+                System.currentTimeMillis() >=
+                        (document.getLong("registrationStart")
+                            ?: throw IllegalStateException("Registration start is missing."))
+
+            if (waitlistCapacity != oldCapacity) {
+                LotteryCapacityValidator.validateCapacityUpdate(
+                    oldCapacity = oldCapacity,
+                    newCapacity = waitlistCapacity,
+                    registrationStarted = registrationStarted,
+                    entrantCount = currentCount
+                )
+            }
+
+            // Save settings without overwriting the entrant count.
+            transaction.update(
+                lotteryRef,
                 mapOf(
                     "lotteryName" to lotteryName.trim(),
                     "registrationStart" to registrationStart,
@@ -389,6 +461,9 @@ class LotteryModel : ObservableModel<LotteryModel>() {
                     "waitlistCapacity" to waitlistCapacity
                 )
             )
+
+            true
+        }
             .addOnSuccessListener {
                 onSuccess()
             }
