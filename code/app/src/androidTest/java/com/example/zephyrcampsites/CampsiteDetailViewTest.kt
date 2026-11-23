@@ -150,7 +150,7 @@ class CampsiteDetailViewTest {
 
         composeTestRule.onNodeWithText("Price per night: Not provided").assertExists()
         composeTestRule.onNodeWithText("Rating: Not rated").assertExists()
-        composeTestRule.onNodeWithText("Owner: owner-demo").assertExists()
+        composeTestRule.onNodeWithText("Owner: Not Provided").assertExists()
         composeTestRule.onNodeWithText("No open fires.\nCancellation requires 24 hours notice.")
             .performScrollTo()
             .assertIsDisplayed()
