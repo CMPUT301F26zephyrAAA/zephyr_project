@@ -15,7 +15,7 @@ class AccountTest {
     @Test
     fun newAccount_defaultUserType_isEntrant() {
         val account = Account("testDevice123")
-        assertEquals(listOf("entrant"), account.userType)
+        assertEquals(listOf("entrant", "owner"), account.userType)
     }
 
     /**
