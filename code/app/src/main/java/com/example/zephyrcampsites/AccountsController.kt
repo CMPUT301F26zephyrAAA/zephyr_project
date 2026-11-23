@@ -25,13 +25,10 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
     //Open AI, ChatGPT was used for assistance understanding Android device identification
     //AI Usage and citation in WIKI
     fun getDeviceId(context: Context): String? {
-        val deviceId = Settings.Secure.getString(
+        return Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ANDROID_ID
         )
-
-        android.util.Log.d("DeviceIdCheck", "App device ID: $deviceId")
-        return deviceId
     }
 
     /**
@@ -141,42 +138,31 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
             onError = { onError("Unable to save notification preference. Please try again.") }
         )
     }
+
     /**
-     * Allows an entrant to delete their own device linked profile
-     * @param context verify the current Device ID
-     * @param account Currently identified account
-     * @param onSuccess Called after fire base deletion succeeds.
-     * @param onError Called when validation or deletion fails.
+     * Requests deletion of the profile associated with this device.
+     *
+     * @param account Current administrator account.
+     * @param targetAccount Profile to remove.
+     * @param onSuccess Called after deletion succeeds.
+     * @param onError Called when access or deletion fails.
      */
     fun deleteOwnProfile(
         context: Context,
-        account: Account?,
+        account: Account,
         onSuccess: () -> Unit,
-        onError: (String) -> Unit
-    ){
+        onError: (Exception) -> Unit,
+    ) {
         val deviceId = getDeviceId(context)
-        if(deviceId.isNullOrBlank()){
-            onError("Unable to identify device")
+
+        if (deviceId.isNullOrBlank() || '/' in deviceId || deviceId != account.id) {
+            onError(IllegalArgumentException("You can only delete your own profile."))
             return
         }
-        if (account == null || account.id != deviceId){
-            onError("You can only delete your own profile")
-            return
-        }
-        if (account.userType != "entrant"){
-            onError("This option is only available to entrants.")
-            return
-        }
-        accountsModel.deleteOwnAccount(
-            accountId = deviceId,
-            onSuccess = onSuccess,
-            onError = { exception ->
-                onError(
-                    exception.message ?: "Unable to delete profile"
-            )
-            }
-        )
+
+        accountsModel.deleteOwnAccount(account.id, onSuccess, onError)
     }
+
     /**
      * Removes a profile only for an identified administrator.
      *
@@ -191,7 +177,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             onError(IllegalArgumentException("Only administrators can remove profiles."))
             return
         }
@@ -218,7 +204,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             onError(IllegalArgumentException("Only administrators can remove images."))
             return
         }

@@ -32,7 +32,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         accounts.document(deviceID).get().addOnSuccessListener { document ->
             if (document.exists()) {
                 val account = Account(document.id)
-                account.userType = document.getString("userType") ?: "entrant"
+                account.userType = accountRoles(document.get("userType"))
                 account.name = document.getString("name") ?: ""
                 account.email = document.getString("email") ?: ""
                 account.phoneNumber = document.getString("phoneNumber") ?: ""
@@ -58,7 +58,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         //[AI-02] OpenAI, ChatGPT, explanation of hashMapOf for constructing Firestore account document fields
         val accountData = hashMapOf(
             "id" to account.id,
-            "userType" to account.userType,
+            "userType" to accountRoles(null),
             "notificationsEnabled" to account.notificationsEnabled
         )
         accounts.document(account.id).set(accountData).addOnSuccessListener { onSuccess() }
@@ -154,7 +154,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                     snapshot?.documents.orEmpty().map { document ->
                         Account(
                             document.id,
-                            userType = document.getString("userType") ?: "entrant",
+                            userType = accountRoles(document.get("userType")),
                             name = document.getString("name") ?: "",
                             email = document.getString("email") ?: "",
                             phoneNumber = document.getString("phoneNumber") ?: "",
@@ -167,31 +167,26 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             }
         }
     }
-    /**
-     * Checks if an entrant has any active reservations.
-     * An active reservation hasn't been cancelled & its checkout date hasnt passed
-     * @param accountId ID of the entrant
-     * @param onResult Returns true if an active reservation exists
-     * @param onError called if firestore fails
-     */
+
     open fun hasActiveReservations(
         accountId: String,
         onResult: (Boolean) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        if (accountId.isBlank() || accountId.contains("/")){
-            onError(IllegalArgumentException("Invalid account ID"))
+        if (accountId.isBlank() || '/' in accountId) {
+            onError(IllegalArgumentException("Invalid account ID."))
             return
         }
+
         firestore.collection("reservation")
-            .whereEqualTo("accountId", accountId) //https://docs.oracle.com/en/database/oracle/backend-for-firebase/26.1/sbdjd/-oracle%20-backend%20for%20-firebase%20-android%20-s-d-k%20-reference,%20-release%2026.1.0/com.oracle.mobile.fusabase.oracledb/-query/where-equal-to.html
+            .whereEqualTo("accountId", accountId)
             .get(Source.SERVER)
             .addOnSuccessListener { snapshot ->
-                val currentTime = System.currentTimeMillis()
-                val hasActive = snapshot.documents.any {document ->
+                val now = System.currentTimeMillis()
+                val hasActive = snapshot.documents.any { document ->
                     val cancelled = document.getBoolean("cancelled") == true
                     val checkoutTime = document.getTimestamp("bookedPeriodEnd")?.toDate()?.time
-                    !cancelled && (checkoutTime == null || checkoutTime > currentTime)
+                    !cancelled && (checkoutTime == null || checkoutTime > now)
                 }
                 onResult(hasActive)
             }
@@ -242,7 +237,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                 "Profile no longer exists."
             }
 
-            check(account.getString("userType") == "entrant") {
+            check("entrant" in accountRoles(account.get("userType"))) {
                 "Only entrants can delete their own profiles."
             }
 
@@ -355,9 +350,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                             "Profile no longer exists."
                         }
 
-                        check(
-                            savedAccount.getString("userType") == "entrant"
-                        ) {
+                        check("entrant" in accountRoles(savedAccount.get("userType"))) {
                             "Only entrants can delete their own profiles."
                         }
 
@@ -543,9 +536,9 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                 onError(exception)
             }
     }
+
     /**
-     * Removes a profile, its waiting list entries, and its active reservations' availability holds.
-     *
+     * Removes a profile, its waiting-list entries, and its active reservation holds.
      * @param targetAccount Profile to remove.
      * @param adminId Administrator recorded on cancelled reservations.
      * @param onSuccess Called after the cleanup and deletion commit.
@@ -554,6 +547,28 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     open fun deleteAccount(
         targetAccount: Account,
         adminId: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        deleteAccountWithCleanup(
+            targetAccount = targetAccount,
+            actorId = adminId,
+            onSuccess = onSuccess,
+            onError = onError,
+        )
+    }
+
+    /**
+     * Removes a profile, its waiting list entries, and its active reservations' availability holds.
+     *
+     * @param targetAccount Profile to remove.
+     * @param actorId Administrator recorded on cancelled reservations.
+     * @param onSuccess Called after the cleanup and deletion commit.
+     * @param onError Called when deletion fails.
+     */
+    fun deleteAccountWithCleanup(
+        targetAccount: Account,
+        actorId: String,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
@@ -651,7 +666,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                                         mapOf(
                                                             "cancelled" to true,
                                                             "status" to "cancelled",
-                                                            "cancelledBy" to adminId,
+                                                            "cancelledBy" to actorId,
                                                             "cancelledAt" to
                                                                 FieldValue.serverTimestamp(),
                                                             "cancellationReason" to
