@@ -370,11 +370,8 @@ class CampsiteDetailView {
                         Text("Rating: ${ratingText(campsite)}")
                         Text("Price per night: ${priceText(campsite.pricePerNight)}")
 
-                        val owner = if (!ownerName.isNullOrBlank()) {
-                            ownerName
-                        } else {
-                            campsite.ownerID.ifBlank { "Not provided" }
-                        }
+                        val owner = ownerName?.takeIf{ it.isNotBlank() }
+                            ?: "Anonymous"
                         Text("Owner: $owner")
                         Text("Description", style = MaterialTheme.typography.titleMedium)
                         Text(campsite.description.ifBlank { "Not provided" })
