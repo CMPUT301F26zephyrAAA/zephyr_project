@@ -107,5 +107,16 @@ class LotteryCapacityTest {
         }
     }
 
+    @Test
+    fun capacityEqualToCurrentEntrantsIsAllowed() {
+        // Capacity can be equal to the number of entrants.
+        LotteryCapacityValidator.validateCapacityUpdate(
+            oldCapacity = 15,
+            newCapacity = 8,
+            registrationStarted = false,
+            entrantCount = 8L
+        )
+    }
+
 
 }

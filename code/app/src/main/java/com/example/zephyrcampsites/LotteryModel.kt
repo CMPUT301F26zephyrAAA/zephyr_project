@@ -391,18 +391,6 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         // Check that the winner count is valid.
         LotteryValidator().validateNumberOfWinners(numberOfWinners)
 
-        // Check whether the waitlist capacity can be changed.
-        if (waitlistCapacity != lottery.waitlistCapacity) {
-            val registrationStarted = now >= lottery.registrationStart
-
-            LotteryCapacityValidator.validateCapacityUpdate(
-                oldCapacity = lottery.waitlistCapacity,
-                newCapacity = waitlistCapacity,
-                registrationStarted = registrationStarted,
-                entrantCount = lottery.entrantCount
-            )
-        }
-
 
         // Save lottery settings using the latest data from Firebase.
         val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
