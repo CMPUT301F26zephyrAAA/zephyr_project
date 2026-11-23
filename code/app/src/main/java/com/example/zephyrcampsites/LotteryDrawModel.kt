@@ -1,6 +1,7 @@
 package com.example.zephyrcampsites
 
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Source
 
 /**
  * Handles reading lottery entrants and saving draw results in Firebase.
@@ -17,6 +18,9 @@ class LotteryDrawModel(
 
     // Keep track of draws already started by this app instance.
     private val activeDraws = mutableSetOf<String>()
+
+    // Wait 5 minutes before treating a processing draw as abandoned.
+    private val drawRecoveryTimeout = 5 * 60 * 1000L
 
     /**
      * Gets all registered entrants for a specific lottery.
@@ -137,7 +141,7 @@ class LotteryDrawModel(
 
             // Read the lottery information from Firebase.
             lotteries.document(lotteryId)
-                .get()
+                .get(Source.SERVER)
                 .addOnSuccessListener { document ->
 
                     if (!document.exists()) {
@@ -217,12 +221,13 @@ class LotteryDrawModel(
                 throw IllegalStateException("Lottery is not ready for drawing")
             }
 
-            // Mark the lottery as processing and record this draw attempt.
+            // Mark the lottery as processing and save when it started.
             transaction.update(
                 lotteryRef,
                 mapOf(
                     "drawStatus" to "PROCESSING",
-                    "drawAttemptId" to drawAttemptId
+                    "drawAttemptId" to drawAttemptId,
+                    "drawStartedAt" to System.currentTimeMillis()
                 )
             )
 
@@ -298,9 +303,11 @@ class LotteryDrawModel(
             // Reset the lottery so the draw can be tried again.
             transaction.update(
                 lotteryRef,
+                // Reset the draw so it can be tried again.
                 mapOf(
                     "drawStatus" to "PENDING",
-                    "drawAttemptId" to ""
+                    "drawAttemptId" to "",
+                    "drawStartedAt" to 0L
                 )
             )
 
@@ -313,6 +320,77 @@ class LotteryDrawModel(
                 onError(exception.message ?: "Failed to reset lottery draw")
             }
     }
+
+    /**
+     * Resets a draw if it has been processing for too long.
+     * This allows an interrupted draw to be tried again.
+     */
+    fun recoverExpiredLotteryDraw(
+        lotteryId: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (lotteryId.isBlank()) {
+            onError("Lottery ID is missing")
+            return
+        }
+
+        val lotteryRef = lotteries.document(lotteryId)
+        val resultRef = drawResults.document(lotteryId)
+
+        firestore.runTransaction { transaction ->
+            // Read the latest lottery and saved results.
+            val document = transaction.get(lotteryRef)
+            val resultDocument = transaction.get(resultRef)
+
+            if (!document.exists()) {
+                throw IllegalStateException("Lottery not found")
+            }
+
+            if (resultDocument.exists()) {
+                throw IllegalStateException("Draw results already exist")
+            }
+
+            val drawStatus = document.getString("drawStatus")
+            val drawCompleted = document.getBoolean("drawCompleted") ?: false
+            val drawStartedAt = document.getLong("drawStartedAt") ?: 0L
+
+            // Only recover unfinished draws with a valid start time.
+            if (drawStatus != "PROCESSING" ||
+                drawCompleted ||
+                drawStartedAt <= 0L
+            ) {
+                throw IllegalStateException("Lottery cannot be recovered")
+            }
+
+            // Check whether the processing timeout has passed.
+            val elapsedTime = System.currentTimeMillis() - drawStartedAt
+
+            if (elapsedTime < drawRecoveryTimeout) {
+                throw IllegalStateException("Draw is still processing")
+            }
+
+            // Reset the expired attempt so a new draw can start.
+            transaction.update(
+                lotteryRef,
+                mapOf(
+                    "drawStatus" to "PENDING",
+                    "drawAttemptId" to "",
+                    "drawStartedAt" to 0L
+                )
+            )
+
+            true
+        }
+            .addOnSuccessListener {
+                onSuccess()
+            }
+            .addOnFailureListener { exception ->
+                onError(exception.message ?: "Failed to recover lottery draw")
+            }
+    }
+
+
     /**
      * Gets eligible entrants and randomly selects winners and backups.
      */
@@ -370,6 +448,7 @@ class LotteryDrawModel(
         )
     }
 
+
     /**
      * Runs the lottery draw and saves the results.
      */
@@ -384,29 +463,81 @@ class LotteryDrawModel(
             lotteryId,
             onSuccess = { drawAttemptId ->
 
-                // Prepare the winners and backup list.
-                prepareLotteryDraw(
+                // Get the latest lottery settings from Firebase.
+                getLotteryForDraw(
                     lotteryId,
-                    numberOfWinners,
-                    onSuccess = { winners, backups ->
+                    onSuccess = { lottery ->
 
-                        // Save the results using the same draw attempt ID.
-                        saveLotteryDraw(
+                        // Use the latest winner count instead of the local value.
+                        val latestNumberOfWinners = lottery.numberOfWinners
+
+                        // Prepare the winners and backup list.
+                        prepareLotteryDraw(
                             lotteryId,
-                            drawAttemptId,
-                            winners,
-                            backups,
-                            numberOfWinners,
-                            onSuccess,
-                            onError
+                            latestNumberOfWinners,
+                            onSuccess = { winners, backups ->
+
+                                // Save results using the same draw attempt.
+                                saveLotteryDraw(
+                                    lotteryId,
+                                    drawAttemptId,
+                                    winners,
+                                    backups,
+                                    latestNumberOfWinners,
+                                    onSuccess,
+                                    onError = { error ->
+
+                                        // Release the draw if saving fails.
+                                        releaseLotteryDraw(
+                                            lotteryId = lotteryId,
+                                            drawAttemptId = drawAttemptId,
+                                            onSuccess = {
+                                                onError("Lottery draw could not be saved: $error")
+                                            },
+                                            onError = { recoveryError ->
+                                                onError(
+                                                    "Lottery draw could not be saved: $error. " +
+                                                            "Recovery failed: $recoveryError"
+                                                )
+                                            }
+                                        )
+                                    }
+                                )
+                            },
+                            onError = { error ->
+
+                                // Release the draw if preparation fails.
+                                releaseLotteryDraw(
+                                    lotteryId = lotteryId,
+                                    drawAttemptId = drawAttemptId,
+                                    onSuccess = {
+                                        onError("Lottery draw preparation failed: $error")
+                                    },
+                                    onError = { recoveryError ->
+                                        onError(
+                                            "Lottery draw preparation failed: $error. " +
+                                                    "Recovery failed: $recoveryError"
+                                        )
+                                    }
+                                )
+                            }
                         )
                     },
                     onError = { error ->
-                        // Keep the draw locked if preparation fails.
-                        // This prevents another draw from starting accidentally.
-                        onError(
-                            "Lottery draw preparation failed: $error. " +
-                                    "The lottery may need recovery before trying again."
+
+                        // Release the draw if lottery settings cannot be loaded.
+                        releaseLotteryDraw(
+                            lotteryId = lotteryId,
+                            drawAttemptId = drawAttemptId,
+                            onSuccess = {
+                                onError("Failed to load lottery settings: $error")
+                            },
+                            onError = { recoveryError ->
+                                onError(
+                                    "Failed to load lottery settings: $error. " +
+                                            "Recovery failed: $recoveryError"
+                                )
+                            }
                         )
                     }
                 )
@@ -414,6 +545,7 @@ class LotteryDrawModel(
             onError = onError
         )
     }
+
 
     /**
      * Prepares the Firestore updates for winners and backups.
@@ -678,7 +810,8 @@ class LotteryDrawModel(
                 mapOf(
                     "drawCompleted" to true,
                     "drawCompletedAt" to completedAt,
-                    "drawStatus" to "COMPLETED"
+                    "drawStatus" to "COMPLETED",
+                    "drawStartedAt" to 0L
                 )
             )
 
@@ -701,7 +834,39 @@ class LotteryDrawModel(
 
         val currentTime = System.currentTimeMillis()
 
+        // Only recover draws that have been processing too long.
+        fun isExpiredDraw(lottery: Lottery): Boolean {
+            return lottery.drawStatus == "PROCESSING" &&
+                    !lottery.drawCompleted &&
+                    lottery.drawStartedAt > 0L &&
+                    currentTime - lottery.drawStartedAt >= drawRecoveryTimeout
+        }
+
         lotteries.forEach { lottery ->
+
+            // Try to recover a draw that has been processing too long.
+            if (isExpiredDraw(lottery) && activeDraws.add(lottery.id)) {
+                recoverExpiredLotteryDraw(
+                    lotteryId = lottery.id,
+                    onSuccess = {
+                        // Firebase will update the lottery status to PENDING.
+                        activeDraws.remove(lottery.id)
+
+                        android.util.Log.d(
+                            "LotteryDraw",
+                            "Expired lottery draw recovered: ${lottery.id}"
+                        )
+                    },
+                    onError = { error ->
+                        activeDraws.remove(lottery.id)
+
+                        android.util.Log.e(
+                            "LotteryDraw",
+                            "Lottery draw recovery failed: $error"
+                        )
+                    }
+                )
+            }
 
             // Only start draws after registration ends.
             if (lottery.registrationEnd <= currentTime &&
