@@ -45,6 +45,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
 import androidx.compose.runtime.mutableIntStateOf
@@ -116,6 +117,29 @@ class MainActivity : ComponentActivity() {
 
                 // Lottery setup and registration management.
                 val lotteryModel = remember { LotteryModel() }
+
+                // Model for selecting lottery winners and saving draw results.
+                val lotteryDrawModel = remember { LotteryDrawModel() }
+
+                // Check for pending draws whenever Firebase updates the lottery list.
+                LaunchedEffect(lotteryModel, lotteryDrawModel) {
+                    snapshotFlow { lotteryModel.lotteries.toList() }
+                        .collect { lotteries ->
+                            lotteryDrawModel.checkPendingLotteryDraws(lotteries)
+                        }
+                }
+
+                // Check for expired registration periods while the app is open.
+                LaunchedEffect(lotteryModel, lotteryDrawModel) {
+                    while (true) {
+                        lotteryDrawModel.checkPendingLotteryDraws(
+                            lotteryModel.lotteries.toList()
+                        )
+
+                        // Check again after one minute.
+                        kotlinx.coroutines.delay(60_000L)
+                    }
+                }
 
                 val lotteryController = remember(lotteryModel) {
                     LotteryController(lotteryModel)

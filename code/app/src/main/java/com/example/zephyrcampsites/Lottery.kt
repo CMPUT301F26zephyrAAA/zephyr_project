@@ -18,4 +18,14 @@ data class Lottery(
     var numberOfWinners: Int = 1
     var waitlistCapacity: Int? = null
     var entrantCount: Long = 0L
+
+    // Tracks whether the lottery winner draw has already finished.
+    var drawCompleted: Boolean = false
+
+    // Stores when the winner draw was completed.
+    var drawCompletedAt: Long = 0L
+
+    // Tracks whether the lottery draw is waiting, running, or finished.
+    var drawStatus: String = "PENDING"
+
 }
