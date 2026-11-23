@@ -14,14 +14,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -113,16 +116,26 @@ class AccountsView {
                     onClick = onSettings
                 )
             }
-            OutlinedButton(onClick = onDelete) {
-                Text("DELETE PROFILE")
+            OutlinedButton(
+                onClick = onDelete,
+                modifier = Modifier.align(Alignment.End).testTag("deleteProfileButton"),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Red,
+                    contentColor = Color.White)
+            ) {
+                Text(
+                    text = "DELETE PROFILE",
+                    color = Color.White
+                )
             }
             OutlinedButton(onClick = onBack,
-                modifier = Modifier.align(Alignment.End).padding(16.dp),
+                modifier = Modifier.align(Alignment.End).padding(8.dp),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFF2E7D32),
-                    contentColor = Color.White
-                )) {
+                    contentColor = Color.White)
+            ) {
                 Text("BACK")
             }
         }
@@ -293,5 +306,68 @@ class AccountsView {
                 Text("BACK")
             }
         }
+    }
+
+    @Composable
+    fun DeleteProfileDialog(
+        hasActiveReservations: Boolean,
+        isCheckingReservations: Boolean,
+        isDeleting: Boolean,
+        reservationCheckError: String?,
+        deletionError: String?,
+        onConfirm: () -> Unit,
+        onCancel: () -> Unit
+    ) {
+        val canDelete = !isCheckingReservations && !isDeleting && reservationCheckError == null
+        val errorMessage = reservationCheckError ?: deletionError
+
+        AlertDialog(
+            modifier = Modifier.testTag("deleteProfileDialog"),
+            onDismissRequest = { if (!isDeleting) onCancel() },
+            title = { Text("Permanently delete profile?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Your profile and waiting-list entries will be removed. This cannot be undone.")
+
+                    if (isCheckingReservations) {
+                        CircularProgressIndicator()
+                        Text("Checking your reservations…")
+                    }
+
+                    if (hasActiveReservations) {
+                        Text(
+                            "Your active or upcoming reservations will be cancelled.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+
+                    if (errorMessage != null) {
+                        Text(errorMessage, color = MaterialTheme.colorScheme.error)
+                    }
+
+                    if (isDeleting) {
+                        CircularProgressIndicator()
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = onConfirm,
+                    enabled = canDelete,
+                    modifier = Modifier.testTag("confirmDeleteButton")
+                ) {
+                    Text(if (isDeleting) "DELETING…" else "DELETE")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = onCancel,
+                    enabled = !isDeleting,
+                    modifier = Modifier.testTag("cancelDeleteButton")
+                ) {
+                    Text("CANCEL")
+                }
+            }
+        )
     }
 }

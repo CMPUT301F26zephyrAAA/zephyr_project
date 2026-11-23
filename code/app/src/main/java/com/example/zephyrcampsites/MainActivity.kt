@@ -53,6 +53,10 @@ import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.LocationServices
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
+import kotlinx.coroutines.delay
 
 sealed class GeneralScreen(val route: String) {
     data object RoleMenu : GeneralScreen("GeneralScreen/RoleMenu")
@@ -110,7 +114,7 @@ class MainActivity : ComponentActivity() {
                 val navHostController = rememberNavController()
                 val onBack: () -> Unit = { navHostController.popBackStack() }
 
-                val adminAccountsModel = remember { AccountsModel() }
+                val accountsModel = remember { AccountsModel() }
                 val adminProfileView = remember { AdminBrowseProfileView() }
                 val qrHandler = remember { QRCodeHandler() }
                 val campsiteSummaryView = remember { CampsiteSummaryView() }
@@ -231,56 +235,69 @@ class MainActivity : ComponentActivity() {
                     )
 
                     if (showDeleteDialog) {
-                        AlertDialog(
-                            onDismissRequest = {
-                                if (!isDeleting) showDeleteDialog = false
-                            },
-                            title = { Text("Delete your profile?") },
-                            text = {
-                                Text(
-                                    if (deleteError) {
-                                        "Could not delete your profile. Please try again."
-                                    } else {
-                                        "This permanently deletes your saved profile."
-                                    }
-                                )
-                            },
-                            dismissButton = {
-                                TextButton(
-                                    enabled = !isDeleting,
-                                    onClick = { showDeleteDialog = false }
+                        var hasActiveReservations by remember(profileAccount.id) {
+                            mutableStateOf(false)
+                        }
+                        var isCheckingReservations by remember(profileAccount.id) {
+                            mutableStateOf(true)
+                        }
+                        var reservationCheckError by remember(profileAccount.id) {
+                            mutableStateOf<String?>(null)
+                        }
+                        var deletionError by remember(profileAccount.id) {
+                            mutableStateOf<String?>(null)
+                        }
+                        LaunchedEffect(profileAccount.id) {
+                            accountsModel.hasActiveReservations(
+                                accountId = profileAccount.id,
+                                onResult = { hasActive ->
+                                    hasActiveReservations = hasActive
+                                    isCheckingReservations = false
+                                },
+                                onError = { exception ->
+                                    reservationCheckError = exception.message
+                                        ?: "Unable to check reservations."
+                                    isCheckingReservations = false
+                                }
+                            )
+                        }
+
+                        AccountsView().DeleteProfileDialog(
+                            hasActiveReservations = hasActiveReservations,
+                            isCheckingReservations = isCheckingReservations,
+                            isDeleting = profileDeletionInProgress.value,
+                            reservationCheckError = reservationCheckError,
+                            deletionError = deletionError,
+                            onConfirm = {
+                                if (
+                                    !profileDeletionInProgress.value &&
+                                    !isCheckingReservations &&
+                                    reservationCheckError == null &&
+                                    currentAccount.value?.id == profileAccount.id
                                 ) {
-                                    Text("Cancel")
+                                    profileDeletionInProgress.value = true
+                                    deletionError = null
+
+                                    accountsController.deleteOwnProfile(
+                                        context = this@MainActivity,
+                                        account = profileAccount,
+                                        onSuccess = {
+                                            showDeleteDialog = false
+                                            currentAccount.value = null
+                                            profileDeletionInProgress.value = false
+                                            finish()
+                                        },
+                                        onError = { exception ->
+                                            profileDeletionInProgress.value = false
+                                            deletionError = exception.message
+                                                ?: "Unable to delete your profile."
+                                        }
+                                    )
                                 }
                             },
-                            confirmButton = {
-                                TextButton(
-                                    enabled = !isDeleting,
-                                    onClick = {
-                                        if (
-                                            !profileDeletionInProgress.value &&
-                                            currentAccount.value?.id == profileAccount.id
-                                        ) {
-                                            deleteError = false
-                                            profileDeletionInProgress.value = true
-
-                                            accountsController.deleteOwnProfile(
-                                                context = this@MainActivity,
-                                                account = profileAccount,
-                                                onSuccess = {
-                                                    currentAccount.value = null
-                                                    profileDeletionInProgress.value = false
-                                                    finish()
-                                                },
-                                                onError = {
-                                                    profileDeletionInProgress.value = false
-                                                    deleteError = true
-                                                }
-                                            )
-                                        }
-                                    }
-                                ) {
-                                    Text(if (isDeleting) "Deleting…" else "Delete")
+                            onCancel = {
+                                if (!profileDeletionInProgress.value) {
+                                    showDeleteDialog = false
                                 }
                             }
                         )
@@ -815,7 +832,7 @@ class MainActivity : ComponentActivity() {
                                 AdminContent {
                                     adminProfileView.AdminProfileListView(
                                         account,
-                                        adminAccountsModel,
+                                        accountsModel,
                                         onProfileSelected = { profile ->
                                             navHostController.navigate(
                                                 GeneralScreen.AdminProfileDetail.createRoute(
@@ -864,7 +881,7 @@ class MainActivity : ComponentActivity() {
                                 AdminContent {
                                     AdminBrowseImageView(
                                         account,
-                                        adminAccountsModel,
+                                        accountsModel,
                                         campsiteModel,
                                         onRemove = { image, success, failure ->
                                             if (image.type == "profile") {
