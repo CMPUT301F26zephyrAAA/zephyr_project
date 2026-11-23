@@ -1,10 +1,7 @@
 package com.example.zephyrcampsites
-import android.net.wifi.WifiManager
-import android.os.Message
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,7 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -25,6 +25,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -39,10 +40,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.zephyrcampsites.ui.theme.ProfileMenuGreen
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-
 
 /**
  * View class for displaying and editing entrant account details
@@ -65,8 +62,8 @@ class AccountsView {
         onEdit: () -> Unit,
         onPolicy: () -> Unit,
         onSettings: () -> Unit,
-        onDelete: () -> Unit,
-        onBack: () -> Unit
+        onBack: () -> Unit,
+        onDelete: () -> Unit
     ){
         Column(modifier = Modifier
             .fillMaxSize()
@@ -119,16 +116,26 @@ class AccountsView {
                     onClick = onSettings
                 )
             }
-            TextButton(
+            OutlinedButton(
                 onClick = onDelete,
-                modifier = Modifier.testTag("deleteProfileButton")
+                modifier = Modifier.align(Alignment.End).testTag("deleteProfileButton"),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color.Red,
+                    contentColor = Color.White)
             ) {
                 Text(
                     text = "DELETE PROFILE",
-                    color = MaterialTheme.colorScheme.error
+                    color = Color.White
                 )
             }
-            OutlinedButton(onClick = onBack) {
+            OutlinedButton(onClick = onBack,
+                modifier = Modifier.align(Alignment.End).padding(8.dp),
+                shape = RoundedCornerShape(10.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF2E7D32),
+                    contentColor = Color.White)
+            ) {
                 Text("BACK")
             }
         }
@@ -156,8 +163,12 @@ class AccountsView {
                     .padding(start = 15.dp, top = 10.dp, end = 10.dp, bottom = 4.dp)
             ) {
                 Column(modifier = Modifier.padding(end = 28.dp, bottom = 28.dp)) {
-                    Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Light)
-                    Text(description, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraLight)
+                    Text(title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Light)
+                    Text(description,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.ExtraLight)
                 }
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
@@ -215,7 +226,8 @@ class AccountsView {
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text(text = "PERSONAL INFORMATION", style = MaterialTheme.typography.headlineMedium)
+            Text(text = "PERSONAL INFORMATION",
+                style = MaterialTheme.typography.headlineMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
@@ -296,178 +308,66 @@ class AccountsView {
         }
     }
 
-    // AI Citation [AI-09], [AI-10], [AI-11]
-    // OpenAI, ChatGPT was used to assist with the Delete Profile
-    // UI, confirmation dialog, button styling, and Compose test tags.
-    // AI usage and citations documented in the GitHub Wiki.
-    /**
-     * Displays the confirmation screen for deleting an entrant's profile.
-     *
-     * @param onConfirm Called when the entrant confirms deletion.
-     * @param onCancel Returns without deleting the profile.
-     */
     @Composable
-    fun DeleteProfileView(
+    fun DeleteProfileDialog(
+        hasActiveReservations: Boolean,
+        isCheckingReservations: Boolean,
+        isDeleting: Boolean,
+        reservationCheckError: String?,
+        deletionError: String?,
         onConfirm: () -> Unit,
-        onCancel: () -> Unit,
-        hasActiveReservations: Boolean = false,
-        isDeleting: Boolean = false,
-        errorMessage: String? = null,
-        isCheckingReservations: Boolean = false
+        onCancel: () -> Unit
     ) {
-        var showConfirmation by remember {
-            mutableStateOf(false)
-        }
+        val canDelete = !isCheckingReservations && !isDeleting && reservationCheckError == null
+        val errorMessage = reservationCheckError ?: deletionError
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Text(
-                text = "DELETE PROFILE",
-                style = MaterialTheme.typography.headlineMedium
-            )
+        AlertDialog(
+            modifier = Modifier.testTag("deleteProfileDialog"),
+            onDismissRequest = { if (!isDeleting) onCancel() },
+            title = { Text("Permanently delete profile?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Your profile and waiting-list entries will be removed. This cannot be undone.")
 
-            Spacer(modifier = Modifier.height(16.dp))
+                    if (isCheckingReservations) {
+                        CircularProgressIndicator()
+                        Text("Checking your reservations…")
+                    }
 
-            Text(
-                text = "Are you sure you want to delete your profile?",
-                style = MaterialTheme.typography.bodyLarge
-            )
+                    if (hasActiveReservations) {
+                        Text(
+                            "Your active or upcoming reservations will be cancelled.",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
 
-            Text(
-                text = "This action is permanent and cannot be undone.",
-                color = MaterialTheme.colorScheme.error
-            )
+                    if (errorMessage != null) {
+                        Text(errorMessage, color = MaterialTheme.colorScheme.error)
+                    }
 
-            if (isCheckingReservations) {
-                Text("Checking your reservations...")
-                CircularProgressIndicator()
-            }
-
-            if (hasActiveReservations) {
-                Text(
-                    text = "Warning: You have active or upcoming reservations. " +
-                            "Deleting your profile will cancel these reservations.",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(vertical = 12.dp)
-                )
-            }
-            if (errorMessage != null) {
-                Text(
-                    text = errorMessage,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            }
-
-            if (isDeleting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.padding(16.dp)
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Button(
-                    onClick = { showConfirmation = true },
-                    enabled = !isDeleting && !isCheckingReservations && errorMessage == null,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("deleteProfileYesButton"),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ProfileMenuGreen,
-                        contentColor = Color.White
-                    )
-                ) {
-                    Text("YES")
+                    if (isDeleting) {
+                        CircularProgressIndicator()
+                    }
                 }
-
-                Button(
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = onConfirm,
+                    enabled = canDelete,
+                    modifier = Modifier.testTag("confirmDeleteButton")
+                ) {
+                    Text(if (isDeleting) "DELETING…" else "DELETE")
+                }
+            },
+            dismissButton = {
+                TextButton(
                     onClick = onCancel,
                     enabled = !isDeleting,
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("deleteProfileNoButton"),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ProfileMenuGreen,
-                        contentColor = Color.White
-                    )
+                    modifier = Modifier.testTag("cancelDeleteButton")
                 ) {
-                    Text("NO")
+                    Text("CANCEL")
                 }
             }
-
-            OutlinedButton(
-                onClick = onCancel,
-                modifier = Modifier.testTag("deleteProfileBackButton"),
-                colors = ButtonDefaults.outlinedButtonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            ) {
-                Text("BACK")
-            }
-        }
-
-        if (showConfirmation) {
-            AlertDialog(
-                modifier = Modifier.testTag("deleteProfileDialog"),
-                onDismissRequest = {
-                    if (!isDeleting) {
-                        showConfirmation = false
-                    }
-                },
-                title = {
-                    Text("Permanently delete profile?")
-                },
-
-
-                text = {
-                    Column {
-                        Text(
-                            "Your profile and waiting-list entries will be removed. " + "This action cannot be undone."
-                        )
-
-                        if (hasActiveReservations) {
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = "Your active or upcoming reservations will also be cancelled",
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showConfirmation = false
-                            onConfirm()
-                        },
-                        enabled = !isDeleting && !isCheckingReservations && errorMessage == null,
-                        modifier = Modifier.testTag("confirmDeleteButton")
-                    ) {
-                        Text("DELETE")
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showConfirmation = false
-                        },
-                        modifier = Modifier.testTag("cancelDeleteButton")
-                    ) {
-                        Text("CANCEL")
-                    }
-                }
-            )
-        }
+        )
     }
-
 }

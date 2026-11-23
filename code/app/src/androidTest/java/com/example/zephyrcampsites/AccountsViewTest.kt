@@ -109,7 +109,6 @@ class AccountsViewTest {
                                 },
                                 onPolicy = { navController.navigate(GeneralScreen.Policy.route) },
                                 onSettings = { navController.navigate(GeneralScreen.Settings.route) },
-                                onDelete = {},
                                 onBack = { navController.popBackStack() }
                             )
                         }

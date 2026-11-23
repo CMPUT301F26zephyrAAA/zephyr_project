@@ -21,7 +21,7 @@ fun AdminCampsiteListView(
     onCampsiteSelected: (Campsite) -> Unit,
     onBack: () -> Unit
 ) {
-    if (account?.userType != "admin" || account.id.isBlank()) {
+    if (account == null || "admin" !in account.userType || account.id.isBlank()) {
         Column {
             Text("Administrator access required.")
             OutlinedButton(onClick = onBack) { Text("BACK") }
