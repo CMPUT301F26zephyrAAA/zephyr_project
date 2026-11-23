@@ -45,6 +45,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
 
 /**
  * Sealed class for general screens that could be used across different categories.
@@ -54,6 +59,8 @@ import androidx.compose.ui.unit.dp
 sealed class GeneralScreen(val route: String) {
     data object QRScan : GeneralScreen("GeneralScreen/QRScan")
     data object Profile : GeneralScreen("GeneralScreen/Profile")
+    data object Trips : GeneralScreen("GeneralScreen/Trips")
+    data object DeleteProfile : GeneralScreen("GeneralScreen/DeleteProfile")
     data object LotterySettings : GeneralScreen("GeneralScreen/LotterySettings")
     data object RegisterCampsite: GeneralScreen("GeneralScreen/RegisterCampsite")
     data object AccountLoading : GeneralScreen("GeneralScreen/AccountLoading")
@@ -124,8 +131,19 @@ class MainActivity : ComponentActivity() {
                     WaitingListController(waitingListModel)
                 }
 
+                //Entrant reservation management
+                val reservationsController = remember {
+                    ReservationsController()
+                }
+
                 // Navigate after account initialization finishes.
                 val account = currentAccount.value
+                fun ownsCampsite(campsiteId: String?): Boolean {
+                    return account?.userType == "owner" && campsiteModel.campsites.any {
+                        it.id == campsiteId && it.ownerID == account.id
+                    }
+                }
+
                 LaunchedEffect(accountLoading.value, account?.id) {
                     if (!accountLoading.value) {
 
@@ -167,8 +185,17 @@ class MainActivity : ComponentActivity() {
                            horizontalArrangement = Arrangement.SpaceBetween,
                            verticalAlignment = Alignment.CenterVertically
                        ) {
-                           Button(onClick = { navHostController.navigate(GeneralScreen.Profile.route) }) {
+                           Button(onClick = {
+                               navHostController.navigate(GeneralScreen.Profile.route) })
+                           {
                                Text("My Profile")
+                           }
+                           Button(
+                               onClick = {
+                                   navHostController.navigate(GeneralScreen.Trips.route)
+                               }
+                           ) {
+                               Text("My Trips")
                            }
                            if (account.userType == "admin") {
                                Button(onClick = { navHostController.navigate(GeneralScreen.AdminMenu.route) }) { Text("ADMIN") }
@@ -181,6 +208,235 @@ class MainActivity : ComponentActivity() {
                         startDestination = GeneralScreen.AccountLoading.route,
                         modifier = Modifier.weight(1f)
                     ) {
+                        // AI Citation [AI-20], [AI-21]
+                        // OpenAI, ChatGPT assisted with reservation screen
+                        // integration, loading states, and details navigation.
+                        // AI usage and citations documented in the GitHub Wiki.
+                        composable(route = GeneralScreen.Trips.route) {
+                            val entrantAccount = currentAccount.value
+
+                            if (entrantAccount == null) {
+                                Text("Unable to load account.")
+                            } else {
+                                var allReservations by remember(entrantAccount.id) {
+                                    mutableStateOf<List<ReservedUser>>(emptyList())
+                                }
+
+                                var cutoffTime by remember(entrantAccount.id) {
+                                    mutableStateOf(java.util.Date())
+                                }
+
+                                val activeReservations = reservationsController.filterActiveReservations(
+                                    allReservations,
+                                    cutoffTime
+                                )
+
+                                val pastReservations = reservationsController.filterPastReservations(
+                                    allReservations,
+                                    cutoffTime
+                                )
+
+                                var activeLoaded by remember(entrantAccount.id) {
+                                    mutableStateOf(false)
+                                }
+
+                                var pastLoaded by remember(entrantAccount.id) {
+                                    mutableStateOf(false)
+                                }
+
+                                var errorMessage by remember(entrantAccount.id) {
+                                    mutableStateOf<String?>(null)
+                                }
+
+                                var retryKey by remember(entrantAccount.id) {
+                                    mutableIntStateOf(0)
+                                }
+
+                                var selectedReservation by remember {
+                                    mutableStateOf<ReservedUser?>(null)
+                                }
+
+                                var selectedTripsTab by rememberSaveable {
+                                    mutableIntStateOf(1)
+                                }
+
+
+                                LaunchedEffect(entrantAccount.id, retryKey) {
+                                    activeLoaded = false
+                                    pastLoaded = false
+                                    errorMessage = null
+
+                                    reservationsController.getReservations(
+                                        accountId = entrantAccount.id,
+                                        onSuccess = { reservations ->
+                                            allReservations = reservations
+                                            cutoffTime = java.util.Date()
+
+                                            activeLoaded = true
+                                            pastLoaded = true
+                                        },
+                                        onError = { exception ->
+                                            errorMessage = exception.message
+                                                ?: "Unable to load reservations."
+
+                                            activeLoaded = true
+                                            pastLoaded = true
+                                        }
+                                    )
+                                }
+
+                                LaunchedEffect(entrantAccount.id) {
+                                    while (true) {
+                                        delay(1_000L)
+                                        cutoffTime = java.util.Date()
+                                    }
+                                }
+
+
+                                when {
+                                    !activeLoaded || !pastLoaded ||
+                                            (campsiteModel.isLoading &&
+                                                    campsiteModel.error == null) -> {
+                                        Column(
+                                            modifier = Modifier.fillMaxSize(),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            CircularProgressIndicator()
+                                            Text("Loading reservations...")
+                                        }
+                                    }
+
+                                    errorMessage != null || campsiteModel.error != null -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(24.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                errorMessage
+                                                    ?: "Unable to load campsite information."
+                                            )
+
+                                            Button(onClick = {
+                                                retryKey++
+                                            }) {
+                                                Text("Retry")
+                                            }
+                                        }
+                                    }
+
+
+                                    else -> {
+                                        val selected = selectedReservation
+
+                                        if (selected != null) {
+                                            // Check whether the selected reservation is past.
+                                            val isPast = pastReservations.any {
+                                                it.id == selected.id
+                                            }
+
+                                            // Find the matching campsite from already-loaded data.
+                                            val campsite = campsiteModel.campsites.find {
+                                                it.id == selected.campsiteId
+                                            }
+
+                                            ReservationDetailsView(
+                                                reservation = selected,
+                                                campsite = campsite,
+                                                isPast = isPast,
+
+                                                imageContent = { currentCampsite ->
+                                                    CampsiteAdminImage(
+                                                        path = currentCampsite.imagePath,
+                                                        loadImage = { path, callback ->
+                                                            campsiteController.loadCampsiteImage(
+                                                                path = path,
+                                                                onResult = { url -> callback(url) },
+                                                                onError = { callback(null) }
+                                                            )
+                                                        }
+                                                    )
+                                                },
+
+                                                onViewMap = {
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Map integration pending",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+
+                                                onMessageOwner = {
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Messaging integration pending",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+
+                                                onCancelReservation = {
+                                                    Toast.makeText(
+                                                        this@MainActivity,
+                                                        "Cancellation integration pending",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                },
+
+                                                onRateCampsite = {
+                                                    navHostController.navigate(
+                                                        CampsiteScreens.RateCampsite.createRoute(
+                                                            selected.campsiteId
+                                                        )
+                                                    )
+                                                },
+
+                                                onBack = {
+                                                    selectedReservation = null
+                                                }
+                                            )
+                                        } else {
+                                            ReservationsView(
+                                                activeReservations = activeReservations,
+                                                pastReservations = pastReservations,
+                                                selectedTab = selectedTripsTab,
+                                                onSelectedTabChange = { selectedTripsTab = it },
+
+                                                campsiteForId = { campsiteId ->
+                                                    campsiteModel.campsites.find {
+                                                        it.id == campsiteId
+                                                    }
+                                                },
+
+                                                imageContent = { campsite ->
+                                                    CampsiteAdminImage(
+                                                        path = campsite.imagePath,
+                                                        loadImage = { path, callback ->
+                                                            campsiteController.loadCampsiteImage(
+                                                                path = path,
+                                                                onResult = { url -> callback(url) },
+                                                                onError = { callback(null) }
+                                                            )
+                                                        }
+                                                    )
+                                                },
+
+                                                onLotteriesClick = {
+                                                    navHostController.navigate("allLotteries")
+                                                },
+
+                                                onViewDetails = { reservation ->
+                                                    selectedReservation = reservation
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         composable("allLotteries") {
                             Column(
                                 modifier = Modifier
@@ -240,9 +496,7 @@ class MainActivity : ComponentActivity() {
                                         navHostController.navigate(
                                             GeneralScreen.AccountLoading.route
                                         ) {
-                                            popUpTo(
-                                                GeneralScreen.AccountError.route
-                                            ) {
+                                            popUpTo(GeneralScreen.AccountLoading.route) {
                                                 inclusive = true
                                             }
                                             launchSingleTop = true
@@ -430,15 +684,18 @@ class MainActivity : ComponentActivity() {
                                 ?.getString("campsiteId")
                                 ?: return@composable
 
-                        lotteryView.LotterySettingsView(
-                            campsiteId = campsiteId,
-                            onLotteryCreated = { lotteryId ->
-                                navHostController.navigate("lotteryDetails/$lotteryId")
-                            },
-                            onBackClick = {
-                                navHostController.popBackStack()
+                            if (!ownsCampsite(campsiteId)) {
+                                Text("Only the campsite owner can manage its lottery.")
+                                return@composable
                             }
-                        )
+
+                            lotteryView.LotterySettingsView(
+                                campsiteId = campsiteId,
+                                onLotteryCreated = { lotteryId ->
+                                    navHostController.navigate("lotteryDetails/$lotteryId")
+                                },
+                                onBackClick = { navHostController.popBackStack() }
+                            )
                         }
 
                         composable(
@@ -454,6 +711,7 @@ class MainActivity : ComponentActivity() {
 
                             lotteryView.LotteryDetailsView(
                                 lotteryId = lotteryId,
+                                canEdit = ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId),
                                 onEditClick = {
                                     navHostController.navigate("editLottery/$lotteryId")
                                 },
@@ -473,6 +731,11 @@ class MainActivity : ComponentActivity() {
                         ) { backStackEntry ->
                             val lotteryId = backStackEntry.arguments
                                 ?.getString("lotteryId") ?: return@composable
+
+                            if (!ownsCampsite(lotteryController.getLotteryById(lotteryId)?.campsiteId)) {
+                                Text("Only the campsite owner can edit its lottery.")
+                                return@composable
+                            }
 
                             lotteryView.EditLotteryView(
                                 lotteryId = lotteryId,
@@ -497,10 +760,132 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onPolicy = { navHostController.navigate(GeneralScreen.Policy.route) },
                                     onSettings = { navHostController.navigate(GeneralScreen.Settings.route) },
+                                    onDelete = { navHostController.navigate(GeneralScreen.DeleteProfile.route) },
                                     onBack = { navHostController.popBackStack() }
                                 )
                             }
                         }
+
+
+                        // AI Citation [AI-13]
+                        // OpenAI, ChatGPT was used to assist with Delete Profile
+                        // navigation, Compose state management, Firebase callbacks,
+                        // and device account reinitialization.
+                        // AI usage and citation documented in the GitHub Wiki.
+                        composable(route = GeneralScreen.DeleteProfile.route) {
+
+                            val profileAccount = currentAccount.value
+                            val context = LocalContext.current
+                            val accountsModel = remember { AccountsModel() }
+
+                            var hasActiveReservations by remember {
+                                mutableStateOf(false)
+                            }
+
+                            var isCheckingReservations by remember {
+                                mutableStateOf(true)
+                            }
+
+                            var isDeleting by remember {
+                                mutableStateOf(false)
+                            }
+
+                            var errorMessage by remember {
+                                mutableStateOf<String?>(null)
+                            }
+
+                            // Check reservations when the screen opens.
+                            LaunchedEffect(profileAccount?.id) {
+                                isCheckingReservations = true
+                                errorMessage = null
+
+                                if (profileAccount == null) {
+                                    errorMessage = "Account not found."
+                                    isCheckingReservations = false
+                                } else {
+                                    accountsModel.hasActiveReservations(
+                                        accountId = profileAccount.id,
+                                        onResult = { hasActive ->
+                                            hasActiveReservations = hasActive
+                                            isCheckingReservations = false
+                                        },
+                                        onError = { exception ->
+                                            errorMessage = exception.message
+                                                ?: "Unable to check reservations."
+                                            isCheckingReservations = false
+                                        }
+                                    )
+                                }
+                            }
+
+                            AccountsView().DeleteProfileView(
+                                hasActiveReservations = hasActiveReservations,
+                                isCheckingReservations = isCheckingReservations,
+                                isDeleting = isDeleting,
+                                errorMessage = errorMessage,
+
+                                onConfirm = {
+                                    if (
+                                        !isDeleting &&
+                                        !isCheckingReservations &&
+                                        errorMessage == null &&
+                                        profileAccount != null
+                                    ) {
+                                        isDeleting = true
+                                        errorMessage = null
+
+                                        accountsController.deleteOwnProfile(
+                                            context = context,
+                                            account = profileAccount,
+
+                                            onSuccess = {
+                                                // Reset the current account state.
+                                                accountLoading.value = true
+                                                currentAccount.value = null
+
+                                                // Return to the account loading screen.
+                                                navHostController.navigate(
+                                                    GeneralScreen.AccountLoading.route
+                                                ) {
+                                                    popUpTo(navHostController.graph.id) {
+                                                        inclusive = false
+                                                    }
+                                                    launchSingleTop = true
+                                                }
+
+                                                // Initialize a fresh account for this device.
+                                                accountsController.initializeAccount(
+                                                    context = context,
+
+                                                    onSuccess = { newAccount ->
+                                                        currentAccount.value = newAccount
+                                                        accountLoading.value = false
+                                                    },
+
+                                                    onError = {
+                                                        currentAccount.value = null
+                                                        accountLoading.value = false
+                                                    }
+                                                )
+                                            },
+
+                                            onError = { message ->
+                                                isDeleting = false
+                                                errorMessage = message
+                                            }
+                                        )
+                                    }
+                                },
+
+                                onCancel = {
+                                    if (!isDeleting) {
+                                        navHostController.popBackStack()
+                                    }
+                                }
+                            )
+                        }
+
+
 
                         composable(route = GeneralScreen.Policy.route) {
                             PolicyView().PolicyAndGuidelinesView(onBack = { navHostController.popBackStack() })
