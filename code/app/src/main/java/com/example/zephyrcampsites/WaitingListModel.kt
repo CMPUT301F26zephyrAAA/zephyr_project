@@ -78,6 +78,16 @@ class WaitingListModel(private val firestore: FirebaseFirestore = Firebase.fires
                 throw IllegalStateException("Lottery not found")
             }
 
+            // Do not allow new entrants once the draw has started.
+            val drawCompleted = lotteryDocument.getBoolean("drawCompleted") ?: false
+            val drawStatus = lotteryDocument.getString("drawStatus") ?: "PENDING"
+
+            if (drawCompleted || drawStatus == "PROCESSING" || drawStatus == "COMPLETED") {
+                throw IllegalStateException(
+                    "You cannot join after the lottery draw has started"
+                )
+            }
+
             val registrationStart = lotteryDocument.getLong("registrationStart")
                 ?: throw IllegalStateException("Lottery registration start is missing")
 
@@ -173,10 +183,16 @@ class WaitingListModel(private val firestore: FirebaseFirestore = Firebase.fires
                 throw IllegalStateException("Lottery not found")
             }
 
-            val drawCompleted = lotteryDocument.getBoolean("drawCompleted")
-            //temporary compatibility until draw logic is implemented (deferred this acceptance criteria for final checkpoint)
-            if (drawCompleted == true) {
-                throw IllegalStateException("You cannot leave after the lottery draw")
+
+            // Check whether the lottery draw has started or finished.
+            val drawCompleted = lotteryDocument.getBoolean("drawCompleted") ?: false
+            val drawStatus = lotteryDocument.getString("drawStatus") ?: "PENDING"
+
+            // Do not allow entrants to leave while the draw is running.
+            if (drawCompleted || drawStatus == "PROCESSING" || drawStatus == "COMPLETED") {
+                throw IllegalStateException(
+                    "You cannot leave after the lottery draw has started"
+                )
             }
 
             val registration = transaction.get(registrationRef)
