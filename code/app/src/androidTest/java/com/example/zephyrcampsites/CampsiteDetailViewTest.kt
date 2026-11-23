@@ -548,4 +548,4 @@ class CampsiteDetailViewTest {
         assertTrue(fake.joinCalled)
         assertFalse(fake.joined)
     }
-}
+} /*test to push to dev */
