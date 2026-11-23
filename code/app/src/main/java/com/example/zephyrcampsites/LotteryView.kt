@@ -504,6 +504,21 @@ class LotteryView (
             timeZone = TimeZone.getTimeZone("America/Edmonton")
         }
 
+        // Keep the original lottery settings to detect changes made elsewhere.
+        val originalLottery by remember(lotteryId) {
+            mutableStateOf(
+                mapOf(
+                    "lotteryName" to lottery.lotteryName,
+                    "registrationStart" to lottery.registrationStart,
+                    "registrationEnd" to lottery.registrationEnd,
+                    "bookingStart" to lottery.bookingStart,
+                    "bookingEnd" to lottery.bookingEnd,
+                    "numberOfWinners" to lottery.numberOfWinners,
+                    "waitlistCapacity" to lottery.waitlistCapacity
+                )
+            )
+        }
+
         var lotteryName by remember(lotteryId) {
             mutableStateOf(lottery.lotteryName)
         }
@@ -740,6 +755,8 @@ class LotteryView (
                                 bookingEnd = bookingEndTime,
                                 numberOfWinners = winners,
                                 waitlistCapacity = capacity,
+                                // Pass the original settings to check for changes in Firebase.
+                                originalLottery = originalLottery,
                                 // Firebase confirmed that the lottery was saved.
                                 onSuccess = {
                                     onSaveClick()

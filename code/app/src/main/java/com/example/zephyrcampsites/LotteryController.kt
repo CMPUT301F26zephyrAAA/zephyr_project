@@ -112,6 +112,7 @@ class LotteryController(
         bookingEnd: Long,
         numberOfWinners: Int,
         waitlistCapacity: Int?,
+        originalLottery: Map<String, Any?>,
         onSuccess: () -> Unit,
         onFailure: (Exception) -> Unit
     ) {
@@ -124,6 +125,7 @@ class LotteryController(
             bookingEnd = bookingEnd,
             numberOfWinners = numberOfWinners,
             waitlistCapacity = waitlistCapacity,
+            originalLottery = originalLottery,
             onSuccess = onSuccess,
             onFailure = onFailure
         )
