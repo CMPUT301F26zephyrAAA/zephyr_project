@@ -96,7 +96,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
         locationClient: FusedLocationProviderClient,
         showOwnerView: Boolean = false,
         onViewChanged: ((Boolean) -> Unit)?,
-        onViewAllLotteries: () -> Unit = {}
+        onViewAllLotteries: (() -> Unit)? = null
 
 
     ) {
@@ -193,7 +193,7 @@ class CampsiteSummaryView : ViewObserver<CampsiteModel> {
                 }
             }
 
-            if (showOwnerView) {
+            if (showOwnerView && onViewAllLotteries != null) {
                 Button(
                     onClick = onViewAllLotteries,
                     modifier = Modifier
