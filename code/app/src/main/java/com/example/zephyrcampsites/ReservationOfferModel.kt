@@ -1,6 +1,4 @@
-
 package com.example.zephyrcampsites
-
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
@@ -15,7 +13,6 @@ class ReservationOfferModel(
 
     /**
      * Retrieves the entrant's current lottery result.
-     *
      * Returns null when the entrant has no waiting-list registration.
      */
     fun getEntrantDrawStatus(
@@ -81,42 +78,44 @@ class ReservationOfferModel(
             .document(lotteryId)
         val entrantRef = waitingList.document("${lotteryId}_${accountId}")
 
-        // First discover the ordered backup list.
-        resultRef.get(Source.SERVER)
-            .addOnSuccessListener { initialResult ->
-                if (!initialResult.exists()) {
-                    onError("Lottery draw results not found")
-                    return@addOnSuccessListener
+
+        // Read the latest lottery results inside the transaction.
+        firestore.runTransaction { transaction ->
+
+            val lotteryDoc = transaction.get(lotteryRef)
+            val resultDoc = transaction.get(resultRef)
+            val entrantDoc = transaction.get(entrantRef)
+
+            if (!resultDoc.exists()) {
+                throw IllegalStateException(
+                    "Lottery draw results not found"
+                )
+            }
+
+            // Get the latest backup list from this transaction.
+            val backupIds = (resultDoc.get("backupIds") as? List<*>)
+                ?.map {
+                    it as? String
+                        ?: throw IllegalStateException("Invalid backup ID")
                 }
+                ?: throw IllegalStateException("Backup list is missing")
 
-                val initialBackupIds =
-                    (initialResult.get("backupIds") as? List<*>)
-                        ?.filterIsInstance<String>()
-                        ?: emptyList()
+            if (backupIds.size != backupIds.distinct().size ||
+                backupIds.any { it.isBlank() || it.contains("/") }
+            ) {
+                throw IllegalStateException("Invalid backup list")
+            }
 
-                if (initialBackupIds.any {
-                        it.isBlank() || it.contains("/")
-                    }) {
-                    onError("Invalid backup information")
-                    return@addOnSuccessListener
-                }
+            // Read every backup document before making any writes.
+            val backupRefs = backupIds.associateWith { backupId ->
+                waitingList.document("${lotteryId}_${backupId}")
+            }
 
-                val backupRefs = initialBackupIds.associateWith { id ->
-                    waitingList.document("${lotteryId}_${id}")
-                }
+            val backupDocs = backupRefs.mapValues { (_, ref) ->
+                transaction.get(ref)
+            }
 
-                firestore.runTransaction { transaction ->
-
-                    // Read all documents before making writes.
-                    val lotteryDoc = transaction.get(lotteryRef)
-                    val resultDoc = transaction.get(resultRef)
-                    val entrantDoc = transaction.get(entrantRef)
-
-                    val backupDocs = backupRefs.mapValues { (_, ref) ->
-                        transaction.get(ref)
-                    }
-
-                    if (!lotteryDoc.exists() ||
+            if (!lotteryDoc.exists() ||
                         lotteryDoc.getBoolean("drawCompleted") != true ||
                         lotteryDoc.getString("drawStatus") != "COMPLETED") {
                         throw IllegalStateException(
@@ -162,13 +161,7 @@ class ReservationOfferModel(
                                 "Winner list is missing"
                             )
 
-                    val backupIds =
-                        (resultDoc.get("backupIds") as? List<*>)
-                            ?.filterIsInstance<String>()
-                            ?.toMutableList()
-                            ?: throw IllegalStateException(
-                                "Backup list is missing"
-                            )
+                    val remainingBackupIds = backupIds.toMutableList()
 
                     val declinedIds =
                         (resultDoc.get("declinedIds") as? List<*>)
@@ -183,25 +176,26 @@ class ReservationOfferModel(
                         )
                     }
 
-                    // A stale backup list must not be used.
-                    if (backupIds.size != backupIds.distinct().size || !initialBackupIds.containsAll(backupIds)) {
-                        throw IllegalStateException(
-                            "Backup list changed. Please try again"
-                        )
+                    // Select the first backup in the original order.
+                    val nextBackupId = backupIds.firstOrNull()
+
+                    if (nextBackupId != null) {
+                        val backupDoc = backupDocs[nextBackupId]
+
+                        if (backupDoc == null ||
+                            !backupDoc.exists() ||
+                            backupDoc.getString("lotteryId") != lotteryId ||
+                            backupDoc.getString("accountId") != nextBackupId ||
+                            backupDoc.getString("drawStatus") != "BACKUP"
+                        ) {
+                            throw IllegalStateException(
+                                "Next backup is not eligible. Please review the draw results."
+                            )
+                        }
                     }
 
-                    // Select the first currently eligible backup.
-                    val nextBackupId = backupIds.firstOrNull { backupId ->
-                        val backupDoc = backupDocs[backupId]
 
-                        backupDoc != null &&
-                                backupDoc.exists() &&
-                                backupDoc.getString("lotteryId") == lotteryId &&
-                                backupDoc.getString("accountId") == backupId &&
-                                backupDoc.getString("drawStatus") == "BACKUP"
-                    }
-
-                    // Record the decline.
+            // Record the decline.
                     transaction.update(
                         entrantRef,
                         "drawStatus",
@@ -223,7 +217,7 @@ class ReservationOfferModel(
                             )
                         )
 
-                        backupIds.remove(nextBackupId)
+                        remainingBackupIds.remove(nextBackupId)
                         winnerIds.add(nextBackupId)
                     }
 
@@ -232,28 +226,21 @@ class ReservationOfferModel(
                         resultRef,
                         mapOf(
                             "winnerIds" to winnerIds,
-                            "backupIds" to backupIds,
+                            "backupIds" to remainingBackupIds,
                             "declinedIds" to declinedIds,
                             "winnerCount" to winnerIds.size,
-                            "backupCount" to backupIds.size
+                            "backupCount" to remainingBackupIds.size
                         )
                     )
 
-                    true
-                }
-                    .addOnSuccessListener {
-                        onSuccess()
-                    }
-                    .addOnFailureListener { exception ->
-                        onError(
-                            exception.message
-                                ?: "Failed to decline reservation offer"
-                        )
-                    }
+            true
+        }
+            .addOnSuccessListener {
+                onSuccess()
             }
             .addOnFailureListener { exception ->
                 onError(
-                    exception.message ?: "Failed to load lottery results"
+                    exception.message ?: "Failed to decline reservation offer"
                 )
             }
     }
