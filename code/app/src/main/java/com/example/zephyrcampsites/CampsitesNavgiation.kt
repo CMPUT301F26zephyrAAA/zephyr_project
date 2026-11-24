@@ -706,15 +706,19 @@ internal fun CampsitesNavigation(
                             accountsModel,
                             campsiteModel,
                             onRemove = { image, success, failure ->
+
                                 if (image.type == "profile") {
+
                                     accountsController.removeProfileImage(
                                         account,
                                         Account(image.ownerId),
                                         image.path,
                                         success,
-                                        failure
+                                        failure,
                                     )
+
                                 } else {
+
                                     val campsite = campsiteModel.campsites.find {
                                         it.id == image.ownerId
                                     }
@@ -725,13 +729,26 @@ internal fun CampsitesNavigation(
                                                 "Campsite no longer exists."
                                             )
                                         )
+
+                                    } else if (image.isCompressed) {
+
+                                        campsiteController.removeCompressedImage(
+                                            account = account,
+                                            campsite = campsite,
+                                            imageIndex = image.imageIndex,
+                                            expectedImage = image.path,
+                                            onSuccess = success,
+                                            onError = failure
+                                        )
+
                                     } else {
+
                                         campsiteController.removeImage(
                                             account,
                                             campsite,
                                             image.path,
                                             success,
-                                            failure
+                                            failure,
                                         )
                                     }
                                 }

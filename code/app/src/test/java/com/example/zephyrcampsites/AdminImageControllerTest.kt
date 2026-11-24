@@ -51,7 +51,7 @@ class AdminImageControllerTest {
         var success = false
         AccountsController(model)
             .removeProfileImage(
-                Account("admin", userType = listOf("admin")),
+                Account("admin", userType = listOf("entrant", "owner", "admin")),
                 Account("target"),
                 "profiles/photo.png",
                 { success = true },
@@ -68,7 +68,7 @@ class AdminImageControllerTest {
         var error: Exception? = null
         AccountsController(model)
             .removeProfileImage(
-                Account("admin", userType = listOf("admin")),
+                Account("admin", userType = listOf("entrant", "owner", "admin")),
                 Account("target"),
                 "profiles/photo.png",
                 { fail("Failed deletion reported success") },

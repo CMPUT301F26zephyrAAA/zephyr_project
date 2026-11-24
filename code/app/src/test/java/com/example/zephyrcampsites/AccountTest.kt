@@ -10,14 +10,13 @@ import org.junit.Test
 class AccountTest {
 
     /**
-     * Checks that a new account has the entrant role.
+     * Checks that a new account has the default entrant and owner roles.
      */
     @Test
-    fun newAccount_defaultUserType_isEntrant() {
+    fun newAccount_defaultUserType_includesEntrantAndOwner() {
         val account = Account("testDevice123")
         assertEquals(listOf("entrant", "owner"), account.userType)
     }
-
     /**
      * Checks that an account stores the correct device ID.
      */
