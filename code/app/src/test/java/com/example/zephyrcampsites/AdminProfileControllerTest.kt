@@ -50,7 +50,7 @@ class AdminProfileControllerTest {
         for (id in listOf("", "invalid/id")) {
             AccountsController(model)
                 .deleteProfile(
-                    Account("admin", userType = listOf("admin")),
+                    Account("admin", userType = listOf("entrant", "owner", "admin")),
                     Account(id),
                     { fail("Invalid ID was accepted") },
                     {},
@@ -65,7 +65,7 @@ class AdminProfileControllerTest {
         var success = false
         AccountsController(model)
             .deleteProfile(
-                Account("admin", userType = listOf("admin")),
+                Account("admin", userType = listOf("entrant", "owner", "admin")),
                 Account("target"),
                 { success = true },
                 { fail(it.message) },
@@ -82,7 +82,7 @@ class AdminProfileControllerTest {
         var error: Exception? = null
         AccountsController(model)
             .deleteProfile(
-                Account("admin", userType = listOf("admin")),
+                Account("admin", userType = listOf("entrant", "owner", "admin")),
                 Account("target"),
                 { fail("Failed removal reported success") },
                 { error = it },

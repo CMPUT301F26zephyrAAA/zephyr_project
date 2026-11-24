@@ -188,8 +188,8 @@ class WaitingListModel(private val firestore: FirebaseFirestore = Firebase.fires
             val drawCompleted = lotteryDocument.getBoolean("drawCompleted") ?: false
             val drawStatus = lotteryDocument.getString("drawStatus") ?: "PENDING"
 
-            // Do not allow entrants to leave while the draw is running.
-            if (drawCompleted || drawStatus == "PROCESSING" || drawStatus == "COMPLETED") {
+            // Only allow leaving before the lottery draw starts.
+            if (!WaitingListValidator.canLeave(drawCompleted, drawStatus)) {
                 throw IllegalStateException(
                     "You cannot leave after the lottery draw has started"
                 )
