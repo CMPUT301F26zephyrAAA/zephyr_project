@@ -55,7 +55,7 @@ class AdminBrowseProfileView {
         onBack: () -> Unit,
         loadImage: (String, (String?) -> Unit) -> Unit = { _, result -> result(null) },
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             Text("Administrator access required.")
             return
         }
@@ -118,7 +118,7 @@ class AdminBrowseProfileView {
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
-                                text = "Role: ${account.userType} | ID: ${account.id}",
+                                text = "Roles: ${account.userType.joinToString()} | ID: ${account.id}",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Text(
@@ -163,7 +163,7 @@ class AdminBrowseProfileView {
         onBack: () -> Unit,
         loadImage: (String, (String?) -> Unit) -> Unit = { _, result -> result(null) },
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             Text("Administrator access required.")
             return
         }
@@ -200,7 +200,7 @@ class AdminBrowseProfileView {
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
-                text = "User Type: ${targetAccount.userType}",
+                text = "Roles: ${targetAccount.userType.joinToString()}",
                 style = MaterialTheme.typography.bodyLarge,
             )
             Text(
@@ -288,7 +288,7 @@ class AdminBrowseProfileView {
         onBack: () -> Unit,
         loadImage: (String, (String?) -> Unit) -> Unit = { _, result -> result(null) },
     ) {
-        if (account?.userType != "admin" || account.id.isBlank()) {
+        if (account == null || "admin" !in account.userType || account.id.isBlank()) {
             Text("Administrator access required.")
             return
         }

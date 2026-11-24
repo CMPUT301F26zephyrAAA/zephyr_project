@@ -73,24 +73,11 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             val previousRating = transaction.get(ratingRef)
             val reservation = readReservation(transaction.get(reservationRef))
             val accountDocument = transaction.get(accountRef)
-            check(campsiteDocument.exists()) {
-                "Campsite no longer available."
-            }
-
-            check(accountDocument.getString("userType") == "entrant") {
-                "Only entrants can rate a campsite."
-            }
-
-            // Prevent rating submissions while profile deletion is in progress.
-            check(accountDocument.getBoolean("deletionPending") != true) {
-                "Profile deletion is in progress."
-            }
-
+            check(campsiteDocument.exists()) { "Campsite no longer available." }
+            check(accountDocument.getString("userType") == "entrant") { "Only entrants can rate a campsite." }
             check(reservation != null && RatingValidator.hasStayed(
                 reservation, accountId, campsiteId, System.currentTimeMillis()
-            )) {
-                "You can only rate a campsite after a non-cancelled stay has ended."
-            }
+            )) { "You can only rate a campsite after a non-cancelled stay has ended." }
 
             val scores = (campsiteDocument.get("rating") as? List<*>)?.map { value ->
                 val number = value as? Number ?: error("Invalid stored rating.")
