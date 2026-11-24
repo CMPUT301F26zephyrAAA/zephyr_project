@@ -30,6 +30,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Date
 import java.util.Locale
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 class MyCampsitesView {
 
@@ -50,6 +52,7 @@ class MyCampsitesView {
         openDetail: (Int) -> Unit,
     ) {
         val model = controller.model
+        val context = LocalContext.current
 
         Column(
             modifier = Modifier
@@ -116,8 +119,16 @@ class MyCampsitesView {
                                     OwnerCampsiteCard(
                                         campsite = campsite,
                                         onClick = {
-                                            campsite.id.toIntOrNull()?.let { id ->
+                                            val id = campsite.id.toIntOrNull()
+
+                                            if (id != null && id.toString() == campsite.id) {
                                                 openDetail(id)
+                                            } else {
+                                                Toast.makeText(
+                                                    context,
+                                                    "Unable to open campsite: Invalid campsite ID.",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
                                             }
                                         }
                                     )
@@ -329,6 +340,7 @@ class MyCampsitesView {
      * Displays a colour-coded availability indicator based on
      * the campsite's booking period and the current date.
      *
+     * Booking period: The range of dates set by the campsite owner during which the campsite is available for guests to stay.
      * @param campsite The campsite whose booking period is evaluated.
      */
     @Composable
