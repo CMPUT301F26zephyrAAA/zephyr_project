@@ -50,6 +50,7 @@ internal fun CampsitesNavigation(
     val adminProfileView = remember { AdminBrowseProfileView() }
     val qrHandler = remember { QRCodeHandler() }
     val campsiteSummaryView = remember { CampsiteSummaryView() }
+    val myCampsitesView = remember { MyCampsitesView() }
     val campsiteModel = remember { CampsiteModel() }
     val campsiteController = remember(campsiteModel) {
         CampsiteController(campsiteModel)
@@ -306,7 +307,20 @@ internal fun CampsitesNavigation(
                     }
 
                     composable(summaryRoute) {
-                        AccountContent { CampsiteSummary(role) }
+                        AccountContent { account ->
+                            if (role == OWNER) {
+                                myCampsitesView.MyCampsitesScreen(
+                                    ownerId = account.id,
+                                    controller = campsiteController,
+                                    onBack = onBack,
+                                    openDetail = { id ->
+                                        openCampsite(OWNER, id)
+                                    }
+                                )
+                            } else {
+                                CampsiteSummary(role)
+                            }
+                        }
                     }
 
                     composable(roleRoute(role, CampsiteScreens.FilterPage.route)) {
