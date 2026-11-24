@@ -34,7 +34,7 @@ class AdminImageControllerTest {
             var rejected = false
             AccountsController(model)
                 .removeProfileImage(
-                    Account("actor", userType = role),
+                    Account("actor", userType = listOf(role)),
                     Account("target"),
                     "profiles/photo.png",
                     { fail("Non-admin removal was accepted") },
@@ -51,7 +51,7 @@ class AdminImageControllerTest {
         var success = false
         AccountsController(model)
             .removeProfileImage(
-                Account("admin", userType = "admin"),
+                Account("admin", userType = listOf("entrant", "owner", "admin")),
                 Account("target"),
                 "profiles/photo.png",
                 { success = true },
@@ -68,7 +68,7 @@ class AdminImageControllerTest {
         var error: Exception? = null
         AccountsController(model)
             .removeProfileImage(
-                Account("admin", userType = "admin"),
+                Account("admin", userType = listOf("entrant", "owner", "admin")),
                 Account("target"),
                 "profiles/photo.png",
                 { fail("Failed deletion reported success") },

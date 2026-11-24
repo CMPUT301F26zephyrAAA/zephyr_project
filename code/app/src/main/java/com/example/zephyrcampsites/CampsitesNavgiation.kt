@@ -61,13 +61,23 @@ internal fun CampsitesNavigation(
     val lotteryController = remember(lotteryModel) {
         LotteryController(lotteryModel)
     }
-    val lotteryView = remember(lotteryController) {
-        LotteryView(lotteryController)
-    }
 
     val waitingListModel = remember { WaitingListModel() }
     val waitingListController = remember(waitingListModel) {
         WaitingListController(waitingListModel)
+    }
+    val reservationOfferModel = remember { ReservationOfferModel() }
+    val reservationOfferController = remember(reservationOfferModel) {
+        ReservationOfferController(reservationOfferModel)
+    }
+    val lotteryView = remember(
+        lotteryController,
+        reservationOfferController
+    ) {
+        LotteryView(
+            lotteryController,
+            reservationOfferController
+        )
     }
     val reservationsController = remember {
         ReservationsController()
@@ -252,6 +262,7 @@ internal fun CampsitesNavigation(
             },
             lottery = campsiteLottery,
             waitingListController = waitingListController,
+            reservationOfferController = reservationOfferController,
             ratingController = ratingController,
             onRateCampsite = if (role == ENTRANT) {
                 { id ->

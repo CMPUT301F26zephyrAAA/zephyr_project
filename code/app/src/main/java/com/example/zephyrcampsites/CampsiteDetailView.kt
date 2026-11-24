@@ -91,6 +91,7 @@ class CampsiteDetailView {
         onEdit: ((Int) -> Unit)?,
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
+        reservationOfferController: ReservationOfferController? = null,
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
         onRemoved: () -> Unit = onBack,
@@ -167,6 +168,7 @@ class CampsiteDetailView {
             onEdit = onEdit,
             lottery = lottery,
             waitingListController = waitingListController,
+            reservationOfferController = reservationOfferController,
             ratingController = ratingController,
             onRateCampsite = onRateCampsite,
             removing = removing,
@@ -231,6 +233,7 @@ class CampsiteDetailView {
         onManageLottery: ((String) -> Unit)? = null,
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
+        reservationOfferController: ReservationOfferController? = null,
         previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
@@ -276,6 +279,9 @@ class CampsiteDetailView {
         var leaving by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var showLeaveConfirmation by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var joinError by remember(lottery?.id, accountId) { mutableStateOf("") }
+        var entrantDrawStatus by remember(lottery?.id, accountId) { mutableStateOf<String?>(null) }
+        var checkingDrawStatus by remember(lottery?.id, accountId) { mutableStateOf(true) }
+        var drawStatusError by remember(lottery?.id, accountId) { mutableStateOf("") }
 
         LaunchedEffect(showEntrantActions, lottery?.id, accountId, waitingListController) {
             joinError = ""
@@ -298,6 +304,39 @@ class CampsiteDetailView {
                         joinError = error
                         membershipError = true
                         checkingMembership = false
+                    }
+                )
+            }
+        }
+        LaunchedEffect(
+            showEntrantActions,
+            lottery?.id,
+            accountId,
+            reservationOfferController
+        ) {
+            entrantDrawStatus = null
+            drawStatusError = ""
+
+            if (
+                !showEntrantActions ||
+                lottery == null ||
+                accountId.isNullOrBlank() ||
+                reservationOfferController == null
+            ) {
+                checkingDrawStatus = false
+            } else {
+                checkingDrawStatus = true
+
+                reservationOfferController.getEntrantDrawStatus(
+                    lotteryId = lottery.id,
+                    accountId = accountId,
+                    onResult = { status ->
+                        entrantDrawStatus = status
+                        checkingDrawStatus = false
+                    },
+                    onError = { error ->
+                        drawStatusError = error
+                        checkingDrawStatus = false
                     }
                 )
             }
@@ -466,7 +505,107 @@ class CampsiteDetailView {
                                 )
                             }
 
-                            if (joined) {
+                            if (joined && !checkingDrawStatus) {
+                                when (entrantDrawStatus) {
+                                    "WINNER" -> {
+                                        Text(
+                                            text = "Congratulations! You won the lottery.",
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+
+                                    "BACKUP" -> {
+                                        Text("You are on the lottery backup list.")
+                                    }
+
+                                    "DECLINED" -> {
+                                        Text("You have declined this reservation opportunity.")
+                                    }
+                                }
+                            }
+
+                            if (drawStatusError.isNotEmpty()) {
+                                Text(
+                                    text = drawStatusError,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            if (joined && entrantDrawStatus == "WINNER") {
+                                var showDeclineConfirmation by remember(lottery.id, accountId) {
+                                    mutableStateOf(false)
+                                }
+
+                                var declining by remember(lottery.id, accountId) {
+                                    mutableStateOf(false)
+                                }
+
+                                Spacer(modifier = Modifier.size(8.dp))
+
+                                OutlinedButton(
+                                    onClick = { showDeclineConfirmation = true },
+                                    enabled = !declining && !checkingDrawStatus,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        if (declining) "Declining..."
+                                        else "Decline Reservation"
+                                    )
+                                }
+
+                                if (showDeclineConfirmation) {
+                                    androidx.compose.material3.AlertDialog(
+                                        onDismissRequest = {
+                                            if (!declining) showDeclineConfirmation = false
+                                        },
+                                        title = {
+                                            Text("Decline reservation?")
+                                        },
+                                        text = {
+                                            Text(
+                                                "Are you sure you want to decline this reservation opportunity? " +
+                                                        "You will not be able to reclaim it."
+                                            )
+                                        },
+                                        confirmButton = {
+                                            TextButton(
+                                                onClick = {
+                                                    declining = true
+                                                    drawStatusError = ""
+
+                                                    reservationOfferController?.declineReservationOffer(
+                                                        lotteryId = lottery.id,
+                                                        accountId = accountId,
+                                                        onSuccess = {
+                                                            entrantDrawStatus = "DECLINED"
+                                                            declining = false
+                                                            showDeclineConfirmation = false
+                                                        },
+                                                        onError = { error ->
+                                                            drawStatusError = error
+                                                            declining = false
+                                                            showDeclineConfirmation = false
+                                                        }
+                                                    )
+                                                },
+                                                enabled = !declining
+                                            ) {
+                                                Text(if (declining) "Declining..." else "Yes, Decline")
+                                            }
+                                        },
+                                        dismissButton = {
+                                            TextButton(
+                                                onClick = { showDeclineConfirmation = false },
+                                                enabled = !declining
+                                            ) {
+                                                Text("Cancel")
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+
+                            if (joined && !lottery.drawCompleted && lottery.drawStatus == "PENDING") {
                                 Spacer(modifier = Modifier.size(8.dp))
                                 OutlinedButton(
                                     onClick = {
