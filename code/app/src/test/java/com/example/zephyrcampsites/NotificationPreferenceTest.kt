@@ -14,7 +14,7 @@ import org.junit.Test
 class NotificationPreferenceTest {
     private val account = Account(
         id = "device-test",
-        userType = "owner",
+        userType = listOf("owner"),
         name = "Taylor Morgan",
         email = "taylor@example.com",
         phoneNumber = "7805550100"
