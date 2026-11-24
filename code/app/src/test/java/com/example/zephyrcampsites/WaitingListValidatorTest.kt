@@ -119,4 +119,54 @@ class WaitingListValidatorTest {
 
         assertTrue(result)
     }
+
+    @Test
+    fun leaveAllowedWhenDrawPending() {
+        assertTrue(
+            WaitingListValidator.canLeave(
+                drawCompleted = false,
+                drawStatus = "PENDING"
+            )
+        )
+    }
+
+    @Test
+    fun leaveRejectedWhenDrawProcessing() {
+        assertFalse(
+            WaitingListValidator.canLeave(
+                drawCompleted = false,
+                drawStatus = "PROCESSING"
+            )
+        )
+    }
+
+    @Test
+    fun leaveRejectedWhenDrawCompleted() {
+        assertFalse(
+            WaitingListValidator.canLeave(
+                drawCompleted = true,
+                drawStatus = "COMPLETED"
+            )
+        )
+    }
+
+    @Test
+    fun leaveRejectedWhenCompletionFlagTrueButStatusPending() {
+        assertFalse(
+            WaitingListValidator.canLeave(
+                drawCompleted = true,
+                drawStatus = "PENDING"
+            )
+        )
+    }
+
+    @Test
+    fun leaveRejectedForUnknownDrawStatus() {
+        assertFalse(
+            WaitingListValidator.canLeave(
+                drawCompleted = false,
+                drawStatus = "UNKNOWN"
+            )
+        )
+    }
 }

@@ -19,4 +19,11 @@ object WaitingListValidator {
     ): Boolean {
         return capacity == null || currentCount < capacity
     }
+
+    fun canLeave(
+        drawCompleted: Boolean,
+        drawStatus: String
+    ): Boolean {
+        return !drawCompleted && drawStatus == "PENDING"
+    }
 }
