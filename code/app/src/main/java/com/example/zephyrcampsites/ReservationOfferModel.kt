@@ -3,7 +3,10 @@ import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
-
+// AI Citation [AI-23], [AI-29]
+// OpenAI, ChatGPT assisted with Firestore reservation
+// offer transactions, backup promotion, and validation.
+// AI usage and citations documented in the GitHub Wiki.
 /**
  * Handles reservation opportunities created by lottery draws.
  */

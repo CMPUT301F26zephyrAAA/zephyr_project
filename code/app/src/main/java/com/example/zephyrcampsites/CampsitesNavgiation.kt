@@ -214,6 +214,10 @@ internal fun CampsitesNavigation(
         }
     }
 
+    // AI Citation [AI-27]
+    // OpenAI, ChatGPT assisted with lottery draw status
+    // lookups, sorting, and navigation integration.
+    // AI usage and citation documented in the GitHub Wiki.
     @Composable
     fun CampsiteDetails(
         role: String,

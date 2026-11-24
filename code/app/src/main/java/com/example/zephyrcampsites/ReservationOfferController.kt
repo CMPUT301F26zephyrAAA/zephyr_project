@@ -1,4 +1,8 @@
 package com.example.zephyrcampsites
+// AI Citation [AI-24]
+// OpenAI, ChatGPT assisted with the MVC controller
+// and callback-based model delegation.
+// AI usage and citation documented in the GitHub Wiki.
 
 /**
  * Controller for entrant reservation-offer actions.

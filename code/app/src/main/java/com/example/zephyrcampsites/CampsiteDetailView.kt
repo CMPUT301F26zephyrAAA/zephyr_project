@@ -1,4 +1,8 @@
 package com.example.zephyrcampsites
+// AI Citation [AI-26]
+// OpenAI, ChatGPT assisted with reservation offer
+// status display and decline confirmation UI.
+// AI usage and citation documented in the GitHub Wiki.
 
 import android.content.Intent
 import androidx.compose.foundation.Image

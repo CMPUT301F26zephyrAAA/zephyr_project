@@ -1,5 +1,9 @@
 
 package com.example.zephyrcampsites
+// AI Citation [AI-25]
+// OpenAI, ChatGPT assisted with JUnit 4 tests
+// for reservation offer decline eligibility.
+// AI usage and citation documented in the GitHub Wiki.
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

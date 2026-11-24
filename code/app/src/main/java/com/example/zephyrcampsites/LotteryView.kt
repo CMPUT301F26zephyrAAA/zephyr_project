@@ -344,7 +344,10 @@ class LotteryView (
         LaunchedEffect(lotteryId) {
             loadingDeclines = true
             declineError = ""
-
+            // AI Citation [AI-28]
+            // OpenAI, ChatGPT assisted with owner-facing
+            // declined entrant retrieval and progress display.
+            // AI usage and citation documented in the GitHub Wiki.
             reservationOfferController.getDeclinedEntrants(
                 lotteryId = lotteryId,
                 onSuccess = { entrants ->
