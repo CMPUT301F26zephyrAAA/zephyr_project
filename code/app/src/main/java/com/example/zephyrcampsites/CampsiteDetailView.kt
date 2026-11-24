@@ -467,17 +467,27 @@ class CampsiteDetailView {
                             }
 
                             if (joined) {
+                                val canLeave = !lottery.drawCompleted &&
+                                        lottery.drawStatus == "PENDING"
+
                                 Spacer(modifier = Modifier.size(8.dp))
+
                                 OutlinedButton(
                                     onClick = {
                                         showLeaveConfirmation = true
                                     },
-                                    enabled = !leaving && !joining,
+                                    enabled = !leaving && !joining && canLeave,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
                                         if (leaving) "Leaving..."
                                         else "Leave Waiting List"
+                                    )
+                                }
+                                if (!canLeave) {
+                                    Text(
+                                        text = "You cannot leave after the lottery draw has started.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
