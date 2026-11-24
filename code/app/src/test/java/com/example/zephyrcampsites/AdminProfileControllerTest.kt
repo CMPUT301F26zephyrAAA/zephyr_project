@@ -31,7 +31,7 @@ class AdminProfileControllerTest {
     fun nonAdminsCannotRemoveProfiles() {
         val model = FakeAccountsModel()
         val controller = AccountsController(model)
-        for (account in listOf(null, Account("entrant"), Account("owner", userType = "owner"))) {
+        for (account in listOf(null, Account("entrant"), Account("owner", userType = listOf("owner")))) {
             var error: Exception? = null
             controller.deleteProfile(
                 account,
@@ -50,7 +50,7 @@ class AdminProfileControllerTest {
         for (id in listOf("", "invalid/id")) {
             AccountsController(model)
                 .deleteProfile(
-                    Account("admin", userType = "admin"),
+                    Account("admin", userType = listOf("admin")),
                     Account(id),
                     { fail("Invalid ID was accepted") },
                     {},
@@ -65,7 +65,7 @@ class AdminProfileControllerTest {
         var success = false
         AccountsController(model)
             .deleteProfile(
-                Account("admin", userType = "admin"),
+                Account("admin", userType = listOf("admin")),
                 Account("target"),
                 { success = true },
                 { fail(it.message) },
@@ -82,7 +82,7 @@ class AdminProfileControllerTest {
         var error: Exception? = null
         AccountsController(model)
             .deleteProfile(
-                Account("admin", userType = "admin"),
+                Account("admin", userType = listOf("admin")),
                 Account("target"),
                 { fail("Failed removal reported success") },
                 { error = it },

@@ -45,7 +45,7 @@ internal fun RoleHomeMenu(
         )
 
         OWNER -> listOf(
-            "Owned Campsites" to roleRoute(OWNER, CampsiteScreens.SummaryView.route),
+            "My Campsites" to roleRoute(OWNER, CampsiteScreens.SummaryView.route),
             "Register Campsite" to GeneralScreen.RegisterCampsite.route,
             "View Lotteries" to "$OWNER/allLotteries",
             "View Reservations" to GeneralScreen.ViewReservations.route,

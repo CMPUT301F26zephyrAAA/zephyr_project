@@ -28,6 +28,25 @@ class CampsiteController(val model: CampsiteModel) {
         }
     }
 
+    /**
+     * Retrieves all campsites belonging to the specified owner.
+     *
+     * @param ownerId ID of the campsite owner's account.
+     * @return List of campsites registered by the owner.
+     */
+    fun getOwnerCampsites(ownerId: String): List<Campsite> {
+        if (model.error != null) {
+            throw IllegalStateException("Unable to reach database.")
+        }
+
+        if (ownerId.isBlank()) {
+            return emptyList()
+        }
+
+        return model.campsites.filter { campsite ->
+            campsite.ownerID == ownerId
+        }
+    }
 
     fun validate(input: CampsiteFormInput): CampsiteFormErrors = CampsiteValidator.validate(input)
 
@@ -383,5 +402,25 @@ class CampsiteController(val model: CampsiteModel) {
             onSuccess = onSuccess,
             onError = onError
         )
+    }
+}
+
+/**
+ * Filters campsites belonging to the specified owner.
+ *
+ * @param campsites List of registered campsites.
+ * @param ownerId ID of the campsite owner.
+ * @return Campsites belonging to the specified owner.
+ */
+internal fun filterOwnerCampsites(
+    campsites: List<Campsite>,
+    ownerId: String
+): List<Campsite> {
+    if (ownerId.isBlank()) {
+        return emptyList()
+    }
+
+    return campsites.filter {
+        it.ownerID == ownerId
     }
 }
