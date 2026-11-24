@@ -25,7 +25,7 @@ class RatingControllerTest {
 
     @Test
     fun missingAccountAndOtherRolesNeverLoadOrSave() {
-        for (account in listOf(null, entrant.copy(userType = "owner"), entrant.copy(userType = "admin"))) {
+        for (account in listOf(null, entrant.copy(userType = listOf("owner")), entrant.copy(userType = listOf("admin")))) {
             controller.loadRating("1", account, { assertNull(it) }, { fail(it) })
             controller.submitRating("1", account, CampsiteRating("stay", 4), { fail("Unexpected save") }, {})
         }

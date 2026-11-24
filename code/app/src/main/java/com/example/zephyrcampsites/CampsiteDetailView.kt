@@ -46,6 +46,17 @@ import java.util.Locale
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 
 /**
  * Displays campsite details, promotional imagery, and existing owner controls.
@@ -76,13 +87,15 @@ class CampsiteDetailView {
         showOwnerView: Boolean = false,
         codeGenerator: (String, Int) -> ImageBitmap,
         onBack: () -> Unit,
-        onManageLottery: (String) -> Unit,
-        onEdit: (Int) -> Unit,
+        onManageLottery: ((String) -> Unit)?,
+        onEdit: ((Int) -> Unit)?,
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         ratingController: RatingController? = null,
-        onRateCampsite: (String) -> Unit = {},
+        onRateCampsite: ((String) -> Unit)? = null,
         onRemoved: () -> Unit = onBack,
+        showEntrantActions: Boolean = false,
+        showAdminActions: Boolean = false,
     ) {
         var removing by remember(campsiteId) { mutableStateOf(false) }
         var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
@@ -139,6 +152,8 @@ class CampsiteDetailView {
             onBack = onBack,
             account = account,
             showOwnerView = showOwnerView,
+            showEntrantActions = showEntrantActions,
+            showAdminActions = showAdminActions,
             imageUrl = imageUrl,
             ownerName = ownerName,
             isLoading = model.isLoading,
@@ -157,7 +172,12 @@ class CampsiteDetailView {
             removing = removing,
             removalError = removalError,
             onRemove = {
-                if (campsite != null && !removing) {
+                if (
+                    showAdminActions &&
+                    account?.userType?.contains("admin") == true &&
+                    campsite != null &&
+                    !removing
+                ) {
                     removing = true
                     removalError = null
                     controller.removeCampsite(
@@ -207,21 +227,25 @@ class CampsiteDetailView {
         statusText: String = "Campsite not found.",
         isLoading: Boolean = false,
         hasError: Boolean = false,
-        onEdit: (Int) -> Unit = {},
-        onManageLottery: (String) -> Unit = {},
+        onEdit: ((Int) -> Unit)? = null,
+        onManageLottery: ((String) -> Unit)? = null,
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
-        onRateCampsite: (String) -> Unit = {},
+        onRateCampsite: ((String) -> Unit)? = null,
         removing: Boolean = false,
         removalError: String? = null,
         onRemove: () -> Unit = {},
+        showEntrantActions: Boolean = false,
+        showAdminActions: Boolean = false,
     ) {
 
+        val canRemoveCampsite = showAdminActions && account?.userType?.contains("admin") == true
         var showRemoveConfirmation by remember(campsite?.id) { mutableStateOf(false) }
         BackHandler(enabled = removing) {}
-        if (showRemoveConfirmation && account?.userType == "admin" && campsite != null) {
+
+        if (showRemoveConfirmation && canRemoveCampsite && campsite != null) {
             AlertDialog(
                 onDismissRequest = { showRemoveConfirmation = false },
                 title = { Text("Remove campsite?") },
@@ -247,17 +271,17 @@ class CampsiteDetailView {
         val accountId = account?.id
         var joined by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var checkingMembership by remember(lottery?.id, accountId) { mutableStateOf(true) }
-        var membershipError by remember (lottery?.id, accountId) {mutableStateOf(false)}
+        var membershipError by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var joining by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var leaving by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var showLeaveConfirmation by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var joinError by remember(lottery?.id, accountId) { mutableStateOf("") }
 
-        LaunchedEffect(lottery?.id, accountId, waitingListController) {
+        LaunchedEffect(showEntrantActions, lottery?.id, accountId, waitingListController) {
             joinError = ""
             membershipError = false
 
-            if (lottery == null || accountId.isNullOrBlank() || waitingListController == null) {
+            if (!showEntrantActions || lottery == null || accountId.isNullOrBlank() || waitingListController == null) {
                 checkingMembership = false
             } else {
                 checkingMembership = true
@@ -302,10 +326,10 @@ class CampsiteDetailView {
 
             ) {
                 /** The following code was generated by OpenAI, ChatGPT,
-                  * "Implement loading and error states for the campsite details screen
-                  * using Jetpack Compose",
-                  * 2026-11-06.
-                */
+                 * "Implement loading and error states for the campsite details screen
+                 * using Jetpack Compose",
+                 * 2026-11-06.
+                 */
                 if (campsite == null) {
                     Column(
                         modifier = Modifier
@@ -338,7 +362,7 @@ class CampsiteDetailView {
                         }
                     }
                 } else {
-                    promotionalImage(imageUrl = imageUrl, campsiteName = campsite.name)
+                    promotionalImage(imageUrl = imageUrl, campsiteName = campsite.name, compressedImages = campsite.compressedImages)
 
                     Column(
                         modifier = Modifier.padding(20.dp),
@@ -359,15 +383,15 @@ class CampsiteDetailView {
                         Text("Rating: ${ratingText(campsite)}")
                         Text("Price per night: ${priceText(campsite.pricePerNight)}")
 
-                        val owner = if (!ownerName.isNullOrBlank()) {
-                            ownerName
-                        } else {
-                            campsite.ownerID.ifBlank { "Not provided" }
-                        }
+                        val owner = ownerName?.takeIf{ it.isNotBlank() }
+                            ?: "Not Provided"
                         Text("Owner: $owner")
                         Text("Description", style = MaterialTheme.typography.titleMedium)
                         Text(campsite.description.ifBlank { "Not provided" })
-                        Text("Rules and cancellation policy", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "Rules and cancellation policy",
+                            style = MaterialTheme.typography.titleMedium
+                        )
 
                         val policies = (listOf(campsite.rules) + campsite.rulesPolicies)
                             .filter { policy -> policy.isNotBlank() }
@@ -382,14 +406,18 @@ class CampsiteDetailView {
                         modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        if (account?.userType == "entrant" && ratingController != null) {
-                            RatingView().RatingEntry(campsite.id, account, ratingController, onRateCampsite)
+                        if (showEntrantActions && account != null && ratingController != null && onRateCampsite != null) {
+                            RatingView().RatingEntry(
+                                campsite.id,
+                                account,
+                                ratingController,
+                                onRateCampsite
+                            )
                         }
 
                         // Entrant lottery registration
-                        if (
-                            !showOwnerView &&
-                            account != null && account.userType != "admin" &&
+                        if (showEntrantActions &&
+                            account != null &&
                             lottery != null &&
                             !accountId.isNullOrBlank() &&
                             waitingListController != null
@@ -438,18 +466,28 @@ class CampsiteDetailView {
                                 )
                             }
 
-                            if (joined){
+                            if (joined) {
+                                val canLeave = !lottery.drawCompleted &&
+                                        lottery.drawStatus == "PENDING"
+
                                 Spacer(modifier = Modifier.size(8.dp))
+
                                 OutlinedButton(
                                     onClick = {
                                         showLeaveConfirmation = true
                                     },
-                                    enabled = !leaving && !joining,
+                                    enabled = !leaving && !joining && canLeave,
                                     modifier = Modifier.fillMaxWidth()
-                                ){
+                                ) {
                                     Text(
                                         if (leaving) "Leaving..."
                                         else "Leave Waiting List"
+                                    )
+                                }
+                                if (!canLeave) {
+                                    Text(
+                                        text = "You cannot leave after the lottery draw has started.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
@@ -503,9 +541,7 @@ class CampsiteDetailView {
 
                         }
 
-                        // Replace preview mode with actual campsite ownership validation
-                        // when account integration is completed. this is just for the testing purpose.
-                        if (account?.userType == "admin") {
+                        if (canRemoveCampsite) {
                             removalError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                             Button(
                                 onClick = { showRemoveConfirmation = true },
@@ -520,11 +556,10 @@ class CampsiteDetailView {
                                     }
                                 )
                             }
-                        } else if (showOwnerView) {
+                        } else if (showOwnerView && account?.id == campsite.ownerID) {
                             ownerControls(
                                 campsite = campsite,
                                 codeGenerator = codeGenerator,
-                                ownsCampsite = account?.userType == "owner" && account.id == campsite.ownerID,
                                 onEdit = onEdit,
                                 onManageLottery = onManageLottery
                             )
@@ -590,73 +625,199 @@ class CampsiteDetailView {
      * @param imageUrl Resolved image URL, or null if unavailable.
      * @param campsiteName Campsite name used in the image's accessibility description.
      */
-    @Composable
-    private fun promotionalImage(imageUrl: String?, campsiteName: String) {
-        var loading by remember(imageUrl) { mutableStateOf(true) }
-        var failed by remember(imageUrl) { mutableStateOf(false) }
 
-        Box(
-            modifier = Modifier.fillMaxWidth().height(153.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
+    @Composable
+    private fun promotionalImage(
+        imageUrl: String?,
+        campsiteName: String,
+        compressedImages: List<String>
+    ) {
+        val images = compressedImages.filter { it.isNotBlank() }
+
+        var currentIndex by remember(images) {
+            mutableIntStateOf(0)
+        }
+
+        val currentImage = images.getOrNull(currentIndex)
+
+        val decodedImage by produceState<Pair<Boolean, android.graphics.Bitmap?>>(
+            initialValue = false to null,
+            key1 = currentImage
         ) {
-            if (!imageUrl.isNullOrBlank() && !failed) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = "Promotional image of $campsiteName",
-                    contentScale = ContentScale.Crop,
-                    onSuccess = { loading = false },
-                    onError = {
-                        failed = true
-                        loading = false
-                    },
-                    modifier = Modifier.fillMaxSize().testTag(
-                        if (loading) {
-                            "CampsitePromoImageLoading"
-                        } else {
-                            "CampsitePromoImage"
-                        }
-                    )
-                )
+            val decoded = withContext(Dispatchers.Default) {
+                try {
+                    if (currentImage.isNullOrBlank()) {
+                        null
+                    } else {
+                        val bytes = Base64.decode(
+                            currentImage,
+                            Base64.DEFAULT
+                        )
+                        BitmapFactory.decodeByteArray(
+                            bytes,
+                            0,
+                            bytes.size
+                        )
+                    }
+                } catch (e: Exception) {
+                    null
+                }
             }
 
-            if (imageUrl.isNullOrBlank() || failed || loading) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                if (imageUrl.isNullOrBlank() || failed) { Icon(Icons.Default.Landscape, contentDescription = "Default campsite image") }
-                Text(
-                    text = if (imageUrl.isNullOrBlank() || failed) {
-                        "No promotional image"
-                    } else {
-                        "Loading image..."
-                    },
-                    modifier = Modifier.testTag("CampsiteImagePlaceholder")
-                )
+            value = true to decoded
+        }
+
+        val decodingFinished = decodedImage.first
+        val bitmap = decodedImage.second
+
+        var loading by remember(imageUrl) {
+            mutableStateOf(true)
+        }
+
+        var failed by remember(imageUrl) {
+            mutableStateOf(false)
+        }
+
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center
+            ) {
+                when {
+                    bitmap != null -> {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription =
+                                "Image ${currentIndex + 1} of $campsiteName",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("CampsitePromoImage")
+                        )
+                    }
+
+                    !currentImage.isNullOrBlank() && !decodingFinished -> {
+                        Text(
+                            "Loading image...",
+                            modifier = Modifier.testTag("CampsiteImagePlaceholder")
+                        )
+                    }
+
+                    !currentImage.isNullOrBlank() && decodingFinished -> {
+                        ImagePlaceholder()
+                    }
+
+                    !imageUrl.isNullOrBlank() && !failed -> {
+                        AsyncImage(
+                            model = imageUrl,
+                            contentDescription = "Promotional image of $campsiteName",
+                            contentScale = ContentScale.Crop,
+                            onSuccess = { loading = false },
+                            onError = {
+                                failed = true
+                                loading = false
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .testTag("CampsitePromoImage")
+                        )
+
+                        if (loading) {
+                            Text("Loading image...")
+                        }
+                    }
+
+                    else -> {
+                        ImagePlaceholder()
+                    }
+                }
+            }
+
+            if (images.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            currentIndex =
+                                (currentIndex - 1 + images.size) % images.size
+                        }
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = "Previous image"
+                        )
+                    }
+
+                    Text(
+                        text = "${currentIndex + 1} / ${images.size}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+
+                    IconButton(
+                        onClick = {
+                            currentIndex = (currentIndex + 1) % images.size
+                        }
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = "Next image"
+                        )
+                    }
                 }
             }
         }
     }
 
+    @Composable
+    private fun ImagePlaceholder() {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Landscape,
+                contentDescription = "Default campsite image"
+            )
+
+            Text(
+                text = "No promotional image",
+                modifier = Modifier.testTag("CampsiteImagePlaceholder")
+            )
+        }
+    }
+
     /**
-     * Displays QR controls and limits editing and lottery management to the campsite owner.
+     * Displays the existing QR export and lottery-management controls for an owner.
      *
      * @param campsite Campsite being managed.
      * @param codeGenerator Function that generates the campsite QR code.
-     * @param ownsCampsite Whether the current account owns the campsite.
-     * @param onEdit Called when the owner opens the campsite editor.
      * @param onManageLottery Called when the owner opens lottery management.
      */
     @Composable
     private fun ownerControls(
         campsite: Campsite,
         codeGenerator: (String, Int) -> ImageBitmap,
-        ownsCampsite: Boolean,
-        onEdit: (Int) -> Unit,
-        onManageLottery: (String) -> Unit
+        onEdit: ((Int) -> Unit)?,
+        onManageLottery: ((String) -> Unit)?
     ) {
         val numericId = campsite.id.toIntOrNull() ?: return
 
-        if (ownsCampsite) {
-            Button(onClick = { onEdit(numericId) }, modifier = Modifier.fillMaxWidth()) {
+        // Rendering Edit Campsite only when there is an edit callback.
+        onEdit?.let { edit ->
+            Button(
+                onClick = { edit(numericId) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("EDIT DETAILS")
             }
         }
@@ -681,11 +842,14 @@ class CampsiteDetailView {
                 Text("Download/Save QR")
             }
         }
-        if (ownsCampsite) {
-            Button(onClick = { onManageLottery(campsite.id) }, modifier = Modifier.fillMaxWidth()) {
+        // Rendering Manage Lottery only when there is a management callback.
+        onManageLottery?.let { manage ->
+            Button(
+                onClick = { manage(campsite.id) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("Manage Lottery")
             }
         }
     }
-
 }
