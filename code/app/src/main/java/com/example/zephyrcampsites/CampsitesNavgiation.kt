@@ -293,7 +293,7 @@ internal fun CampsitesNavigation(
                     )
                 }
 
-                if (status == "WINNER") {
+                if (status == "WINNER" || status == "DECLINED") {
                     winningLotteryId = lottery.id
                     break
                 }
