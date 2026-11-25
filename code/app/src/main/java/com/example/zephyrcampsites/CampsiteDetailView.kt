@@ -406,15 +406,6 @@ class CampsiteDetailView {
                         modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        if (showEntrantActions && account != null && ratingController != null && onRateCampsite != null) {
-                            RatingView().RatingEntry(
-                                campsite.id,
-                                account,
-                                ratingController,
-                                onRateCampsite
-                            )
-                        }
-
                         // Entrant lottery registration
                         if (showEntrantActions &&
                             account != null &&
@@ -539,6 +530,10 @@ class CampsiteDetailView {
                                 }
                             }
 
+                        }
+
+                        if (showEntrantActions && account != null && ratingController != null && onRateCampsite != null) {
+                            RatingView().RatingEntry(campsite.id, account, ratingController, onRateCampsite)
                         }
 
                         if (canRemoveCampsite) {
