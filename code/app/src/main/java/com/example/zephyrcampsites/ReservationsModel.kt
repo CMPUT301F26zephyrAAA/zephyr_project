@@ -2,6 +2,7 @@ package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.google.firebase.Timestamp
@@ -31,54 +32,70 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
             return
         }
 
-        reservations
-            .whereEqualTo("accountId", accountId)
-            .get(Source.SERVER)
-            .addOnSuccessListener { snapshot ->
-                try {
+        loadReservations(reservations.whereEqualTo("accountId", accountId), onSuccess, onError)
+    }
 
-                    val results = snapshot.documents.mapNotNull { document ->
+    /**
+     * Loads confirmed reservations for the owner's selected campsite.
+     * @param owner Current campsite owner.
+     * @param campsiteId Selected campsite ID.
+     * @param onSuccess Receives the campsite's reservations in start date order.
+     * @param onError Called when ownership cannot be verified or retrieval fails.
+     */
+    internal fun getCampsiteReservations(
+        owner: Account,
+        campsiteId: String,
+        onSuccess: (List<ReservedUser>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val ownershipError = IllegalArgumentException("Only the campsite owner can open these reservations.")
+        if (OWNER !in owner.userType || owner.id.isBlank() || campsiteId.isBlank() ||
+            campsiteId.contains("/") || campsiteId == "." || campsiteId == ".."
+        ) {
+            onError(ownershipError)
+            return
+        }
 
-
-
-                        // Skip reservations with missing or invalid dates.
-                        val start = document.get("bookedPeriodStart") as? Timestamp
-                            ?: return@mapNotNull null
-
-                        val end = document.get("bookedPeriodEnd") as? Timestamp
-                            ?: return@mapNotNull null
-
-                        if (!start.toDate().before(end.toDate())) {
-                            return@mapNotNull null
-                        }
-
-                        // Skip reservations with missing required fields.
-                        val campsiteId = document.getString("campsiteId")
-                            ?: return@mapNotNull null
-
-                        if (campsiteId.isBlank()) {
-                            return@mapNotNull null
-                        }
-
-                        val cancelled = document.get("cancelled") as? Boolean
-                            ?: return@mapNotNull null
-
-                        ReservedUser(
-                            id = document.id,
-                            accountId = accountId,
-                            campsiteId = campsiteId,
-                            bookedPeriodStart = start.toDate(),
-                            bookedPeriodEnd = end.toDate(),
-                            cancelled = cancelled
-                        )
-                    }
-                    onSuccess(results)
-                } catch (exception: Exception) {
-                    onError(exception)
+        firestore.collection("campsite").document(campsiteId).get(Source.SERVER)
+            .addOnSuccessListener { campsite ->
+                if (!campsite.exists() || campsite.get("ownerID") != owner.id) {
+                    onError(ownershipError)
+                } else {
+                    loadReservations(
+                        reservations.whereEqualTo("campsiteId", campsiteId),
+                        onSuccess = { onSuccess(it.filterNot { reservation -> reservation.cancelled }
+                            .sortedBy { reservation -> reservation.bookedPeriodStart }) },
+                        onError = onError
+                    )
                 }
             }
-            .addOnFailureListener { exception ->
+            .addOnFailureListener(onError)
+    }
+
+    private fun loadReservations(
+        query: Query,
+        onSuccess: (List<ReservedUser>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        query.get(Source.SERVER).addOnSuccessListener { snapshot ->
+            try {
+                val results = snapshot.documents.mapNotNull { document ->
+                    val start = (document.get("bookedPeriodStart") as? Timestamp)?.toDate()
+                        ?: return@mapNotNull null
+                    val end = (document.get("bookedPeriodEnd") as? Timestamp)?.toDate()
+                        ?: return@mapNotNull null
+                    val campsiteId = document.get("campsiteId") as? String ?: return@mapNotNull null
+                    val accountId = document.get("accountId") as? String ?: return@mapNotNull null
+                    val cancelled = document.get("cancelled") as? Boolean ?: return@mapNotNull null
+                    if (!start.before(end) || campsiteId.isBlank() || accountId.isBlank()) {
+                        return@mapNotNull null
+                    }
+                    ReservedUser(document.id, accountId, campsiteId, start, end, cancelled)
+                }
+                onSuccess(results)
+            } catch (exception: Exception) {
                 onError(exception)
             }
+        }.addOnFailureListener(onError)
     }
 }

@@ -48,6 +48,16 @@ class ReservationsController(
         )
     }
 
+    /** Loads confirmed bookings for the owner's chosen campsite so they can reply. */
+    internal fun getCampsiteReservations(
+        owner: Account,
+        campsiteId: String,
+        onSuccess: (List<ReservedUser>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        model.getCampsiteReservations(owner, campsiteId, onSuccess, onError)
+    }
+
     /**
      * Retrieves the entrant's active and upcoming reservations.
      *

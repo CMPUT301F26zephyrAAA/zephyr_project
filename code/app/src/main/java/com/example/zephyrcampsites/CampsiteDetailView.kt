@@ -74,6 +74,7 @@ class CampsiteDetailView {
      * @param codeGenerator Function that generates the campsite QR code.
      * @param onBack Returns to the previous screen.
      * @param onManageLottery Opens lottery management for this campsite.
+     * @param onReservationMessages Opens replies for reservations at this campsite.
      * @param ratingController Controller used to check rating eligibility.
      * @param onRateCampsite Opens the rating screen for an eligible entrant.
      * @param onRemoved Returns to browsing after successful removal.
@@ -96,6 +97,7 @@ class CampsiteDetailView {
         onRemoved: () -> Unit = onBack,
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
+        onReservationMessages: (() -> Unit)? = null,
     ) {
         var removing by remember(campsiteId) { mutableStateOf(false) }
         var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
@@ -165,6 +167,7 @@ class CampsiteDetailView {
             },
             onManageLottery = onManageLottery,
             onEdit = onEdit,
+            onReservationMessages = onReservationMessages,
             lottery = lottery,
             waitingListController = waitingListController,
             ratingController = ratingController,
@@ -208,6 +211,7 @@ class CampsiteDetailView {
      * @param ownerName Owner's display name, falling back to the stored owner ID.
      * @param statusText Message displayed when the campsite is unavailable.
      * @param onManageLottery Called when the owner opens lottery management.
+     * @param onReservationMessages Called when the owner opens reservation messages.
      * @param ratingController Controller used to offer ratings only after a completed stay.
      * @param onRateCampsite Opens the rating screen for this campsite.
      * @param removing Whether removal is pending.
@@ -239,6 +243,7 @@ class CampsiteDetailView {
         onRemove: () -> Unit = {},
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
+        onReservationMessages: (() -> Unit)? = null,
     ) {
 
         val canRemoveCampsite = showAdminActions && account?.userType?.contains("admin") == true
@@ -563,7 +568,11 @@ class CampsiteDetailView {
                                 onEdit = onEdit,
                                 onManageLottery = onManageLottery
                             )
-
+                            if (onReservationMessages != null) {
+                                Button(onClick = onReservationMessages, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Reservation Messages")
+                                }
+                            }
                         }
                     }
                 }

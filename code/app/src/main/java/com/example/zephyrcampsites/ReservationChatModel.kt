@@ -29,11 +29,16 @@ internal class ReservationChatModel(
 ) {
     /**
      * Opens the conversation after Firestore verifies the signed-in participant.
-     * @param reservation Reservation selected from My Trips.
+     * @param reservation Reservation selected by the entrant or owner.
      * @param ownerAccountId Account linked to the reserved campsite.
+     * @param ownerReply Whether the signed-in participant is replying as the campsite owner.
      * @return The conversation and signed-in sender.
      */
-    fun open(reservation: ReservedUser, ownerAccountId: String): Task<ReservationChatSession> {
+    fun open(
+        reservation: ReservedUser,
+        ownerAccountId: String,
+        ownerReply: Boolean = false
+    ): Task<ReservationChatSession> {
         if (reservation.id.isBlank() || reservation.id.contains("/") ||
             reservation.id == "." || reservation.id == ".." ||
             reservation.accountId.isBlank() || ownerAccountId.isBlank() || reservation.campsiteId.isBlank()
@@ -53,10 +58,9 @@ internal class ReservationChatModel(
         return signedIn.onSuccessTask { uid ->
             conversation.get(Source.SERVER).continueWith { request ->
                 val document = request.result
-                val entrantUid = document.get("entrantUid") as? String
-                val ownerUid = document.get("ownerUid") as? String
+                val participantField = if (ownerReply) "ownerUid" else "entrantUid"
                 check(
-                    document.exists() && (uid == entrantUid || uid == ownerUid) &&
+                    document.exists() && uid == document.get(participantField) &&
                         document.get("entrantAccountId") == reservation.accountId &&
                         document.get("ownerAccountId") == ownerAccountId &&
                         document.get("campsiteId") == reservation.campsiteId

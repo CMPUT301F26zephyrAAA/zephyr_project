@@ -49,21 +49,34 @@ class ReservationChatModelTest {
         createConversation(entrantUid, ownerUid)
 
         val entrantChat = await(entrantModel.open(reservation, ownerId))
-        val ownerChat = await(ownerModel.open(reservation, ownerId))
+        val ownerChat = await(ownerModel.open(reservation, ownerId, ownerReply = true))
         val history = TaskCompletionSource<List<ReservationMessage>>()
+        val receivedByOwner = TaskCompletionSource<ReservationMessage>()
         val listener = entrantModel.listen(
             entrantChat,
             onMessages = { if (it.size == 2) { history.trySetResult(it) } },
             onError = { history.trySetException(it) }
         )
+        val ownerListener = ownerModel.listen(
+            ownerChat,
+            onMessages = { messages ->
+                messages.firstOrNull { it.senderUid == entrantUid }?.let {
+                    receivedByOwner.trySetResult(it)
+                }
+            },
+            onError = { receivedByOwner.trySetException(it) }
+        )
         try {
             await(entrantModel.send(entrantChat, "What time is check-in?"))
+            assertEquals("What time is check-in?", await(receivedByOwner.task).text)
             await(ownerModel.send(ownerChat, "Check-in is at 2."))
             val messages = await(history.task)
             assertEquals(listOf("What time is check-in?", "Check-in is at 2."), messages.map { it.text })
             assertEquals(listOf(entrantUid, ownerUid), messages.map { it.senderUid })
+            assertTrue(runCatching { await(entrantModel.open(reservation, ownerId, ownerReply = true)) }.isFailure)
             assertTrue(runCatching { await(otherModel.open(reservation, ownerId)) }.isFailure)
         } finally {
+            ownerListener.remove()
             listener.remove()
         }
     }

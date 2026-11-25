@@ -38,7 +38,7 @@ class ReservationChatViewTest {
                 ReservationChatView(
                     reservation = reservation,
                     campsiteName = "Pinewood Lakeside",
-                    ownerName = "Jordan Lee",
+                    participantName = "Jordan Lee",
                     status = "",
                     onBack = { returnedToDetails = true }
                 )
@@ -61,7 +61,7 @@ class ReservationChatViewTest {
                 ReservationChatView(
                     reservation = ReservedUser(id = "reservation-1"),
                     campsiteName = "Pinewood Lakeside",
-                    ownerName = "Jordan Lee",
+                    participantName = "Jordan Lee",
                     status = "",
                     onBack = {},
                     messages = listOf(ReservationMessage("reply-1", "owner", "Check-in is at 2.")),
@@ -87,5 +87,27 @@ class ReservationChatViewTest {
         composeRule.onNodeWithText("Could not send your message. Try again.").assertIsDisplayed()
         composeRule.onNodeWithText("Thanks!").assertIsDisplayed()
         composeRule.runOnIdle { assertEquals("Thanks!", sentText) }
+    }
+
+    @Test
+    fun ownerSelectsTheReservationTheyAreReplyingTo() {
+        val start = GregorianCalendar(2030, Calendar.JUNE, 15).time
+        val end = GregorianCalendar(2030, Calendar.JUNE, 18).time
+        val first = ReservedUser("booking-1", "entrant-1", "1", start, end)
+        val second = ReservedUser("booking-2", "entrant-2", "1", start, end)
+        var selected: ReservedUser? = null
+        composeRule.setContent {
+            MaterialTheme {
+                ReservationReplyList(
+                    reservations = listOf(first, second),
+                    loadFailed = false,
+                    onSelectReservation = { selected = it },
+                    onRetry = {},
+                    onBack = {}
+                )
+            }
+        }
+        composeRule.onNodeWithText("Reservation booking-2", substring = true).performClick()
+        composeRule.runOnIdle { assertEquals(second, selected) }
     }
 }

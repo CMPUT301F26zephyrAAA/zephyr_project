@@ -35,25 +35,26 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * Loads the reservation owner and connects to the conversation for the selected booking.
+ * Loads the other participant and connects to the conversation for the selected booking.
  * @param reservation Reservation opened from My Trips.
  * @param campsite Campsite associated with the reservation, if available.
- * @param accountsController Reads the owner's existing account from Firebase.
- * @param onBack Returns to the same reservation details.
+ * @param accountsController Reads the other participant's account from Firebase.
+ * @param onBack Returns to the previous reservation screen.
+ * @param ownerReply Opens the conversation for the owner to reply to the entrant.
  */
 @Composable
 internal fun ReservationChatScreen(
     reservation: ReservedUser,
     campsite: Campsite?,
     accountsController: AccountsController,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    ownerReply: Boolean = false
 ) {
     val ownerId = campsite?.ownerID.orEmpty()
+    val participantId = if (ownerReply) reservation.accountId else ownerId
+    val participantLabel = if (ownerReply) "Entrant" else "Campsite Owner"
     val chatModel = remember { ReservationChatModel() }
-    var ownerName by remember(ownerId) { mutableStateOf<String?>(null) }
-    var ownerStatus by remember(ownerId) {
-        mutableStateOf(if (ownerId.isBlank()) "Owner unavailable." else "Loading owner…")
-    }
+    var participantName by remember(participantId) { mutableStateOf<String?>(null) }
     var session by remember(reservation.id, ownerId) { mutableStateOf<ReservationChatSession?>(null) }
     var messages by remember(reservation.id, ownerId) { mutableStateOf(emptyList<ReservationMessage>()) }
     var chatStatus by remember(reservation.id, ownerId) { mutableStateOf("") }
@@ -62,33 +63,29 @@ internal fun ReservationChatScreen(
     var sendError by remember(reservation.id, ownerId) { mutableStateOf<String?>(null) }
     var newMessageId by remember(reservation.id, ownerId) { mutableStateOf<String?>(null) }
 
-    DisposableEffect(ownerId, accountsController) {
+    DisposableEffect(participantId, accountsController) {
         var active = true
-        if (ownerId.isNotBlank()) {
+        if (participantId.isNotBlank()) {
             accountsController.findAccount(
-                deviceId = ownerId,
-                onResult = { owner ->
+                deviceId = participantId,
+                onResult = { participant ->
                     if (active) {
-                        ownerName = owner?.name
-                        ownerStatus = if (owner == null) "Owner unavailable." else ""
+                        participantName = participant?.name
                     }
                 },
-                onError = {
-                    if (active) {
-                        ownerStatus = "Unable to load the owner."
-                    }
-                }
+                onError = {}
             )
         }
         onDispose { active = false }
     }
 
-    DisposableEffect(reservation, ownerId) {
+    DisposableEffect(reservation, ownerId, ownerReply) {
         var active = true
         session = null
+        chatStatus = "Unable to open this conversation."
         if (ownerId.isNotBlank()) {
             chatStatus = "Loading messages…"
-            chatModel.open(reservation, ownerId)
+            chatModel.open(reservation, ownerId, ownerReply)
                 .addOnSuccessListener { if (active) { session = it } }
                 .addOnFailureListener {
                     if (active) {
@@ -127,17 +124,22 @@ internal fun ReservationChatScreen(
         onDispose { registration?.remove() }
     }
 
+    val canReply = !ownerReply || messages.any { it.senderUid != openChat?.userUid }
+    val canCompose = openChat != null && chatStatus.isEmpty() && canReply && !sending
     ReservationChatView(
         reservation = reservation,
         campsiteName = campsite?.name.orEmpty(),
-        ownerName = ownerName,
-        status = chatStatus.ifBlank { ownerStatus },
+        participantName = participantName,
+        participantLabel = participantLabel,
+        status = chatStatus.ifBlank {
+            if (canReply) "" else "Waiting for the entrant's first message."
+        },
         onBack = onBack,
         messages = messages,
         userUid = openChat?.userUid,
         newMessageId = newMessageId,
         draft = draft,
-        canCompose = openChat != null && chatStatus.isEmpty() && !sending,
+        canCompose = canCompose,
         sendError = sendError,
         onDraftChange = {
             if (it.length <= MAX_RESERVATION_MESSAGE_LENGTH) {
@@ -146,7 +148,7 @@ internal fun ReservationChatScreen(
             }
         },
         onSend = {
-            if (openChat != null && !sending && draft.isNotBlank()) {
+            if (openChat != null && canCompose && draft.isNotBlank()) {
                 sending = true
                 sendError = null
                 chatModel.send(openChat, draft)
@@ -167,8 +169,9 @@ internal fun ReservationChatScreen(
  * Displays reservation context, messages, and the text composer.
  * @param reservation Supplies the booking dates shown in the header.
  * @param campsiteName Display name of the reserved campsite.
- * @param ownerName Display name of the account that owns the campsite.
- * @param status Owner or conversation loading status, if any.
+ * @param participantName Display name of the other participant.
+ * @param participantLabel Name to display if the other participant has no profile name.
+ * @param status Conversation loading status, if any.
  * @param onBack Returns to the reservation details.
  * @param messages Conversation history in order.
  * @param userUid Firebase UID used to identify outgoing messages.
@@ -183,7 +186,7 @@ internal fun ReservationChatScreen(
 internal fun ReservationChatView(
     reservation: ReservedUser,
     campsiteName: String,
-    ownerName: String?,
+    participantName: String?,
     status: String,
     onBack: () -> Unit,
     messages: List<ReservationMessage> = emptyList(),
@@ -193,7 +196,8 @@ internal fun ReservationChatView(
     canCompose: Boolean = false,
     sendError: String? = null,
     onDraftChange: (String) -> Unit = {},
-    onSend: () -> Unit = {}
+    onSend: () -> Unit = {},
+    participantLabel: String = "Campsite Owner"
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd/yy", Locale.getDefault()) }
     val startDate = reservation.bookedPeriodStart?.let { dateFormat.format(it) } ?: "N/A"
@@ -212,7 +216,7 @@ internal fun ReservationChatView(
     ) {
         Text("MESSAGES", style = MaterialTheme.typography.labelLarge)
         Text(
-            text = ownerName?.takeIf { it.isNotBlank() } ?: "Campsite Owner",
+            text = participantName?.takeIf { it.isNotBlank() } ?: participantLabel,
             style = MaterialTheme.typography.headlineSmall
         )
         Text("${campsiteName.ifBlank { "Campsite unavailable" }} · $startDate to $endDate")
