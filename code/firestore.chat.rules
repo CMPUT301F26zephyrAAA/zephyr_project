@@ -1,0 +1,38 @@
+// Reservation chat rules for the emulator. Integrate the match block into Zephyr's live rules.
+// A trusted writer creates reservationChat/{reservationId} with entrantUid, ownerUid,
+// entrantAccountId, ownerAccountId and campsiteId, all immutable strings for clients.
+// messages/{messageId} stores senderUid, text (1 to 2,000 characters), and server timestamp sentAt.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isParticipant(conversation) {
+      return request.auth != null &&
+        request.auth.uid in [conversation.entrantUid, conversation.ownerUid];
+    }
+
+    function isValidMessage() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['senderUid', 'text', 'sentAt']) &&
+        data.keys().hasOnly(['senderUid', 'text', 'sentAt']) &&
+        data.senderUid == request.auth.uid &&
+        data.text is string && data.text.size() <= 2000 &&
+        data.text.matches('(?s).*\\S.*') &&
+        data.sentAt == request.time;
+    }
+
+    match /reservationChat/{reservationId} {
+      allow get: if isParticipant(resource.data);
+
+      match /messages/{messageId} {
+        function canAccessChat() {
+          return isParticipant(
+            get(/databases/$(database)/documents/reservationChat/$(reservationId)).data
+          );
+        }
+
+        allow read: if canAccessChat();
+        allow create: if canAccessChat() && isValidMessage();
+      }
+    }
+  }
+}

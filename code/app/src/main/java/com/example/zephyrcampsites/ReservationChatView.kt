@@ -1,12 +1,17 @@
 package com.example.zephyrcampsites
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -15,18 +20,22 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.example.zephyrcampsites.ui.theme.ProfileMenuGreen
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * Looks up the owner of the campsite associated with the selected reservation.
+ * Loads the reservation owner and connects to the conversation for the selected booking.
  * @param reservation Reservation opened from My Trips.
  * @param campsite Campsite associated with the reservation, if available.
  * @param accountsController Reads the owner's existing account from Firebase.
@@ -40,10 +49,18 @@ internal fun ReservationChatScreen(
     onBack: () -> Unit
 ) {
     val ownerId = campsite?.ownerID.orEmpty()
+    val chatModel = remember { ReservationChatModel() }
     var ownerName by remember(ownerId) { mutableStateOf<String?>(null) }
-    var status by remember(ownerId) {
+    var ownerStatus by remember(ownerId) {
         mutableStateOf(if (ownerId.isBlank()) "Owner unavailable." else "Loading owner…")
     }
+    var session by remember(reservation.id, ownerId) { mutableStateOf<ReservationChatSession?>(null) }
+    var messages by remember(reservation.id, ownerId) { mutableStateOf(emptyList<ReservationMessage>()) }
+    var chatStatus by remember(reservation.id, ownerId) { mutableStateOf("") }
+    var draft by rememberSaveable(reservation.id, ownerId) { mutableStateOf("") }
+    var sending by remember(reservation.id, ownerId) { mutableStateOf(false) }
+    var sendError by remember(reservation.id, ownerId) { mutableStateOf<String?>(null) }
+    var newMessageId by remember(reservation.id, ownerId) { mutableStateOf<String?>(null) }
 
     DisposableEffect(ownerId, accountsController) {
         var active = true
@@ -53,12 +70,12 @@ internal fun ReservationChatScreen(
                 onResult = { owner ->
                     if (active) {
                         ownerName = owner?.name
-                        status = if (owner == null) "Owner unavailable." else ""
+                        ownerStatus = if (owner == null) "Owner unavailable." else ""
                     }
                 },
                 onError = {
                     if (active) {
-                        status = "Unable to load the owner."
+                        ownerStatus = "Unable to load the owner."
                     }
                 }
             )
@@ -66,22 +83,101 @@ internal fun ReservationChatScreen(
         onDispose { active = false }
     }
 
+    DisposableEffect(reservation, ownerId) {
+        var active = true
+        session = null
+        if (ownerId.isNotBlank()) {
+            chatStatus = "Loading messages…"
+            chatModel.open(reservation, ownerId)
+                .addOnSuccessListener { if (active) { session = it } }
+                .addOnFailureListener {
+                    if (active) {
+                        chatStatus = "Unable to open this conversation."
+                    }
+                }
+        }
+        onDispose { active = false }
+    }
+
+    val openChat = session
+    DisposableEffect(openChat) {
+        var seenMessageIds: Set<String>? = null
+        val registration = openChat?.let { conversation ->
+            chatModel.listen(
+                conversation,
+                onMessages = { updated ->
+                    seenMessageIds?.let { seen ->
+                        val incoming = updated.lastOrNull {
+                            it.senderUid != conversation.userUid && it.id !in seen
+                        }
+                        if (incoming != null) {
+                            newMessageId = incoming.id
+                        }
+                    }
+                    seenMessageIds = updated.map { it.id }.toSet()
+                    messages = updated
+                    chatStatus = ""
+                },
+                onError = {
+                    messages = emptyList()
+                    chatStatus = "Unable to load messages."
+                }
+            )
+        }
+        onDispose { registration?.remove() }
+    }
+
     ReservationChatView(
         reservation = reservation,
         campsiteName = campsite?.name.orEmpty(),
         ownerName = ownerName,
-        status = status,
-        onBack = onBack
+        status = chatStatus.ifBlank { ownerStatus },
+        onBack = onBack,
+        messages = messages,
+        userUid = openChat?.userUid,
+        newMessageId = newMessageId,
+        draft = draft,
+        canCompose = openChat != null && chatStatus.isEmpty() && !sending,
+        sendError = sendError,
+        onDraftChange = {
+            if (it.length <= MAX_RESERVATION_MESSAGE_LENGTH) {
+                draft = it
+                sendError = null
+            }
+        },
+        onSend = {
+            if (openChat != null && !sending && draft.isNotBlank()) {
+                sending = true
+                sendError = null
+                chatModel.send(openChat, draft)
+                    .addOnSuccessListener {
+                        draft = ""
+                        sending = false
+                    }
+                    .addOnFailureListener {
+                        sendError = "Could not send your message. Try again."
+                        sending = false
+                    }
+            }
+        }
     )
 }
 
 /**
- * Displays the owner and reservation context for the chat screen.
+ * Displays reservation context, messages, and the text composer.
  * @param reservation Supplies the booking dates shown in the header.
  * @param campsiteName Display name of the reserved campsite.
  * @param ownerName Display name of the account that owns the campsite.
- * @param status Owner lookup status, if any.
+ * @param status Owner or conversation loading status, if any.
  * @param onBack Returns to the reservation details.
+ * @param messages Conversation history in order.
+ * @param userUid Firebase UID used to identify outgoing messages.
+ * @param newMessageId Highlights the most recent newly received message.
+ * @param draft Text waiting to be sent.
+ * @param canCompose Whether the conversation is ready for input.
+ * @param sendError Error for the most recent send attempt, if any.
+ * @param onDraftChange Updates the message draft.
+ * @param onSend Sends the draft.
  */
 @Composable
 internal fun ReservationChatView(
@@ -89,11 +185,26 @@ internal fun ReservationChatView(
     campsiteName: String,
     ownerName: String?,
     status: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    messages: List<ReservationMessage> = emptyList(),
+    userUid: String? = null,
+    newMessageId: String? = null,
+    draft: String = "",
+    canCompose: Boolean = false,
+    sendError: String? = null,
+    onDraftChange: (String) -> Unit = {},
+    onSend: () -> Unit = {}
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd/yy", Locale.getDefault()) }
     val startDate = reservation.bookedPeriodStart?.let { dateFormat.format(it) } ?: "N/A"
     val endDate = reservation.bookedPeriodEnd?.let { dateFormat.format(it) } ?: "N/A"
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(messages.lastOrNull()?.id) {
+        if (messages.isNotEmpty()) {
+            listState.scrollToItem(messages.lastIndex)
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -110,21 +221,51 @@ internal fun ReservationChatView(
         if (status.isNotBlank()) {
             Text(status)
         }
-        Spacer(Modifier.weight(1f))
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(messages, key = { it.id }) { message ->
+                val outgoing = message.senderUid == userUid
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start
+                ) {
+                    if (message.id == newMessageId) {
+                        Text("New message", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Text(
+                        text = message.text,
+                        modifier = Modifier.widthIn(max = 280.dp)
+                            .background(
+                                if (outgoing) ProfileMenuGreen else MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        color = if (outgoing) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
 
+        if (sendError != null) {
+            Text(sendError, color = MaterialTheme.colorScheme.error)
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
-                value = "",
-                onValueChange = {},
+                value = draft,
+                onValueChange = onDraftChange,
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("Type a message") },
-                enabled = false
+                enabled = canCompose,
+                maxLines = 3
             )
-            Button(onClick = {}, enabled = false) { Text("SEND") }
+            Button(onClick = onSend, enabled = canCompose && draft.isNotBlank()) { Text("SEND") }
         }
         TextButton(onClick = onBack, modifier = Modifier.align(Alignment.End)) { Text("BACK") }
     }

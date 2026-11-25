@@ -1,17 +1,25 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.util.Calendar
 import java.util.GregorianCalendar
 
-/** Verifies the reservation chat header and Back action with local test data. */
+/** Verifies the reservation chat view with local test data. */
 class ReservationChatViewTest {
     @get:Rule
     val composeRule = createComposeRule()
@@ -41,5 +49,43 @@ class ReservationChatViewTest {
         composeRule.onNodeWithText("Pinewood Lakeside · 06/15/30 to 06/18/30").assertIsDisplayed()
         composeRule.onNodeWithText("BACK").performClick()
         composeRule.runOnIdle { assertTrue(returnedToDetails) }
+    }
+
+    @Test
+    fun showsIncomingMessageAndKeepsDraftAfterSendFailure() {
+        var sentText = ""
+        composeRule.setContent {
+            var draft by remember { mutableStateOf("") }
+            var error by remember { mutableStateOf<String?>(null) }
+            MaterialTheme {
+                ReservationChatView(
+                    reservation = ReservedUser(id = "reservation-1"),
+                    campsiteName = "Pinewood Lakeside",
+                    ownerName = "Jordan Lee",
+                    status = "",
+                    onBack = {},
+                    messages = listOf(ReservationMessage("reply-1", "owner", "Check-in is at 2.")),
+                    userUid = "entrant",
+                    newMessageId = "reply-1",
+                    draft = draft,
+                    canCompose = true,
+                    sendError = error,
+                    onDraftChange = { draft = it },
+                    onSend = {
+                        sentText = draft
+                        error = "Could not send your message. Try again."
+                    }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("New message").assertIsDisplayed()
+        composeRule.onNodeWithText("Check-in is at 2.").assertIsDisplayed()
+        composeRule.onNodeWithText("SEND").assertIsNotEnabled()
+        composeRule.onNode(hasSetTextAction()).performTextInput("Thanks!")
+        composeRule.onNodeWithText("SEND").performClick()
+        composeRule.onNodeWithText("Could not send your message. Try again.").assertIsDisplayed()
+        composeRule.onNodeWithText("Thanks!").assertIsDisplayed()
+        composeRule.runOnIdle { assertEquals("Thanks!", sentText) }
     }
 }
