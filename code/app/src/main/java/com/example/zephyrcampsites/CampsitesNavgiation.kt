@@ -525,6 +525,7 @@ internal fun CampsitesNavigation(
                             AccountContent { entrant ->
                                 MyTripsNavigation(
                                     accountId = entrant.id,
+                                    accountsController = accountsController,
                                     reservationsController = reservationsController,
                                     campsiteForId = { id ->
                                         campsiteModel.campsites.firstOrNull { it.id == id }

@@ -40,6 +40,7 @@ private enum class ReservationPage {
 @Composable
 fun MyTripsNavigation(
     accountId: String,
+    accountsController: AccountsController,
     reservationsController: ReservationsController,
     campsiteForId: (String) -> Campsite?,
     imageContent: @Composable (Campsite) -> Unit,
@@ -102,15 +103,23 @@ fun MyTripsNavigation(
         goBack()
     }
 
+    val selected = reservations?.firstOrNull { it.id == selectedReservationId }
+
     when (page) {
         ReservationPage.MESSAGE_OWNER -> {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                TextButton(onClick = { goBack() }) { Text("Back") }
-                Text("Message Owner", style = MaterialTheme.typography.headlineMedium)
-                Text("Messaging is not connected yet.")
+            when {
+                selected != null -> ReservationChatScreen(
+                    reservation = selected,
+                    campsite = campsiteForId(selected.campsiteId),
+                    accountsController = accountsController,
+                    onBack = ::goBack
+                )
+                reservations == null && error == null -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                }
+                else -> FeaturePage("Reservation unavailable", ::goBack)
             }
             return
         }
@@ -143,7 +152,6 @@ fun MyTripsNavigation(
     }
 
     val now = Date()
-    val selected = reservations?.firstOrNull { it.id == selectedReservationId }
 
     if (selected != null) {
         ReservationDetailsView(
