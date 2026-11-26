@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -23,6 +24,35 @@ import java.util.GregorianCalendar
 class ReservationChatViewTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun messageOwnerOpensChatForTheDisplayedReservation() {
+        val selected = ReservedUser("booking-2", "entrant", "2",
+            GregorianCalendar(2030, Calendar.JUNE, 15).time, GregorianCalendar(2030, Calendar.JUNE, 18).time)
+        val campsite = Campsite("2").apply { name = "Pinewood Lakeside" }
+        composeRule.setContent {
+            var conversation by remember { mutableStateOf<ReservedUser?>(null) }
+            MaterialTheme {
+                val booking = conversation
+                if (booking == null) {
+                    ReservationDetailsView(
+                        reservation = selected, campsite = campsite, isPast = false, imageContent = {},
+                        onViewMap = {}, onMessageOwner = { conversation = selected },
+                        onCancelReservation = {}, onRateCampsite = {}, onBack = {}
+                    )
+                } else {
+                    ReservationChatView(
+                        reservation = booking, campsiteName = campsite.name, participantName = "Jordan Lee",
+                        status = "", onBack = { conversation = null }
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithTag("messageReservationOwnerButton").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Jordan Lee").assertIsDisplayed()
+        composeRule.onNodeWithText("Pinewood Lakeside · 06/15/30 to 06/18/30").assertIsDisplayed()
+    }
 
     @Test
     fun showsTheOwnerAndReservationAndReturnsToDetails() {

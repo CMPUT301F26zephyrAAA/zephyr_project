@@ -18,6 +18,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -32,6 +33,11 @@ class ReservationChatModelTest {
     private val reservation = ReservedUser(UUID.randomUUID().toString(), "entrant-device", "1")
     private val ownerId = "owner-device"
 
+    @Before
+    fun requireEmulator() {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("chatFirestoreEmulator") == "true")
+    }
+
     @After
     fun closeEmulatorClients() {
         for (app in apps) {
@@ -42,7 +48,6 @@ class ReservationChatModelTest {
 
     @Test
     fun participantsExchangeMessagesInOrderAndOtherAccountsCannotOpenChat() {
-        assumeTrue(InstrumentationRegistry.getArguments().getString("chatFirestoreEmulator") == "true")
         val (entrantModel, entrantUid) = connect()
         val (ownerModel, ownerUid) = connect()
         val otherModel = connect().first
@@ -81,11 +86,54 @@ class ReservationChatModelTest {
         }
     }
 
+    @Test
+    fun reopeningChatReadsOnlyMessagesFromTheSelectedReservation() {
+        val (entrantModel, entrantUid) = connect()
+        val (ownerModel, ownerUid) = connect()
+        val otherReservation = reservation.copy(id = UUID.randomUUID().toString())
+        createConversation(entrantUid, ownerUid)
+        createConversation(entrantUid, ownerUid, otherReservation)
+
+        val first = await(entrantModel.open(reservation, ownerId))
+        val second = await(entrantModel.open(otherReservation, ownerId))
+        await(entrantModel.send(first, "First reservation"))
+        await(entrantModel.send(second, "Second reservation"))
+
+        val reopened = await(ownerModel.open(reservation, ownerId, ownerReply = true))
+        val other = await(ownerModel.open(otherReservation, ownerId, ownerReply = true))
+        assertEquals(listOf("First reservation"), readMessages(ownerModel, reopened).map { it.text })
+        assertEquals(listOf("Second reservation"), readMessages(ownerModel, other).map { it.text })
+    }
+
+    @Test
+    fun invalidMessageTextDoesNotCreateMessages() {
+        val (entrantModel, entrantUid) = connect()
+        createConversation(entrantUid, connect().second)
+        val chat = await(entrantModel.open(reservation, ownerId))
+        val invalid = listOf("", " \t\n", "x".repeat(MAX_RESERVATION_MESSAGE_LENGTH + 1))
+        for (text in invalid) {
+            val result = runCatching { await(entrantModel.send(chat, text)) }
+            assertTrue(result.exceptionOrNull()?.cause is IllegalArgumentException)
+        }
+        assertTrue(readMessages(entrantModel, chat).isEmpty())
+    }
+
+    private fun readMessages(model: ReservationChatModel, session: ReservationChatSession): List<ReservationMessage> {
+        val result = TaskCompletionSource<List<ReservationMessage>>()
+        val listener = model.listen(session, { result.trySetResult(it) }, { result.trySetException(it) })
+        return try {
+            await(result.task)
+        } finally {
+            listener.remove()
+        }
+    }
+
     private fun connect(): Pair<ReservationChatModel, String> {
+        val clientName = "chat-${UUID.randomUUID()}"
         val options = FirebaseOptions.Builder().setProjectId(projectId)
-            .setApplicationId("1:123456789:android:chat-test").setApiKey("local-emulator-only").build()
+            .setApplicationId("1:123456789:android:chat-test").setApiKey(clientName).build()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val app = FirebaseApp.initializeApp(context, options, "chat-${UUID.randomUUID()}")
+        val app = FirebaseApp.initializeApp(context, options, clientName)
         apps.add(app)
         val firestore = FirebaseFirestore.getInstance(app)
         firestore.useEmulator("127.0.0.1", 8097)
@@ -95,14 +143,14 @@ class ReservationChatModelTest {
         return ReservationChatModel(firestore, auth) to uid
     }
 
-    private fun createConversation(entrantUid: String, ownerUid: String) {
-        val path = "projects/$projectId/databases/(default)/documents/reservationChat?documentId=${reservation.id}"
+    private fun createConversation(entrantUid: String, ownerUid: String, booking: ReservedUser = reservation) {
+        val path = "projects/$projectId/databases/(default)/documents/reservationChat?documentId=${booking.id}"
         val connection = URI("http://127.0.0.1:8097/v1/$path").toURL().openConnection() as HttpURLConnection
         val fields = JSONObject()
         val participants = mapOf(
             "entrantUid" to entrantUid, "ownerUid" to ownerUid,
-            "entrantAccountId" to reservation.accountId, "ownerAccountId" to ownerId,
-            "campsiteId" to reservation.campsiteId
+            "entrantAccountId" to booking.accountId, "ownerAccountId" to ownerId,
+            "campsiteId" to booking.campsiteId
         )
         for ((field, value) in participants) {
             fields.put(field, JSONObject().put("stringValue", value))
