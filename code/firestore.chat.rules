@@ -1,37 +1,72 @@
-// Reservation chat rules for the emulator. Integrate the match block into Zephyr's live rules.
-// A trusted writer creates reservationChat/{reservationId} with entrantUid, ownerUid,
-// entrantAccountId, ownerAccountId and campsiteId, all immutable strings for clients.
-// messages/{messageId} stores senderUid, text (1 to 2,000 characters), and server timestamp sentAt.
+// Reservation chat rules for the emulator.
+// Admin-managed chatAccountLinks/{deviceAccountId}: uid (Firebase Auth UID).
+// Admin-managed reservationChatAccess/{reservationId}: entrantAccountId, ownerAccountId, campsiteId.
+// reservationChat/{reservationId}: same participant fields, immutable after creation.
+// messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isParticipant(conversation) {
-      return request.auth != null &&
-        request.auth.uid in [conversation.entrantUid, conversation.ownerUid];
+    function validId(value) {
+      return value is string && value.size() > 0 && value.size() <= 128 &&
+        value.matches('[^/]+') && !(value in ['.', '..']);
     }
 
-    function isValidMessage() {
-      let data = request.resource.data;
-      return data.keys().hasAll(['senderUid', 'text', 'sentAt']) &&
-        data.keys().hasOnly(['senderUid', 'text', 'sentAt']) &&
-        data.senderUid == request.auth.uid &&
-        data.text is string && data.text.size() <= 2000 &&
+    function accountLink(accountId) {
+      return /databases/$(database)/documents/chatAccountLinks/$(accountId);
+    }
+
+    function isLinkedAccount(accountId) {
+      return request.auth != null && validId(accountId) && exists(accountLink(accountId)) &&
+        get(accountLink(accountId)).data.uid == request.auth.uid;
+    }
+
+    function approvedReservation(reservationId) {
+      return get(/databases/$(database)/documents/reservationChatAccess/$(reservationId)).data;
+    }
+
+    function isParticipant(booking) {
+      return isLinkedAccount(booking.entrantAccountId) || isLinkedAccount(booking.ownerAccountId);
+    }
+
+    function sameBooking(data, booking) {
+      return data.entrantAccountId == booking.entrantAccountId &&
+        data.ownerAccountId == booking.ownerAccountId && data.campsiteId == booking.campsiteId;
+    }
+
+    function isValidConversation(data, booking) {
+      return data.keys().hasOnly(['entrantAccountId', 'ownerAccountId', 'campsiteId']) &&
+        validId(data.entrantAccountId) && validId(data.ownerAccountId) && validId(data.campsiteId) &&
+        sameBooking(data, booking) &&
+        exists(accountLink(booking.entrantAccountId)) && exists(accountLink(booking.ownerAccountId));
+    }
+
+    function isValidMessage(data, booking) {
+      return data.keys().hasOnly(['senderUid', 'senderAccountId', 'text', 'sentAt']) &&
+        data.senderUid == request.auth.uid && data.senderAccountId in [booking.entrantAccountId, booking.ownerAccountId] &&
+        isLinkedAccount(data.senderAccountId) &&
+        data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
         data.text.matches('(?s).*\\S.*') &&
         data.sentAt == request.time;
     }
 
+    match /chatAccountLinks/{accountId} {
+      allow get: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
     match /reservationChat/{reservationId} {
-      allow get: if isParticipant(resource.data);
+      allow get: if isParticipant(approvedReservation(reservationId));
+      allow create: if isParticipant(approvedReservation(reservationId)) &&
+        isValidConversation(request.resource.data, approvedReservation(reservationId));
 
       match /messages/{messageId} {
-        function canAccessChat() {
-          return isParticipant(
-            get(/databases/$(database)/documents/reservationChat/$(reservationId)).data
-          );
+        function canAccessChat(booking) {
+          let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId)).data;
+          return isParticipant(booking) && sameBooking(conversation, booking);
         }
 
-        allow read: if canAccessChat();
-        allow create: if canAccessChat() && isValidMessage();
+        allow read: if canAccessChat(approvedReservation(reservationId));
+        allow create: if canAccessChat(approvedReservation(reservationId)) &&
+          isValidMessage(request.resource.data, approvedReservation(reservationId));
       }
     }
   }

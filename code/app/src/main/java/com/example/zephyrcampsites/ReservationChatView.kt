@@ -87,9 +87,10 @@ internal fun ReservationChatScreen(
             chatStatus = "Loading messages…"
             chatModel.open(reservation, ownerId, ownerReply)
                 .addOnSuccessListener { if (active) { session = it } }
-                .addOnFailureListener {
+                .addOnFailureListener { error ->
                     if (active) {
-                        chatStatus = "Unable to open this conversation."
+                        chatStatus = (error as? ReservationChatLinkRequired)?.message
+                            ?: "Unable to open this conversation."
                     }
                 }
         }
@@ -105,7 +106,7 @@ internal fun ReservationChatScreen(
                 onMessages = { updated ->
                     seenMessageIds?.let { seen ->
                         val incoming = updated.lastOrNull {
-                            it.senderUid != conversation.userUid && it.id !in seen
+                            !it.from(conversation.userAccountId, conversation.userUid) && it.id !in seen
                         }
                         if (incoming != null) {
                             newMessageId = incoming.id
@@ -124,7 +125,7 @@ internal fun ReservationChatScreen(
         onDispose { registration?.remove() }
     }
 
-    val canReply = !ownerReply || messages.any { it.senderUid != openChat?.userUid }
+    val canReply = !ownerReply || messages.any { !it.from(openChat?.userAccountId, openChat?.userUid) }
     val canCompose = openChat != null && chatStatus.isEmpty() && canReply && !sending
     ReservationChatView(
         reservation = reservation,
@@ -137,6 +138,7 @@ internal fun ReservationChatScreen(
         onBack = onBack,
         messages = messages,
         userUid = openChat?.userUid,
+        userAccountId = openChat?.userAccountId,
         newMessageId = newMessageId,
         draft = draft,
         canCompose = canCompose,
@@ -191,6 +193,7 @@ internal fun ReservationChatView(
     onBack: () -> Unit,
     messages: List<ReservationMessage> = emptyList(),
     userUid: String? = null,
+    userAccountId: String? = null,
     newMessageId: String? = null,
     draft: String = "",
     canCompose: Boolean = false,
@@ -231,7 +234,7 @@ internal fun ReservationChatView(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(messages, key = { it.id }) { message ->
-                val outgoing = message.senderUid == userUid
+                val outgoing = message.from(userAccountId, userUid)
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start

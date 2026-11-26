@@ -13,6 +13,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -30,8 +31,8 @@ import org.junit.runner.RunWith
 class ReservationChatModelTest {
     private val apps = mutableListOf<FirebaseApp>()
     private val projectId = "demo-zephyr-reservation-chat"
-    private val reservation = ReservedUser(UUID.randomUUID().toString(), "entrant-device", "1")
-    private val ownerId = "owner-device"
+    private val reservation = ReservedUser(UUID.randomUUID().toString(), "entrant-${UUID.randomUUID()}", "1")
+    private val ownerId = "owner-${UUID.randomUUID()}"
 
     @Before
     fun requireEmulator() {
@@ -51,7 +52,7 @@ class ReservationChatModelTest {
         val (entrantModel, entrantUid) = connect()
         val (ownerModel, ownerUid) = connect()
         val otherModel = connect().first
-        createConversation(entrantUid, ownerUid)
+        approveReservation(entrantUid, ownerUid)
 
         val entrantChat = await(entrantModel.open(reservation, ownerId))
         val ownerChat = await(ownerModel.open(reservation, ownerId, ownerReply = true))
@@ -91,8 +92,8 @@ class ReservationChatModelTest {
         val (entrantModel, entrantUid) = connect()
         val (ownerModel, ownerUid) = connect()
         val otherReservation = reservation.copy(id = UUID.randomUUID().toString())
-        createConversation(entrantUid, ownerUid)
-        createConversation(entrantUid, ownerUid, otherReservation)
+        approveReservation(entrantUid, ownerUid)
+        approveReservation(entrantUid, ownerUid, otherReservation)
 
         val first = await(entrantModel.open(reservation, ownerId))
         val second = await(entrantModel.open(otherReservation, ownerId))
@@ -108,7 +109,7 @@ class ReservationChatModelTest {
     @Test
     fun invalidMessageTextDoesNotCreateMessages() {
         val (entrantModel, entrantUid) = connect()
-        createConversation(entrantUid, connect().second)
+        approveReservation(entrantUid, connect().second)
         val chat = await(entrantModel.open(reservation, ownerId))
         val invalid = listOf("", " \t\n", "x".repeat(MAX_RESERVATION_MESSAGE_LENGTH + 1))
         for (text in invalid) {
@@ -116,6 +117,28 @@ class ReservationChatModelTest {
             assertTrue(result.exceptionOrNull()?.cause is IllegalArgumentException)
         }
         assertTrue(readMessages(entrantModel, chat).isEmpty())
+    }
+
+    @Test
+    fun opensOnlyVerifiedReservationsAndRevokesAnOldUidWhenRelinked() {
+        val (entrantModel, entrantUid) = connect()
+        val (_, ownerUid) = connect()
+        assertTrue(runCatching { await(entrantModel.open(reservation, ownerId)) }.isFailure)
+
+        approveReservation(entrantUid, ownerUid)
+        assertTrue(runCatching { await(entrantModel.open(reservation, "wrong-owner")) }.isFailure)
+        val first = await(entrantModel.open(reservation, ownerId))
+        await(entrantModel.send(first, "Original message"))
+
+        val (relinkedModel, newUid) = connect()
+        writeDocument("chatAccountLinks/${reservation.accountId}", mapOf("uid" to newUid))
+        assertTrue(runCatching { await(entrantModel.open(reservation, ownerId)) }.isFailure)
+        assertTrue(runCatching { await(entrantModel.send(first, "Old identity")) }.isFailure)
+
+        val reopened = await(relinkedModel.open(reservation, ownerId))
+        val message = readMessages(relinkedModel, reopened).single()
+        assertEquals("Original message", message.text)
+        assertTrue(message.from(reservation.accountId, newUid))
     }
 
     private fun readMessages(model: ReservationChatModel, session: ReservationChatSession): List<ReservationMessage> {
@@ -143,18 +166,23 @@ class ReservationChatModelTest {
         return ReservationChatModel(firestore, auth) to uid
     }
 
-    private fun createConversation(entrantUid: String, ownerUid: String, booking: ReservedUser = reservation) {
-        val path = "projects/$projectId/databases/(default)/documents/reservationChat?documentId=${booking.id}"
-        val connection = URI("http://127.0.0.1:8097/v1/$path").toURL().openConnection() as HttpURLConnection
+    private fun approveReservation(entrantUid: String, ownerUid: String, booking: ReservedUser = reservation) {
+        writeDocument("chatAccountLinks/${booking.accountId}", mapOf("uid" to entrantUid))
+        writeDocument("chatAccountLinks/$ownerId", mapOf("uid" to ownerUid))
+        writeDocument("reservationChatAccess/${booking.id}", mapOf(
+            "entrantAccountId" to booking.accountId, "ownerAccountId" to ownerId, "campsiteId" to booking.campsiteId
+        ))
+    }
+
+    private fun writeDocument(document: String, values: Map<String, String>) {
+        val path = "projects/$projectId/databases/(default)/documents"
+        val connection = URI("http://127.0.0.1:8097/v1/$path:commit").toURL().openConnection() as HttpURLConnection
         val fields = JSONObject()
-        val participants = mapOf(
-            "entrantUid" to entrantUid, "ownerUid" to ownerUid,
-            "entrantAccountId" to booking.accountId, "ownerAccountId" to ownerId,
-            "campsiteId" to booking.campsiteId
-        )
-        for ((field, value) in participants) {
+        for ((field, value) in values) {
             fields.put(field, JSONObject().put("stringValue", value))
         }
+        val update = JSONObject().put("name", "$path/$document").put("fields", fields)
+        val body = JSONObject().put("writes", JSONArray().put(JSONObject().put("update", update)))
         try {
             connection.requestMethod = "POST"
             connection.setRequestProperty("Authorization", "Bearer owner")
@@ -162,7 +190,7 @@ class ReservationChatModelTest {
             connection.connectTimeout = 5_000
             connection.readTimeout = 5_000
             connection.doOutput = true
-            connection.outputStream.use { it.write(JSONObject().put("fields", fields).toString().toByteArray()) }
+            connection.outputStream.use { it.write(body.toString().toByteArray()) }
             assertEquals(200, connection.responseCode)
         } finally {
             connection.disconnect()
