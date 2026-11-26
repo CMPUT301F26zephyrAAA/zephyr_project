@@ -1,4 +1,9 @@
-
+// AI Citation [AI-31]
+// OpenAI, ChatGPT assisted with generating Jetpack Compose
+// UI tests for reservation offer decline functionality,
+// including winner status, confirmation dialogs, cancellation,
+// declined status, and entrant role restrictions.
+// AI usage and citation documented in the GitHub Wiki.
 package com.example.zephyrcampsites
 
 import androidx.compose.ui.test.assertIsDisplayed
