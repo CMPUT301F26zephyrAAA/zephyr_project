@@ -26,10 +26,14 @@ function getEligibleEntrants(entrantDocs, lotteryId) {
 
     // Exclude invalid registrations.
     if (entrant.lotteryId !== lotteryId ||
-        typeof accountId !== "string" ||
-        accountId.trim() === "" ||
-        accountId.includes("/") ||
-        entrant.drawStatus !== "WAITING") {
+    typeof accountId !== "string" ||
+    accountId.trim() === "" ||
+    accountId.includes("/") ||
+    accountId === "." ||
+    accountId === ".." ||
+    /^__.*__$/.test(accountId) ||
+    Buffer.byteLength(accountId, "utf8") > 1500 ||
+    entrant.drawStatus !== "WAITING") {
       continue;
     }
 
@@ -217,11 +221,19 @@ async function recoverExpiredLotteryDraw(lotteryId) {
 
     const lottery = lotteryDoc.data();
 
-    // Only recover unfinished draws that have timed out.
+    // Only recover unfinished draws.
     if (lottery.drawStatus !== "PROCESSING" ||
-        lottery.drawCompleted === true ||
-        !Number.isFinite(lottery.drawStartedAt) ||
-        lottery.drawStartedAt <= 0 ||
+        lottery.drawCompleted === true) {
+      return false;
+    }
+
+    // Check whether the draw has a valid start timestamp.
+    const hasValidStartTime =
+        Number.isFinite(lottery.drawStartedAt) &&
+        lottery.drawStartedAt > 0;
+
+    // Do not interrupt a draw within its processing timeout.
+    if (hasValidStartTime &&
         Date.now() - lottery.drawStartedAt < timeout) {
       return false;
     }
@@ -410,7 +422,7 @@ async function saveLotteryDraw(
 // Check for lotteries that need a draw every minute.
 exports.automaticLotteryDraw = onSchedule(
     {
-      schedule: "every 1 minutes",
+      schedule: "* * * * *",
       timeZone: "America/Edmonton",
       maxInstances: 1,
     },
@@ -428,10 +440,17 @@ exports.automaticLotteryDraw = onSchedule(
 
       // Reset draws that have been stuck for too long.
       for (const document of processingSnapshot.docs) {
-        const recovered = await recoverExpiredLotteryDraw(document.id);
+        try {
+          const recovered = await recoverExpiredLotteryDraw(document.id);
 
-        if (recovered) {
-          logger.info(`Recovered interrupted lottery ${document.id}`);
+          if (recovered) {
+            logger.info(`Recovered interrupted lottery ${document.id}`);
+          }
+        } catch (error) {
+          logger.error(
+              `Failed to recover lottery ${document.id}:`,
+              error,
+          );
         }
       }
 
@@ -449,7 +468,14 @@ exports.automaticLotteryDraw = onSchedule(
           logger.info(`Lottery ${document.id} is ready for drawing.`);
 
           // Claim this lottery before preparing the draw.
-          const attemptId = await claimLotteryDraw(document.id);
+          let attemptId;
+
+          try {
+            attemptId = await claimLotteryDraw(document.id);
+          } catch (error) {
+            logger.error(`Failed to claim lottery ${document.id}:`, error);
+            continue;
+          }
 
           // Skip if another process has already claimed the lottery.
           if (!attemptId) {
