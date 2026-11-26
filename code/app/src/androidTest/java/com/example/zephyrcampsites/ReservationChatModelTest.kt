@@ -7,10 +7,12 @@ import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import java.net.HttpURLConnection
 import java.net.URI
+import java.util.Date
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import org.json.JSONArray
@@ -141,6 +143,23 @@ class ReservationChatModelTest {
         assertTrue(message.from(reservation.accountId, newUid))
     }
 
+    @Test
+    fun completedReservationCanChatUntilItIsCancelled() {
+        val (entrantModel, entrantUid) = connect()
+        val (ownerModel, ownerUid) = connect()
+        approveReservation(entrantUid, ownerUid)
+        val first = await(entrantModel.open(reservation, ownerId))
+        val second = await(ownerModel.open(reservation, ownerId, ownerReply = true))
+        await(entrantModel.send(first, "Thanks for the stay."))
+        await(ownerModel.send(second, "You are welcome."))
+
+        writeReservation(reservation, cancelled = true)
+        assertTrue(runCatching { await(entrantModel.send(first, "Cancelled")) }.isFailure)
+        assertTrue(runCatching { await(ownerModel.send(second, "Cancelled")) }.isFailure)
+        assertTrue(runCatching { await(entrantModel.open(reservation, ownerId)) }.isFailure)
+        assertTrue(runCatching { await(ownerModel.open(reservation, ownerId, ownerReply = true)) }.isFailure)
+    }
+
     private fun readMessages(model: ReservationChatModel, session: ReservationChatSession): List<ReservationMessage> {
         val result = TaskCompletionSource<List<ReservationMessage>>()
         val listener = model.listen(session, { result.trySetResult(it) }, { result.trySetException(it) })
@@ -172,14 +191,28 @@ class ReservationChatModelTest {
         writeDocument("reservationChatAccess/${booking.id}", mapOf(
             "entrantAccountId" to booking.accountId, "ownerAccountId" to ownerId, "campsiteId" to booking.campsiteId
         ))
+        writeReservation(booking, cancelled = false)
     }
 
-    private fun writeDocument(document: String, values: Map<String, String>) {
+    private fun writeReservation(booking: ReservedUser, cancelled: Boolean) {
+        writeDocument("reservation/${booking.id}", mapOf(
+            "accountId" to booking.accountId, "campsiteId" to booking.campsiteId, "cancelled" to cancelled,
+            "bookedPeriodStart" to Timestamp(Date(1_000)), "bookedPeriodEnd" to Timestamp(Date(2_000))
+        ))
+    }
+
+    private fun writeDocument(document: String, values: Map<String, Any>) {
         val path = "projects/$projectId/databases/(default)/documents"
         val connection = URI("http://127.0.0.1:8097/v1/$path:commit").toURL().openConnection() as HttpURLConnection
         val fields = JSONObject()
         for ((field, value) in values) {
-            fields.put(field, JSONObject().put("stringValue", value))
+            val encoded = when (value) {
+                is String -> JSONObject().put("stringValue", value)
+                is Boolean -> JSONObject().put("booleanValue", value)
+                is Timestamp -> JSONObject().put("timestampValue", value.toDate().toInstant().toString())
+                else -> error("Unsupported fixture value")
+            }
+            fields.put(field, encoded)
         }
         val update = JSONObject().put("name", "$path/$document").put("fields", fields)
         val body = JSONObject().put("writes", JSONArray().put(JSONObject().put("update", update)))

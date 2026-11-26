@@ -13,6 +13,10 @@ An authorized operator verifies the booking and writes `reservationChatAccess/{r
 document ID. The app creates the chat on first open. Only the Admin SDK or Firebase console should
 write the account links and reservation access records.
 
+Both participants can use chat after checkout. Cancellation blocks access and sending on both
+sides. The rules read the booking's current cancellation status from `reservation/{reservationId}`.
+That collection's identity and cancellation fields need authorized writes in a live deployment.
+
 `code/firestore.chat.rules` is the scoped chat ruleset used for emulator testing. In a live
 deployment, exclude `chatAccountLinks`, `reservationChatAccess`, and `reservationChat` and its
 subcollections from any broader allow rules before applying these chat rules.

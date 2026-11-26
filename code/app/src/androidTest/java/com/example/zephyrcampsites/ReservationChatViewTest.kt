@@ -55,6 +55,23 @@ class ReservationChatViewTest {
     }
 
     @Test
+    fun completedReservationShowsChatUntilItIsCancelled() {
+        val booking = mutableStateOf(ReservedUser("booking-1", "entrant", "2"))
+        composeRule.setContent {
+            MaterialTheme {
+                ReservationDetailsView(
+                    reservation = booking.value, campsite = null, isPast = true, imageContent = {},
+                    onViewMap = {}, onMessageOwner = {}, onCancelReservation = {}, onRateCampsite = {}, onBack = {}
+                )
+            }
+        }
+        val messageOwner = composeRule.onNodeWithTag("messageReservationOwnerButton")
+        messageOwner.assertIsDisplayed()
+        composeRule.runOnIdle { booking.value = booking.value.copy(cancelled = true) }
+        messageOwner.assertDoesNotExist()
+    }
+
+    @Test
     fun showsTheOwnerAndReservationAndReturnsToDetails() {
         val reservation = ReservedUser(
             id = "reservation-1",

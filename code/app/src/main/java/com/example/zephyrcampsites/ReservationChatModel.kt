@@ -52,7 +52,9 @@ internal class ReservationChatModel(
         ownerAccountId: String,
         ownerReply: Boolean = false
     ): Task<ReservationChatSession> {
-        if (!listOf(reservation.id, reservation.accountId, ownerAccountId, reservation.campsiteId).all(::validId)) {
+        if (reservation.cancelled ||
+            !listOf(reservation.id, reservation.accountId, ownerAccountId, reservation.campsiteId).all(::validId)
+        ) {
             return Tasks.forException(IllegalArgumentException("Reservation chat unavailable."))
         }
 

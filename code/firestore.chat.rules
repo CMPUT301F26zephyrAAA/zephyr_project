@@ -1,6 +1,7 @@
 // Reservation chat rules for the emulator.
 // Admin-managed chatAccountLinks/{deviceAccountId}: uid (Firebase Auth UID).
 // Admin-managed reservationChatAccess/{reservationId}: entrantAccountId, ownerAccountId, campsiteId.
+// reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
 // reservationChat/{reservationId}: same participant fields, immutable after creation.
 // messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
 rules_version = '2';
@@ -26,6 +27,15 @@ service cloud.firestore {
 
     function isParticipant(booking) {
       return isLinkedAccount(booking.entrantAccountId) || isLinkedAccount(booking.ownerAccountId);
+    }
+
+    function canOpenChat(reservationId, booking) {
+      let reservation = get(/databases/$(database)/documents/reservation/$(reservationId)).data;
+      return isParticipant(booking) &&
+        reservation.accountId == booking.entrantAccountId && reservation.campsiteId == booking.campsiteId &&
+        reservation.cancelled == false &&
+        reservation.bookedPeriodStart is timestamp && reservation.bookedPeriodEnd is timestamp &&
+        reservation.bookedPeriodStart < reservation.bookedPeriodEnd;
     }
 
     function sameBooking(data, booking) {
@@ -54,14 +64,14 @@ service cloud.firestore {
     }
 
     match /reservationChat/{reservationId} {
-      allow get: if isParticipant(approvedReservation(reservationId));
-      allow create: if isParticipant(approvedReservation(reservationId)) &&
+      allow get: if canOpenChat(reservationId, approvedReservation(reservationId));
+      allow create: if canOpenChat(reservationId, approvedReservation(reservationId)) &&
         isValidConversation(request.resource.data, approvedReservation(reservationId));
 
       match /messages/{messageId} {
         function canAccessChat(booking) {
           let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId)).data;
-          return isParticipant(booking) && sameBooking(conversation, booking);
+          return canOpenChat(reservationId, booking) && sameBooking(conversation, booking);
         }
 
         allow read: if canAccessChat(approvedReservation(reservationId));
