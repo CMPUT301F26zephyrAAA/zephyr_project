@@ -535,92 +535,27 @@ class CampsiteDetailView {
                                 )
                             }
 
-                            if (joined && entrantDrawStatus == "WINNER") {
-                                var showDeclineConfirmation by remember(lottery.id, accountId) {
-                                    mutableStateOf(false)
-                                }
-
-                                var declining by remember(lottery.id, accountId) {
-                                    mutableStateOf(false)
-                                }
-
+                            if (joined) {
+                                val canLeave = !lottery.drawCompleted &&
+                                        lottery.drawStatus == "PENDING"
                                 Spacer(modifier = Modifier.size(8.dp))
 
-                                OutlinedButton(
-                                    onClick = { showDeclineConfirmation = true },
-                                    enabled = !declining && !checkingDrawStatus,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        if (declining) "Declining..."
-                                        else "Decline Reservation"
-                                    )
-                                }
-
-                                if (showDeclineConfirmation) {
-                                    androidx.compose.material3.AlertDialog(
-                                        onDismissRequest = {
-                                            if (!declining) showDeclineConfirmation = false
-                                        },
-                                        title = {
-                                            Text("Decline reservation?")
-                                        },
-                                        text = {
-                                            Text(
-                                                "Are you sure you want to decline this reservation opportunity? " +
-                                                        "You will not be able to reclaim it."
-                                            )
-                                        },
-                                        confirmButton = {
-                                            TextButton(
-                                                onClick = {
-                                                    declining = true
-                                                    drawStatusError = ""
-
-                                                    reservationOfferController?.declineReservationOffer(
-                                                        lotteryId = lottery.id,
-                                                        accountId = accountId,
-                                                        onSuccess = {
-                                                            entrantDrawStatus = "DECLINED"
-                                                            declining = false
-                                                            showDeclineConfirmation = false
-                                                        },
-                                                        onError = { error ->
-                                                            drawStatusError = error
-                                                            declining = false
-                                                            showDeclineConfirmation = false
-                                                        }
-                                                    )
-                                                },
-                                                enabled = !declining
-                                            ) {
-                                                Text(if (declining) "Declining..." else "Yes, Decline")
-                                            }
-                                        },
-                                        dismissButton = {
-                                            TextButton(
-                                                onClick = { showDeclineConfirmation = false },
-                                                enabled = !declining
-                                            ) {
-                                                Text("Cancel")
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-
-                            if (joined && !lottery.drawCompleted && lottery.drawStatus == "PENDING") {
-                                Spacer(modifier = Modifier.size(8.dp))
                                 OutlinedButton(
                                     onClick = {
                                         showLeaveConfirmation = true
                                     },
-                                    enabled = !leaving && !joining,
+                                    enabled = !leaving && !joining && canLeave,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
                                         if (leaving) "Leaving..."
                                         else "Leave Waiting List"
+                                    )
+                                }
+                                if (!canLeave) {
+                                    Text(
+                                        text = "You cannot leave after the lottery draw has started.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
