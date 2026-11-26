@@ -1,4 +1,3 @@
-
 const {setGlobalOptions} = require("firebase-functions/v2");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
@@ -12,7 +11,78 @@ const db = admin.firestore();
 // Limit how many function instances can run at once.
 setGlobalOptions({maxInstances: 1});
 
+/**
+ * Returns canonical, unique waiting-list registrations for a lottery.
+ * @param {Array<Object>} entrantDocs Firestore registration documents.
+ * @param {string} lotteryId ID of the lottery.
+ * @return {Array<Object>} Eligible registration candidates.
+ */
+function getEligibleEntrants(entrantDocs, lotteryId) {
+  const eligibleEntrants = new Map();
 
+  for (const entrantDoc of entrantDocs) {
+    const entrant = entrantDoc.data();
+    const accountId = entrant.accountId;
+
+    // Exclude invalid registrations.
+    if (entrant.lotteryId !== lotteryId ||
+        typeof accountId !== "string" ||
+        accountId.trim() === "" ||
+        accountId.includes("/") ||
+        entrant.drawStatus !== "WAITING") {
+      continue;
+    }
+
+    // Match the registration ID used by the Android application.
+    if (entrantDoc.id !== `${lotteryId}_${accountId}`) {
+      continue;
+    }
+
+    // Keep only one registration per account.
+    if (!eligibleEntrants.has(accountId)) {
+      eligibleEntrants.set(accountId, {
+        ...entrant,
+        id: entrantDoc.id,
+      });
+    }
+  }
+
+  return Array.from(eligibleEntrants.values());
+}
+
+/**
+ * Excludes entrants whose accounts are unavailable.
+ *
+ * @param {Array<Object>} entrants Valid registration candidates.
+ * @param {Object|null} transaction Optional Firestore transaction.
+ * @return {Promise<Array<Object>>} Entrants with eligible accounts.
+ */
+async function filterEligibleAccounts(entrants, transaction = null) {
+  if (entrants.length === 0) {
+    return [];
+  }
+
+  const accountRefs = entrants.map(
+      (entrant) => db.collection("accounts").doc(entrant.accountId),
+  );
+
+  const accountDocs = transaction ?
+      await transaction.getAll(...accountRefs) :
+      await db.getAll(...accountRefs);
+
+  const eligibleAccountIds = new Set(
+      accountDocs
+          .filter((accountDoc) =>
+            accountDoc.exists &&
+            accountDoc.data().deletionPending !== true,
+          )
+          .map((accountDoc) => accountDoc.id),
+  );
+
+  return entrants.filter((entrant) =>
+    eligibleAccountIds.has(entrant.accountId),
+  );
+}
 /**
  * Randomly selects winners and puts the remaining entrants in backup order.
  *
@@ -263,15 +333,37 @@ async function saveLotteryDraw(
       }
     }
 
-    // Check that the waiting list has not changed.
+    // Recheck the eligible waiting list inside the transaction.
     const currentEntrants = await transaction.get(
         db.collection("waitingList")
             .where("lotteryId", "==", lotteryId),
     );
 
-    if (currentEntrants.size !== selectedEntrants.length) {
-      throw new Error("Waiting list changed during the draw");
+    const currentRegistrationCandidates = getEligibleEntrants(
+        currentEntrants.docs,
+        lotteryId,
+    );
+
+    const currentEligibleEntrants = await filterEligibleAccounts(
+        currentRegistrationCandidates,
+        transaction,
+    );
+
+    const currentEligibleIds = new Map(
+        currentEligibleEntrants.map(
+            (entrant) => [entrant.id, entrant.accountId],
+        ),
+    );
+
+    // Verify that the same eligible registrations are present.
+    if (currentEligibleEntrants.length !== selectedEntrants.length ||
+        selectedEntrants.some((entrant) =>
+          currentEligibleIds.get(entrant.id) !== entrant.accountId,
+        )) {
+      throw new Error("Eligible waiting list changed during the draw");
     }
+
+    // Update the selected winners.
     for (const winner of winners) {
       const winnerRef = db.collection("waitingList").doc(winner.id);
 
@@ -313,6 +405,8 @@ async function saveLotteryDraw(
     });
   });
 }
+
+
 // Check for lotteries that need a draw every 60 minutes.
 exports.automaticLotteryDraw = onSchedule(
     {
@@ -351,7 +445,7 @@ exports.automaticLotteryDraw = onSchedule(
         const lottery = document.data();
 
         if (lottery.registrationEnd <= currentTime &&
-                lottery.drawCompleted !== true) {
+            lottery.drawCompleted !== true) {
           logger.info(`Lottery ${document.id} is ready for drawing.`);
 
           // Claim this lottery before preparing the draw.
@@ -364,41 +458,35 @@ exports.automaticLotteryDraw = onSchedule(
           }
 
           try {
-          // Load all registrations for this lottery.
+            // Load all registrations for this lottery.
             const entrantsSnapshot = await db.collection("waitingList")
                 .where("lotteryId", "==", document.id)
                 .get();
 
-            // Keep the Firestore document ID with each entrant.
-            const entrants = entrantsSnapshot.docs.map((entrantDoc) => ({
-              id: entrantDoc.id,
-              ...entrantDoc.data(),
-            }));
-
-            // Only entrants still waiting can join the draw.
-            const eligibleEntrants = entrants.filter((entrant) =>
-              entrant.lotteryId === document.id &&
-  typeof entrant.accountId === "string" &&
-  entrant.accountId.trim() !== "" &&
-  entrant.drawStatus === "WAITING",
+            // Only include valid, unique waiting-list registrations.
+            const registrationCandidates = getEligibleEntrants(
+                entrantsSnapshot.docs,
+                document.id,
             );
 
-            // Check for duplicate account registrations.
-            const accountIds = eligibleEntrants.map(
-                (entrant) => entrant.accountId,
+            const eligibleEntrants = await filterEligibleAccounts(
+                registrationCandidates,
             );
-            const hasDuplicates =
-              new Set(accountIds).size !== accountIds.length;
 
-            if (eligibleEntrants.length !== entrants.length || hasDuplicates) {
-              throw new Error(
-                  `Invalid waiting list for lottery ${document.id}`,
+            // Log excluded registrations without failing the draw.
+            const excludedCount =
+                entrantsSnapshot.size - eligibleEntrants.length;
+
+            if (excludedCount > 0) {
+              logger.warn(
+                  `Lottery ${document.id}: ` +
+                  `${excludedCount} invalid registrations excluded.`,
               );
             }
 
             // Check that the winner count is valid.
             if (!Number.isInteger(lottery.numberOfWinners) ||
-    lottery.numberOfWinners < 0) {
+                lottery.numberOfWinners < 0) {
               throw new Error(
                   `Invalid winner count for lottery ${document.id}`);
             }
@@ -411,7 +499,7 @@ exports.automaticLotteryDraw = onSchedule(
 
             logger.info(
                 `Lottery ${document.id}: ${winners.length} winners, ` +
-    `${backups.length} backups selected.`,
+                `${backups.length} backups selected.`,
             );
 
             // Save the winners, backups, and completed lottery.
@@ -437,5 +525,4 @@ exports.automaticLotteryDraw = onSchedule(
         }
       }
     },
-
 );
