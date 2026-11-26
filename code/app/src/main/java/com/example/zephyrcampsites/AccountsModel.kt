@@ -9,6 +9,12 @@ import com.google.firebase.firestore.FieldValue
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.storage
+import android.net.Uri
+import android.content.Context
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 
 /**
  * Model class for accounts. Reads/Writes the "accounts" Firestore collection.
@@ -38,6 +44,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                 account.phoneNumber = document.getString("phoneNumber") ?: ""
                 account.notificationsEnabled = document.getBoolean("notificationsEnabled") ?: true
                 account.imagePath = document.getString("imagePath") ?: ""
+                account.compressedImage = document.getString("compressedImage") ?: ""
                 onResult(account)
             } else {
                 onResult(null)
@@ -117,6 +124,96 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     }
 
     /**
+     * Compresses and saves an entrant's profile image in Firestore.
+     * Supports adding and replacing an existing profile image.
+     *
+     * @param context Android application context.
+     * @param account Account whose image is being updated.
+     * @param imageUri URI of the selected image.
+     * @param onSuccess Called when the image is saved.
+     * @param onError Called if compression or saving fails.
+     */
+    open fun updateOwnProfileImage(
+        context: Context,
+        account: Account,
+        imageUri: Uri,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val compressedImage =
+                    ImageCompressionUtil.compressImage(
+                        context = context.applicationContext,
+                        imageUri = imageUri
+                    )
+
+                val updatedData = mapOf(
+                    "compressedImage" to compressedImage,
+                    "imagePath" to ""
+                )
+
+                accounts.document(account.id)
+                    .update(updatedData)
+                    .addOnSuccessListener {
+                        account.compressedImage = compressedImage
+                        account.imagePath = ""
+
+                        onSuccess()
+                    }
+                    .addOnFailureListener { exception ->
+                        onError(exception)
+                    }
+
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: Exception) {
+                onError(exception)
+            }
+        }
+    }
+
+    /**
+     * Removes the entrant's profile image and restores
+     * the default profile icon.
+     *
+     * @param account Account whose image is being removed.
+     * @param onSuccess Called when the image is removed.
+     * @param onError Called if the operation fails.
+     */
+    open fun removeOwnProfileImage(
+        account: Account,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        if (account.compressedImage.isBlank() &&
+            account.imagePath.isBlank()
+        ) {
+            onError(
+                IllegalArgumentException("No profile image exists.")
+            )
+            return
+        }
+
+        val updatedData = mapOf(
+            "compressedImage" to "",
+            "imagePath" to ""
+        )
+
+        accounts.document(account.id)
+            .update(updatedData)
+            .addOnSuccessListener {
+                account.compressedImage = ""
+                account.imagePath = ""
+
+                onSuccess()
+            }
+            .addOnFailureListener { exception ->
+                onError(exception)
+            }
+    }
+
+    /**
      * Saves the notification preference without changing other account fields.
      *
      * @param deviceId Device identifier of the account.
@@ -161,6 +258,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                             notificationsEnabled =
                                 document.getBoolean("notificationsEnabled") ?: true,
                             imagePath = document.getString("imagePath") ?: "",
+                            compressedImage = document.getString("compressedImage") ?: "",
                         )
                     }
                 )
@@ -707,6 +805,35 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             return
         }
         val reference = accounts.document(account.id)
+        if (account.compressedImage.isNotBlank() &&
+            account.compressedImage == path
+        ) {
+            firestore.runTransaction { transaction ->
+                val document = transaction.get(reference)
+
+                check(document.exists()) {
+                    "Profile no longer exists."
+                }
+
+                check(document.getString("compressedImage") == path) {
+                    "The selected profile image has changed. Refresh the list."
+                }
+
+                transaction.update(
+                    reference,
+                    "compressedImage",
+                    ""
+                )
+
+                true
+            }
+                .addOnSuccessListener {
+                    onSuccess()
+                }
+                .addOnFailureListener(onError)
+
+            return
+        }
         reference
             .get(Source.SERVER)
             .addOnSuccessListener { document ->

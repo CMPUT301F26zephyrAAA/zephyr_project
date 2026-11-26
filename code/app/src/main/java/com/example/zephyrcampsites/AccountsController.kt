@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 
 import android.content.Context
 import android.provider.Settings
+import android.net.Uri
 
 /**
  * Controls account identification and initialization.
@@ -110,6 +111,99 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         accountsModel.updateAccount(updatedAccount,
             onSuccess = { onSuccess(updatedAccount) },
             onError = { exception -> onError(exception.message ?: "Failed to updated profile") }
+        )
+    }
+
+    /**
+     * Allows an entrant to add or replace their own profile image.
+     * The selected image is compressed before being saved in Firestore.
+     *
+     * @param context Android application context.
+     * @param account Current entrant account.
+     * @param imageUri URI of the selected image.
+     * @param onSuccess Returns the updated account.
+     * @param onError Returns an error message if the operation fails.
+     */
+    fun updateOwnProfileImage(
+        context: Context,
+        account: Account,
+        imageUri: Uri,
+        onSuccess: (Account) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val deviceId = getDeviceId(context)
+
+        if (deviceId.isNullOrBlank() ||
+            '/' in deviceId ||
+            deviceId != account.id
+        ) {
+            onError("You can only update your own profile image.")
+            return
+        }
+
+        if ("entrant" !in account.userType) {
+            onError("Only entrants can update their profile image.")
+            return
+        }
+
+        val updatedAccount = account.copy()
+
+        accountsModel.updateOwnProfileImage(
+            context.applicationContext,
+            updatedAccount,
+            imageUri,
+            onSuccess = {
+                onSuccess(updatedAccount)
+            },
+            onError = { exception ->
+                onError(
+                    exception.message ?: "Failed to update profile image."
+                )
+            }
+        )
+    }
+
+    /**
+     * Allows an entrant to remove their own profile image.
+     *
+     * @param context Android application context.
+     * @param account Current entrant account.
+     * @param onSuccess Returns the updated account.
+     * @param onError Returns an error message if removal fails.
+     */
+    fun removeOwnProfileImage(
+        context: Context,
+        account: Account,
+        onSuccess: (Account) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val deviceId = getDeviceId(context)
+
+        if (deviceId.isNullOrBlank() ||
+            '/' in deviceId ||
+            deviceId != account.id
+        ) {
+            onError("You can only remove your own profile image.")
+            return
+        }
+
+        if ("entrant" !in account.userType) {
+            onError("Only entrants can remove their profile image.")
+            return
+        }
+
+        val updatedAccount = account.copy()
+
+        accountsModel.removeOwnProfileImage(
+            updatedAccount,
+            onSuccess = {
+                onSuccess(updatedAccount)
+            },
+            onError = { exception ->
+                onError(
+                    exception.message ?: "Failed to remove profile image."
+                )
+            }
         )
     }
 

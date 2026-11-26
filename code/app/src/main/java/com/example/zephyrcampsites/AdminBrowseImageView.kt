@@ -61,11 +61,35 @@ fun AdminBrowseImageView(
         onDispose { listener.remove() }
     }
     val profileImages =
-        profiles
-            .filter { it.imagePath.isNotBlank() }
-            .map {
-                AdminImage(it.id, it.name.ifBlank { "Unnamed Profile" }, it.imagePath, "profile")
+        profiles.mapNotNull { profile ->
+            when {
+                profile.compressedImage.isNotBlank() -> {
+                    AdminImage(
+                        ownerId = profile.id,
+                        ownerName = profile.name.ifBlank {
+                            "Unnamed Profile"
+                        },
+                        path = profile.compressedImage,
+                        type = "profile",
+                        isCompressed = true
+                    )
+                }
+
+                profile.imagePath.isNotBlank() -> {
+                    AdminImage(
+                        ownerId = profile.id,
+                        ownerName = profile.name.ifBlank {
+                            "Unnamed Profile"
+                        },
+                        path = profile.imagePath,
+                        type = "profile",
+                        isCompressed = false
+                    )
+                }
+
+                else -> null
             }
+        }
 
     val campsiteImages =
         campsiteModel.campsites.flatMap { campsite ->
@@ -337,7 +361,7 @@ fun AdminCompressedImage(
     when {
         bitmap != null -> Image(
             bitmap = bitmap.asImageBitmap(),
-            contentDescription = "Compressed campsite image",
+            contentDescription = "Compressed image",
             modifier = modifier,
             contentScale = ContentScale.Fit
         )

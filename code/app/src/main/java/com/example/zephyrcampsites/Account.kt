@@ -19,7 +19,8 @@ data class Account(
     var email: String = "",
     var phoneNumber: String = "",
     var notificationsEnabled: Boolean = true,
-    var imagePath: String = ""
+    var imagePath: String = "",
+    var compressedImage: String = ""
 ) : DataHolder(id)
 
 internal fun accountRoles(storedValue: Any?): List<String> {
