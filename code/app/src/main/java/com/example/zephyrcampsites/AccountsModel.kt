@@ -583,9 +583,9 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                             if (campsiteRatings.isNotEmpty()) {
 
-                                if (!campsite.exists()) {
-                                    // The campsite was deleted, but its ratings may remain.
-                                    // Delete orphaned ratings without updating the campsite.
+                                val scoredRatings = campsiteRatings.filter { it.contains("score") }
+                                if (!campsite.exists() || scoredRatings.isEmpty()) {
+                                    // Reviews without a score have no rating aggregate to update.
                                     campsiteRatings.forEach { rating ->
                                         transaction.delete(rating.reference)
                                     }
@@ -608,7 +608,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                                     val updatedScores = scores.toMutableList()
 
-                                    campsiteRatings.forEach { rating ->
+                                    scoredRatings.forEach { rating ->
                                         val score = rating.getLong("score")?.toInt()
                                             ?: error("Saved rating has no valid score.")
 
@@ -616,8 +616,8 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                             "Saved rating was not found in campsite aggregate."
                                         }
 
-                                        transaction.delete(rating.reference)
                                     }
+                                    campsiteRatings.forEach { transaction.delete(it.reference) }
 
                                     val updates = mutableMapOf<String, Any>(
                                         "rating" to updatedScores

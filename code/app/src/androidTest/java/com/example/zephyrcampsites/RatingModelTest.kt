@@ -82,6 +82,58 @@ class RatingModelTest {
     }
 
     @Test
+    fun writtenReviewAndStarRatingCanBeSavedIndependently() {
+        await(firestore.document("accounts/$accountId").update("userType", listOf("entrant", "owner")))
+        val ratingRef = firestore.document("campsite/$campsiteId/ratings/$accountId")
+        await(submitReview("  Quiet lakeside stay.  "))
+        val reviewOnly = await(ratingRef.get(Source.SERVER))
+        assertEquals(accountId, reviewOnly.getString("accountId"))
+        assertEquals(campsiteId, reviewOnly.getString("campsiteId"))
+        assertEquals(reservationId, reviewOnly.getString("reservationId"))
+        assertEquals("Quiet lakeside stay.", reviewOnly.getString("review"))
+        assertFalse(reviewOnly.contains("score"))
+
+        await(submit(load()!!.copy(score = 3)))
+        val listed = TaskCompletionSource<List<String>>()
+        val listener = model.observeReviews(campsiteId, { reviews ->
+            if ("Would stay again." in reviews) listed.trySetResult(reviews)
+        }, { listed.trySetException(IllegalStateException(it)) })
+        try {
+            await(submitReview("Would stay again."))
+            assertEquals(listOf("Would stay again."), await(listed.task))
+            assertEquals(3L, await(ratingRef.get(Source.SERVER)).getLong("score"))
+            assertEquals(listOf(4L, 5L, 3L), await(firestore.document("campsite/$campsiteId").get(Source.SERVER)).get("rating"))
+        } finally {
+            listener.remove()
+        }
+    }
+
+    @Test
+    fun blankReviewsAndCancelledStaysAreRejected() {
+        org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException::class.java) {
+            await(submitReview("   "))
+        }
+        await(firestore.document("reservation/$reservationId").update("cancelled", true))
+        org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException::class.java) {
+            await(submitReview("This stay was cancelled."))
+        }
+        assertFalse(await(firestore.document("campsite/$campsiteId/ratings/$accountId").get(Source.SERVER)).exists())
+    }
+
+    @Test
+    fun deletionPendingBlocksRatingAndReviewAfterOpeningForm() {
+        val eligible = load()!!
+        await(firestore.document("accounts/$accountId").update("deletionPending", true))
+
+        assertRejected(eligible.copy(score = 4))
+        org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException::class.java) {
+            await(submitReview("Quiet lakeside stay."))
+        }
+        assertFalse(await(firestore.document("campsite/$campsiteId/ratings/$accountId").get(Source.SERVER)).exists())
+        assertEquals(listOf(4L, 5L), await(firestore.document("campsite/$campsiteId").get(Source.SERVER)).get("rating"))
+    }
+
+    @Test
     fun concurrentEntrantsDoNotOverwriteEachOthersRatings() {
         val otherAccount = "other-$suffix"
         val otherStay = "other-stay-$suffix"
@@ -173,6 +225,13 @@ class RatingModelTest {
     private fun submit(rating: CampsiteRating, entrantId: String = accountId): Task<Boolean> {
         val result = TaskCompletionSource<Boolean>()
         model.submitRating(campsiteId, entrantId, rating, { result.setResult(true) }, { result.setException(IllegalStateException(it)) })
+        return result.task
+    }
+
+    private fun submitReview(review: String): Task<Unit> {
+        val result = TaskCompletionSource<Unit>()
+        model.submitReview(campsiteId, accountId, reservationId, review,
+            { result.setResult(Unit) }, { result.setException(IllegalStateException(it)) })
         return result.task
     }
 
