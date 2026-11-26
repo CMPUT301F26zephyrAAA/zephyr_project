@@ -75,6 +75,45 @@ class ReservationOfferModel(
             return
         }
 
+        // Do not release an offer after a reservation has already been created.
+        // The current reservation schema has no lotteryId, so block any
+        // non-cancelled reservation for the same entrant and campsite.
+        firestore.collection("lottery").document(lotteryId)
+            .get(Source.SERVER)
+            .addOnSuccessListener { lotteryDocument ->
+                val campsiteId = lotteryDocument.getString("campsiteId")
+                if (!lotteryDocument.exists() || campsiteId.isNullOrBlank()) {
+                    onError("Lottery campsite not found")
+                    return@addOnSuccessListener
+                }
+                firestore.collection("reservation")
+                    .whereEqualTo("accountId", accountId)
+                    .get(Source.SERVER)
+                    .addOnSuccessListener { reservations ->
+                        if (reservations.documents.any { document ->
+                                document.getString("campsiteId") == campsiteId &&
+                                        document.getBoolean("cancelled") != true
+                            }) {
+                            onError("You already have a reservation for this campsite. Cancel the reservation instead.")
+                        } else {
+                            executeDeclineTransaction(lotteryId, accountId, onSuccess, onError)
+                        }
+                    }
+                    .addOnFailureListener { error ->
+                        onError(error.message ?: "Could not verify existing reservations")
+                    }
+            }
+            .addOnFailureListener { error ->
+                onError(error.message ?: "Could not verify lottery information")
+            }
+    }
+
+    private fun executeDeclineTransaction(
+        lotteryId: String,
+        accountId: String,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
         val lotteryRef = firestore.collection("lottery")
             .document(lotteryId)
         val resultRef = firestore.collection("lotteryDrawResults")
@@ -119,122 +158,122 @@ class ReservationOfferModel(
             }
 
             if (!lotteryDoc.exists() ||
-                        lotteryDoc.getBoolean("drawCompleted") != true ||
-                        lotteryDoc.getString("drawStatus") != "COMPLETED") {
-                        throw IllegalStateException(
-                            "Lottery draw has not been completed"
-                        )
-                    }
+                lotteryDoc.getBoolean("drawCompleted") != true ||
+                lotteryDoc.getString("drawStatus") != "COMPLETED") {
+                throw IllegalStateException(
+                    "Lottery draw has not been completed"
+                )
+            }
 
-                    if (!resultDoc.exists() || !entrantDoc.exists()) {
-                        throw IllegalStateException(
-                            "Reservation offer not found"
-                        )
-                    }
+            if (!resultDoc.exists() || !entrantDoc.exists()) {
+                throw IllegalStateException(
+                    "Reservation offer not found"
+                )
+            }
 
-                    val entrantStatus = entrantDoc.getString("drawStatus") ?: "WAITING"
+            val entrantStatus = entrantDoc.getString("drawStatus") ?: "WAITING"
 
-                    if (entrantDoc.getString("lotteryId") != lotteryId ||
-                        entrantDoc.getString("accountId") != accountId) {
-                        throw IllegalStateException("Invalid entrant registration")
-                    }
+            if (entrantDoc.getString("lotteryId") != lotteryId ||
+                entrantDoc.getString("accountId") != accountId) {
+                throw IllegalStateException("Invalid entrant registration")
+            }
 
-                    val hasAlreadyDeclined = accountId in (
-                            (resultDoc.get("declinedIds") as? List<*>)
-                                ?.filterIsInstance<String>()
-                                ?: emptyList()
-                            )
+            val hasAlreadyDeclined = accountId in (
+                    (resultDoc.get("declinedIds") as? List<*>)
+                        ?.filterIsInstance<String>()
+                        ?: emptyList()
+                    )
 
-                    if (!ReservationOfferValidator.canDecline(
-                            drawCompleted = lotteryDoc.getBoolean("drawCompleted") == true,
-                            entrantStatus = entrantStatus,
-                            alreadyDeclined = hasAlreadyDeclined
-                        )
-                    ) {
-                        throw IllegalStateException(
-                            "You do not have an active winning offer"
-                        )
-                    }
+            if (!ReservationOfferValidator.canDecline(
+                    drawCompleted = lotteryDoc.getBoolean("drawCompleted") == true,
+                    entrantStatus = entrantStatus,
+                    alreadyDeclined = hasAlreadyDeclined
+                )
+            ) {
+                throw IllegalStateException(
+                    "You do not have an active winning offer"
+                )
+            }
 
-                    val winnerIds =
-                        (resultDoc.get("winnerIds") as? List<*>)
-                            ?.filterIsInstance<String>()
-                            ?.toMutableList()
-                            ?: throw IllegalStateException(
-                                "Winner list is missing"
-                            )
+            val winnerIds =
+                (resultDoc.get("winnerIds") as? List<*>)
+                    ?.filterIsInstance<String>()
+                    ?.toMutableList()
+                    ?: throw IllegalStateException(
+                        "Winner list is missing"
+                    )
 
-                    val remainingBackupIds = backupIds.toMutableList()
+            val remainingBackupIds = backupIds.toMutableList()
 
-                    val declinedIds =
-                        (resultDoc.get("declinedIds") as? List<*>)
-                            ?.filterIsInstance<String>()
-                            ?.toMutableList()
-                            ?: mutableListOf()
+            val declinedIds =
+                (resultDoc.get("declinedIds") as? List<*>)
+                    ?.filterIsInstance<String>()
+                    ?.toMutableList()
+                    ?: mutableListOf()
 
-                    if (accountId !in winnerIds ||
-                        accountId in declinedIds) {
-                        throw IllegalStateException(
-                            "This offer is no longer available"
-                        )
-                    }
+            if (accountId !in winnerIds ||
+                accountId in declinedIds) {
+                throw IllegalStateException(
+                    "This offer is no longer available"
+                )
+            }
 
-                    // Select the first backup in the original order.
-                    val nextBackupId = backupIds.firstOrNull()
+            // Select the first backup in the original order.
+            val nextBackupId = backupIds.firstOrNull()
 
-                    if (nextBackupId != null) {
-                        val backupDoc = backupDocs[nextBackupId]
+            if (nextBackupId != null) {
+                val backupDoc = backupDocs[nextBackupId]
 
-                        if (backupDoc == null ||
-                            !backupDoc.exists() ||
-                            backupDoc.getString("lotteryId") != lotteryId ||
-                            backupDoc.getString("accountId") != nextBackupId ||
-                            backupDoc.getString("drawStatus") != "BACKUP"
-                        ) {
-                            throw IllegalStateException(
-                                "Next backup is not eligible. Please review the draw results."
-                            )
-                        }
-                    }
+                if (backupDoc == null ||
+                    !backupDoc.exists() ||
+                    backupDoc.getString("lotteryId") != lotteryId ||
+                    backupDoc.getString("accountId") != nextBackupId ||
+                    backupDoc.getString("drawStatus") != "BACKUP"
+                ) {
+                    throw IllegalStateException(
+                        "Next backup is not eligible. Please review the draw results."
+                    )
+                }
+            }
 
 
             // Record the decline.
-                    transaction.update(
-                        entrantRef,
-                        "drawStatus",
-                        "DECLINED"
+            transaction.update(
+                entrantRef,
+                "drawStatus",
+                "DECLINED"
+            )
+
+            winnerIds.remove(accountId)
+            declinedIds.add(accountId)
+
+            // Transfer the opportunity to the next backup.
+            if (nextBackupId != null) {
+                val nextBackupRef = backupRefs.getValue(nextBackupId)
+
+                transaction.update(
+                    nextBackupRef,
+                    mapOf(
+                        "drawStatus" to "WINNER",
+                        "backupPosition" to 0
                     )
+                )
 
-                    winnerIds.remove(accountId)
-                    declinedIds.add(accountId)
+                remainingBackupIds.remove(nextBackupId)
+                winnerIds.add(nextBackupId)
+            }
 
-                    // Transfer the opportunity to the next backup.
-                    if (nextBackupId != null) {
-                        val nextBackupRef = backupRefs.getValue(nextBackupId)
-
-                        transaction.update(
-                            nextBackupRef,
-                            mapOf(
-                                "drawStatus" to "WINNER",
-                                "backupPosition" to 0
-                            )
-                        )
-
-                        remainingBackupIds.remove(nextBackupId)
-                        winnerIds.add(nextBackupId)
-                    }
-
-                    // Save the updated lists together.
-                    transaction.update(
-                        resultRef,
-                        mapOf(
-                            "winnerIds" to winnerIds,
-                            "backupIds" to remainingBackupIds,
-                            "declinedIds" to declinedIds,
-                            "winnerCount" to winnerIds.size,
-                            "backupCount" to remainingBackupIds.size
-                        )
-                    )
+            // Save the updated lists together.
+            transaction.update(
+                resultRef,
+                mapOf(
+                    "winnerIds" to winnerIds,
+                    "backupIds" to remainingBackupIds,
+                    "declinedIds" to declinedIds,
+                    "winnerCount" to winnerIds.size,
+                    "backupCount" to remainingBackupIds.size
+                )
+            )
 
             true
         }

@@ -273,6 +273,7 @@ internal fun CampsitesNavigation(
                     .thenBy { it.id }
             )
 
+            var declinedLotteryId: String? = null
             for (lottery in orderedLotteries) {
                 val status = kotlinx.coroutines.suspendCancellableCoroutine<String?> {
                         continuation ->
@@ -298,10 +299,17 @@ internal fun CampsitesNavigation(
                     )
                 }
 
-                if (status == "WINNER" || status == "DECLINED") {
+                if (status == "WINNER") {
                     winningLotteryId = lottery.id
                     break
                 }
+
+                if (status == "DECLINED" && declinedLotteryId == null) {
+                    declinedLotteryId = lottery.id
+                }
+            }
+            if (winningLotteryId == null) {
+                winningLotteryId = declinedLotteryId
             }
         }
         if (offerLookupError) {
@@ -463,25 +471,32 @@ internal fun CampsitesNavigation(
                             val campsiteId = lotteryController
                                 .getLotteryById(lotteryId)?.campsiteId
 
-                            lotteryView.LotteryDetailsView(
-                                lotteryId = lotteryId,
-                                onEditClick = if (
-                                    isOwnerGraph && ownsCampsite(campsiteId)
-                                ) {
-                                    {
-                                        navHostController.navigate(
-                                            "$OWNER/editLottery/${
-                                                Uri.encode(
-                                                    lotteryId
-                                                )
-                                            }"
-                                        )
-                                    }
-                                } else {
-                                    null
-                                },
-                                onBackClick = onBack
-                            )
+                            if (!isOwnerGraph || !ownsCampsite(campsiteId)) {
+                                FeaturePage(
+                                    "Only the campsite owner can view lottery details.",
+                                    onBack
+                                )
+                            } else {
+                                lotteryView.LotteryDetailsView(
+                                    lotteryId = lotteryId,
+                                    onEditClick = if (
+                                        isOwnerGraph && ownsCampsite(campsiteId)
+                                    ) {
+                                        {
+                                            navHostController.navigate(
+                                                "$OWNER/editLottery/${
+                                                    Uri.encode(
+                                                        lotteryId
+                                                    )
+                                                }"
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                    onBackClick = onBack
+                                )
+                            }
                         }
                     }
 

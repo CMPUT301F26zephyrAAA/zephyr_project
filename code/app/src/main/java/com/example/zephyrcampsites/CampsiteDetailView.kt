@@ -286,6 +286,10 @@ class CampsiteDetailView {
         var entrantDrawStatus by remember(lottery?.id, accountId) { mutableStateOf<String?>(null) }
         var checkingDrawStatus by remember(lottery?.id, accountId) { mutableStateOf(true) }
         var drawStatusError by remember(lottery?.id, accountId) { mutableStateOf("") }
+        var checkingReservations by remember(lottery?.id, accountId) { mutableStateOf(true) }
+        var hasExistingReservation by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var reservationCheckError by remember(lottery?.id, accountId) { mutableStateOf("") }
+        val reservationsModel = remember { ReservationsModel() }
 
         LaunchedEffect(showEntrantActions, lottery?.id, accountId, waitingListController) {
             joinError = ""
@@ -320,6 +324,9 @@ class CampsiteDetailView {
         ) {
             entrantDrawStatus = null
             drawStatusError = ""
+            checkingReservations = true
+            hasExistingReservation = false
+            reservationCheckError = ""
 
             if (
                 !showEntrantActions ||
@@ -328,6 +335,7 @@ class CampsiteDetailView {
                 reservationOfferController == null
             ) {
                 checkingDrawStatus = false
+                checkingReservations = false
             } else {
                 checkingDrawStatus = true
 
@@ -337,10 +345,29 @@ class CampsiteDetailView {
                     onResult = { status ->
                         entrantDrawStatus = status
                         checkingDrawStatus = false
+                        if (status == "WINNER") {
+                            reservationsModel.getEntrantReservations(
+                                accountId = accountId,
+                                onSuccess = { existing ->
+                                    hasExistingReservation = existing.any {
+                                        it.campsiteId == lottery.campsiteId && !it.cancelled
+                                    }
+                                    checkingReservations = false
+                                },
+                                onError = { error ->
+                                    reservationCheckError = error.message
+                                        ?: "Could not verify existing reservations"
+                                    checkingReservations = false
+                                }
+                            )
+                        } else {
+                            checkingReservations = false
+                        }
                     },
                     onError = { error ->
                         drawStatusError = error
                         checkingDrawStatus = false
+                        checkingReservations = false
                     }
                 )
             }
@@ -533,6 +560,77 @@ class CampsiteDetailView {
                                     text = drawStatusError,
                                     color = MaterialTheme.colorScheme.error
                                 )
+                            }
+
+                            // Offer decline is distinct from cancelling an existing reservation.
+                            // Never expose the action until the reservation check has finished.
+                            if (joined && entrantDrawStatus == "WINNER") {
+                                if (checkingReservations) {
+                                    Text("Checking reservation status...")
+                                } else if (reservationCheckError.isNotEmpty()) {
+                                    Text(
+                                        text = reservationCheckError,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                } else if (hasExistingReservation) {
+                                    Text("Reservation already created. Use Cancel Reservation in My Trips.")
+                                } else if (reservationOfferController != null) {
+                                    var showDeclineConfirmation by remember(lottery.id, accountId) {
+                                        mutableStateOf(false)
+                                    }
+                                    var declining by remember(lottery.id, accountId) {
+                                        mutableStateOf(false)
+                                    }
+                                    Button(
+                                        onClick = { showDeclineConfirmation = true },
+                                        enabled = !declining,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Decline Reservation")
+                                    }
+                                    if (showDeclineConfirmation) {
+                                        AlertDialog(
+                                            onDismissRequest = {
+                                                if (!declining) showDeclineConfirmation = false
+                                            },
+                                            title = { Text("Decline reservation?") },
+                                            text = {
+                                                Text("You will not be able to reclaim this reservation opportunity.")
+                                            },
+                                            confirmButton = {
+                                                TextButton(
+                                                    enabled = !declining,
+                                                    onClick = {
+                                                        declining = true
+                                                        drawStatusError = ""
+                                                        reservationOfferController.declineReservationOffer(
+                                                            lotteryId = lottery.id,
+                                                            accountId = accountId,
+                                                            onSuccess = {
+                                                                entrantDrawStatus = "DECLINED"
+                                                                declining = false
+                                                                showDeclineConfirmation = false
+                                                            },
+                                                            onError = { error ->
+                                                                drawStatusError = error
+                                                                declining = false
+                                                                showDeclineConfirmation = false
+                                                            }
+                                                        )
+                                                    }
+                                                ) {
+                                                    Text(if (declining) "Declining..." else "Yes, Decline")
+                                                }
+                                            },
+                                            dismissButton = {
+                                                TextButton(
+                                                    onClick = { showDeclineConfirmation = false },
+                                                    enabled = !declining
+                                                ) { Text("Cancel") }
+                                            }
+                                        )
+                                    }
+                                }
                             }
 
                             if (joined) {
