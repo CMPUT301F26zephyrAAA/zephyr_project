@@ -1,6 +1,7 @@
 package com.example.zephyrcampsites
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +25,7 @@ internal fun OwnerReservationReplies(
     accountsController: AccountsController,
     onBack: () -> Unit
 ) {
+    val chatModel = remember { ReservationChatModel() }
     var selectedId by rememberSaveable(owner.id, campsite.id) { mutableStateOf<String?>(null) }
     var reservations by remember(owner.id, campsite.id) { mutableStateOf<List<ReservedUser>?>(null) }
     var loadFailed by remember(owner.id, campsite.id) { mutableStateOf(false) }
@@ -48,6 +50,7 @@ internal fun OwnerReservationReplies(
             reservation = selected,
             campsite = campsite,
             accountsController = accountsController,
+            chatModel = chatModel,
             onBack = { selectedId = null },
             ownerReply = true
         )
@@ -57,6 +60,7 @@ internal fun OwnerReservationReplies(
             loadFailed = loadFailed,
             onSelectReservation = { selectedId = it.id },
             onRetry = { retry++ },
+            unreadIndicator = { ReservationUnreadBadge(it, owner.id, chatModel, ownerReply = true) },
             onBack = onBack
         )
     }
@@ -69,7 +73,8 @@ internal fun ReservationReplyList(
     loadFailed: Boolean,
     onSelectReservation: (ReservedUser) -> Unit,
     onRetry: () -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    unreadIndicator: @Composable (ReservedUser) -> Unit = {}
 ) {
     val dates = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
     LotteryListScreen("Reservation Messages", onBack) {
@@ -83,8 +88,11 @@ internal fun ReservationReplyList(
             else -> items(reservations, key = { it.id }) { reservation ->
                 val start = reservation.bookedPeriodStart?.let(dates::format).orEmpty()
                 val end = reservation.bookedPeriodEnd?.let(dates::format).orEmpty()
-                LotteryListItem("Reservation ${reservation.id}\n$start to $end") {
-                    onSelectReservation(reservation)
+                Column {
+                    LotteryListItem("Reservation ${reservation.id}\n$start to $end") {
+                        onSelectReservation(reservation)
+                    }
+                    unreadIndicator(reservation)
                 }
             }
         }

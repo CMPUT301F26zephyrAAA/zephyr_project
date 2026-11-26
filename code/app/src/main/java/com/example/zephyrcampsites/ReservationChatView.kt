@@ -39,6 +39,7 @@ import java.util.Locale
  * @param reservation Reservation opened from My Trips.
  * @param campsite Campsite associated with the reservation, if available.
  * @param accountsController Reads the other participant's account from Firebase.
+ * @param chatModel Chat model shared with the reservation list.
  * @param onBack Returns to the previous reservation screen.
  * @param ownerReply Opens the conversation for the owner to reply to the entrant.
  */
@@ -47,13 +48,13 @@ internal fun ReservationChatScreen(
     reservation: ReservedUser,
     campsite: Campsite?,
     accountsController: AccountsController,
+    chatModel: ReservationChatModel,
     onBack: () -> Unit,
     ownerReply: Boolean = false
 ) {
     val ownerId = campsite?.ownerID.orEmpty()
     val participantId = if (ownerReply) reservation.accountId else ownerId
     val participantLabel = if (ownerReply) "Entrant" else "Campsite Owner"
-    val chatModel = remember { ReservationChatModel() }
     var participantName by remember(participantId) { mutableStateOf<String?>(null) }
     var session by remember(reservation.id, ownerId) { mutableStateOf<ReservationChatSession?>(null) }
     var messages by remember(reservation.id, ownerId) { mutableStateOf(emptyList<ReservationMessage>()) }
@@ -100,6 +101,7 @@ internal fun ReservationChatScreen(
     val openChat = session
     DisposableEffect(openChat) {
         var seenMessageIds: Set<String>? = null
+        var lastReadMessageId: String? = null
         val registration = openChat?.let { conversation ->
             chatModel.listen(
                 conversation,
@@ -115,6 +117,15 @@ internal fun ReservationChatScreen(
                     seenMessageIds = updated.map { it.id }.toSet()
                     messages = updated
                     chatStatus = ""
+                    val latestIncoming = updated.lastOrNull {
+                        it.sentAt != null && !it.from(conversation.userAccountId, conversation.userUid)
+                    }
+                    if (latestIncoming?.sentAt != null && latestIncoming.id != lastReadMessageId) {
+                        lastReadMessageId = latestIncoming.id
+                        chatModel.markRead(conversation, latestIncoming.sentAt).addOnFailureListener {
+                            if (lastReadMessageId == latestIncoming.id) lastReadMessageId = null
+                        }
+                    }
                 },
                 onError = {
                     messages = emptyList()

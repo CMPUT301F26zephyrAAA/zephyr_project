@@ -4,6 +4,7 @@
 // reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
 // reservationChat/{reservationId}: same participant fields, immutable after creation.
 // messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
+// readReceipts/{accountId}: readAt (newest incoming message timestamp seen).
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -68,15 +69,31 @@ service cloud.firestore {
       allow create: if canOpenChat(reservationId, approvedReservation(reservationId)) &&
         isValidConversation(request.resource.data, approvedReservation(reservationId));
 
-      match /messages/{messageId} {
-        function canAccessChat(booking) {
-          let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId)).data;
-          return canOpenChat(reservationId, booking) && sameBooking(conversation, booking);
-        }
+      function canAccessChat(booking) {
+        let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId)).data;
+        return canOpenChat(reservationId, booking) && sameBooking(conversation, booking);
+      }
 
+      match /messages/{messageId} {
         allow read: if canAccessChat(approvedReservation(reservationId));
         allow create: if canAccessChat(approvedReservation(reservationId)) &&
           isValidMessage(request.resource.data, approvedReservation(reservationId));
+      }
+
+      match /readReceipts/{accountId} {
+        function ownsReceipt(booking) {
+          return accountId in [booking.entrantAccountId, booking.ownerAccountId] &&
+            isLinkedAccount(accountId) && canAccessChat(booking);
+        }
+
+        function validReceipt(data) {
+          return data.keys().hasOnly(['readAt']) && data.readAt is timestamp && data.readAt <= request.time;
+        }
+
+        allow get: if ownsReceipt(approvedReservation(reservationId));
+        allow create: if ownsReceipt(approvedReservation(reservationId)) && validReceipt(request.resource.data);
+        allow update: if ownsReceipt(approvedReservation(reservationId)) &&
+          validReceipt(request.resource.data) && request.resource.data.readAt >= resource.data.readAt;
       }
     }
   }

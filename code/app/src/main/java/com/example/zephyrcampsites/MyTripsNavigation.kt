@@ -48,6 +48,7 @@ fun MyTripsNavigation(
     onRateCampsite: (String) -> Unit,
     onBack: () -> Unit
 ) {
+    val chatModel = remember { ReservationChatModel() }
     var selectedTab by rememberSaveable(accountId) {
         mutableIntStateOf(MY_TRIPS_ACTIVE_TAB)
     }
@@ -112,6 +113,7 @@ fun MyTripsNavigation(
                     reservation = selected,
                     campsite = campsiteForId(selected.campsiteId),
                     accountsController = accountsController,
+                    chatModel = chatModel,
                     onBack = ::goBack
                 )
                 reservations == null && error == null -> {
@@ -240,6 +242,7 @@ fun MyTripsNavigation(
                         campsiteForId = campsiteForId,
                         onViewDetails = { selectedReservationId = it.id },
                         onLotteriesClick = { showLotteriesInfo = true },
+                        unreadIndicator = { booking, ownerId -> ReservationUnreadBadge(booking, ownerId, chatModel) },
                         imageContent = imageContent
                     )
                 }

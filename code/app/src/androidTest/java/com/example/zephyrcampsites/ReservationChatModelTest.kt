@@ -160,6 +160,32 @@ class ReservationChatModelTest {
         assertTrue(runCatching { await(ownerModel.open(reservation, ownerId, ownerReply = true)) }.isFailure)
     }
 
+    @Test
+    fun unreadUpdatesOutsideChatAndClearsWhenTheRecipientReadsIt() {
+        val (entrantModel, entrantUid) = connect()
+        val (ownerModel, ownerUid) = connect()
+        approveReservation(entrantUid, ownerUid)
+
+        val unread = TaskCompletionSource<Boolean>()
+        val cleared = TaskCompletionSource<Boolean>()
+        val listener = ownerModel.observeUnread(reservation, ownerId, ownerReply = true) { hasUnread ->
+            if (hasUnread) unread.trySetResult(true)
+            else if (unread.task.isComplete) cleared.trySetResult(true)
+        }
+        try {
+            val entrant = await(entrantModel.open(reservation, ownerId))
+            await(entrantModel.send(entrant, "Unread reservation message"))
+            assertTrue(await(unread.task))
+
+            val owner = await(ownerModel.open(reservation, ownerId, ownerReply = true))
+            val received = readMessages(ownerModel, owner).single()
+            await(ownerModel.markRead(owner, checkNotNull(received.sentAt)))
+            assertTrue(await(cleared.task))
+        } finally {
+            listener.remove()
+        }
+    }
+
     private fun readMessages(model: ReservationChatModel, session: ReservationChatSession): List<ReservationMessage> {
         val result = TaskCompletionSource<List<ReservationMessage>>()
         val listener = model.listen(session, { result.trySetResult(it) }, { result.trySetException(it) })

@@ -20,3 +20,4 @@ That collection's identity and cancellation fields need authorized writes in a l
 `code/firestore.chat.rules` is the scoped chat ruleset used for emulator testing. In a live
 deployment, exclude `chatAccountLinks`, `reservationChatAccess`, and `reservationChat` and its
 subcollections from any broader allow rules before applying these chat rules.
+Add the composite index in `code/firestore.chat.indexes.json` for the unread badges.
