@@ -83,7 +83,17 @@ internal fun AccountProfilePage(
                     account = displayedAccount,
                     imageUri = imageUri,
                     onSuccess = { updatedAccount ->
-                        currentAccount.value = updatedAccount
+                        val latestAccount = currentAccount.value
+
+                        if (latestAccount != null &&
+                            latestAccount.id == updatedAccount.id
+                        ) {
+                            currentAccount.value = latestAccount.copy(
+                                compressedImage = updatedAccount.compressedImage,
+                                imagePath = updatedAccount.imagePath
+                            )
+                        }
+
                         isImageUpdating = false
                     },
                     onError = { message ->
@@ -103,7 +113,17 @@ internal fun AccountProfilePage(
                     context = activityContext,
                     account = displayedAccount,
                     onSuccess = { updatedAccount ->
-                        currentAccount.value = updatedAccount
+                        val latestAccount = currentAccount.value
+
+                        if (latestAccount != null &&
+                            latestAccount.id == updatedAccount.id
+                        ) {
+                            currentAccount.value = latestAccount.copy(
+                                compressedImage = updatedAccount.compressedImage,
+                                imagePath = updatedAccount.imagePath
+                            )
+                        }
+
                         isImageUpdating = false
                     },
                     onError = { message ->

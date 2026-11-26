@@ -50,6 +50,7 @@ import coil.compose.AsyncImage
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.compose.foundation.Image
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.graphics.asImageBitmap
 
 /**
@@ -199,6 +200,28 @@ class AccountsView {
         val hasProfileImage =
             compressedImage.isNotBlank() || imagePath.isNotBlank()
 
+        var resolvedImageUrl by remember(imagePath) {
+            mutableStateOf<String?>(null)
+        }
+
+        LaunchedEffect(imagePath, compressedImage) {
+            resolvedImageUrl = null
+
+            if (compressedImage.isBlank() &&
+                imagePath.isNotBlank()
+            ) {
+                FirebaseConnector("accounts").resourceGetter(
+                    path = imagePath,
+                    result = { url ->
+                        resolvedImageUrl = url
+                    },
+                    onError = {
+                        resolvedImageUrl = null
+                    }
+                )
+            }
+        }
+
         val profileBitmap = remember(compressedImage) {
             if (compressedImage.isNotBlank()) {
                 try {
@@ -248,9 +271,9 @@ class AccountsView {
                             )
                         }
 
-                        imagePath.startsWith("https://") -> {
+                        resolvedImageUrl != null -> {
                             AsyncImage(
-                                model = imagePath,
+                                model = resolvedImageUrl,
                                 contentDescription = "Profile image",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop

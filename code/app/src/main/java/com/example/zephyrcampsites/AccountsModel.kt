@@ -124,6 +124,36 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     }
 
     /**
+     * Removes a previous profile image from Firebase Storage.
+     * Skips deletion when no previous Storage image exists.
+     */
+    private fun removeOldProfileImage(
+        oldImagePath: String,
+        onComplete: () -> Unit
+    ) {
+        if (oldImagePath.isBlank()) {
+            onComplete()
+            return
+        }
+
+        FirebaseConnector("accounts", firestore).removeImage(
+            path = oldImagePath,
+            storage = storage ?: Firebase.storage,
+            onSuccess = {
+                onComplete()
+            },
+            onError = { exception ->
+                android.util.Log.w(
+                    "AccountsModel",
+                    "Old profile image cleanup failed.",
+                    exception
+                )
+                onComplete()
+            }
+        )
+    }
+
+    /**
      * Compresses and saves an entrant's profile image in Firestore.
      * Supports adding and replacing an existing profile image.
      *
@@ -133,6 +163,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
      * @param onSuccess Called when the image is saved.
      * @param onError Called if compression or saving fails.
      */
+
     open fun updateOwnProfileImage(
         context: Context,
         account: Account,
@@ -140,6 +171,8 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit
     ) {
+        val oldImagePath = account.imagePath
+
         CoroutineScope(Dispatchers.Main).launch {
             try {
                 val compressedImage =
@@ -159,7 +192,9 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                         account.compressedImage = compressedImage
                         account.imagePath = ""
 
-                        onSuccess()
+                        removeOldProfileImage(oldImagePath) {
+                            onSuccess()
+                        }
                     }
                     .addOnFailureListener { exception ->
                         onError(exception)
@@ -173,6 +208,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         }
     }
 
+
     /**
      * Removes the entrant's profile image and restores
      * the default profile icon.
@@ -181,6 +217,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
      * @param onSuccess Called when the image is removed.
      * @param onError Called if the operation fails.
      */
+
     open fun removeOwnProfileImage(
         account: Account,
         onSuccess: () -> Unit,
@@ -195,6 +232,8 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             return
         }
 
+        val oldImagePath = account.imagePath
+
         val updatedData = mapOf(
             "compressedImage" to "",
             "imagePath" to ""
@@ -206,7 +245,9 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                 account.compressedImage = ""
                 account.imagePath = ""
 
-                onSuccess()
+                removeOldProfileImage(oldImagePath) {
+                    onSuccess()
+                }
             }
             .addOnFailureListener { exception ->
                 onError(exception)
