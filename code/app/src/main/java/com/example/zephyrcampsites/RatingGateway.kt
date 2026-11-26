@@ -25,4 +25,14 @@ interface RatingGateway {
         campsiteId: String, accountId: String, rating: CampsiteRating,
         onSuccess: () -> Unit, onError: (String) -> Unit
     )
+
+    fun observeRating(
+        campsiteId: String,
+        accountId: String,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        loadRating(campsiteId, accountId, onResult, onError)
+        return {}
+    }
 }

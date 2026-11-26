@@ -53,6 +53,25 @@ class RatingController(private val model: RatingGateway = RatingModel()) {
         model.submitRating(campsiteId, account.id, rating.copy(review = rating.review.trim()), onSuccess, onError)
     }
 
+    fun observeRating(
+        campsiteId: String,
+        account: Account?,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        if (
+            account == null ||
+            "entrant" !in account.userType ||
+            !validId(campsiteId) ||
+            !validId(account.id)
+        ) {
+            onResult(null)
+            return {}
+        }
+
+        return model.observeRating(campsiteId, account.id, onResult, onError)
+    }
+
     /** Checks that an ID identifies one Firestore document. */
     private fun validId(id: String): Boolean = id.isNotBlank() && !id.contains("/")
 }
