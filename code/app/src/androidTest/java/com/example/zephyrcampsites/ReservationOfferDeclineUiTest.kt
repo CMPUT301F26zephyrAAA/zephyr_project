@@ -263,4 +263,28 @@ class ReservationOfferDeclineUiTest {
             .onNodeWithText("Decline Reservation")
             .assertDoesNotExist()
     }
+
+
+    @Test
+    fun winnerWithExistingReservationCannotDecline() {
+        showScreen(
+            lotteryId = "ui_test_reserved_lottery",
+            accountId = "ui_test_reserved_entrant"
+        )
+
+        waitForText(
+            "Reservation already created. Use Cancel Reservation in My Trips."
+        )
+
+        composeTestRule
+            .onNodeWithText(
+                "Reservation already created. Use Cancel Reservation in My Trips."
+            )
+            .assertIsDisplayed()
+
+        composeTestRule
+            .onNodeWithText("Decline Reservation")
+            .assertDoesNotExist()
+    }
+
 }
