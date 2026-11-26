@@ -407,10 +407,10 @@ async function saveLotteryDraw(
 }
 
 
-// Check for lotteries that need a draw every 60 minutes.
+// Check for lotteries that need a draw every minute.
 exports.automaticLotteryDraw = onSchedule(
     {
-      schedule: "every 60 minutes",
+      schedule: "every 1 minutes",
       timeZone: "America/Edmonton",
       maxInstances: 1,
     },
