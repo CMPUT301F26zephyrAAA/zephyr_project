@@ -514,7 +514,13 @@ internal fun CampsitesNavigation(
                         }
 
                         composable(GeneralScreen.ViewReservations.route) {
-                            AccountContent { ReservationsScreen(onBack) }
+                            AccountContent { owner ->
+                                OwnerReservationsScreen(
+                                    owner = owner,
+                                    campsiteModel = campsiteModel,
+                                    onBack = onBack
+                                )
+                            }
                         }
 
                         composable(GeneralScreen.RegisterCampsite.route) {

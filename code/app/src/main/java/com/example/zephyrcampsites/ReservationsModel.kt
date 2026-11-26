@@ -5,6 +5,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.google.firebase.Timestamp
+import com.google.firebase.firestore.ListenerRegistration
 
 /**
  * Model in charge of retrieving reservation records from Firestore
@@ -79,6 +80,79 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
             }
             .addOnFailureListener { exception ->
                 onError(exception)
+            }
+    }
+
+    /**
+     * Listens for real-time reservation changes for a campsite.
+     *
+     * @param campsiteId ID of the campsite.
+     * @param onSuccess Called when reservation records change.
+     * @param onError Called when retrieval fails.
+     * @return Listener registration used to stop listening.
+     */
+    fun listenToCampsiteReservations(
+        campsiteId: String,
+        onSuccess: (List<ReservedUser>) -> Unit,
+        onError: (Exception) -> Unit
+    ): ListenerRegistration {
+
+        return reservations
+            .whereEqualTo("campsiteId", campsiteId)
+            .addSnapshotListener { snapshot, error ->
+
+                if (error != null) {
+                    onError(error)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot == null) {
+                    onError(
+                        IllegalStateException(
+                            "Unable to load reservations."
+                        )
+                    )
+                    return@addSnapshotListener
+                }
+
+                try {
+                    val results = snapshot.documents.mapNotNull { document ->
+
+                        val start = document.get("bookedPeriodStart") as? Timestamp
+                            ?: return@mapNotNull null
+
+                        val end = document.get("bookedPeriodEnd") as? Timestamp
+                            ?: return@mapNotNull null
+
+                        if (!start.toDate().before(end.toDate())) {
+                            return@mapNotNull null
+                        }
+
+                        val accountId = document.getString("accountId")
+                            ?: return@mapNotNull null
+
+                        if (accountId.isBlank()) {
+                            return@mapNotNull null
+                        }
+
+                        val cancelled = document.get("cancelled") as? Boolean
+                            ?: return@mapNotNull null
+
+                        ReservedUser(
+                            id = document.id,
+                            accountId = accountId,
+                            campsiteId = campsiteId,
+                            bookedPeriodStart = start.toDate(),
+                            bookedPeriodEnd = end.toDate(),
+                            cancelled = cancelled
+                        )
+                    }
+
+                    onSuccess(results)
+
+                } catch (exception: Exception) {
+                    onError(exception)
+                }
             }
     }
 }

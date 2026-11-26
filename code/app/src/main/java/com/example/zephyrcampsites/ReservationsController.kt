@@ -2,6 +2,8 @@
 package com.example.zephyrcampsites
 
 import java.util.Date
+import com.google.firebase.firestore.ListenerRegistration
+
 // AI Citation [AI-15], [AI-16]
 // OpenAI, ChatGPT assisted with reservation filtering,
 // sorting, date validation, and testability improvements.
@@ -123,6 +125,119 @@ class ReservationsController(
                         end.after(currentTime)
             }
             .sortedBy { it.bookedPeriodStart }
+    }
+
+    /**
+     * Filters active reservations belonging to campsites
+     * owned by the specified owner.
+     *
+     * @param reservations Reservations to filter.
+     * @param campsites Available campsites.
+     * @param ownerId Current owner's account ID.
+     * @param currentTime Time used to determine active reservations.
+     * @return Active reservations belonging to the owner.
+     */
+    fun filterOwnerActiveReservations(
+        reservations: List<ReservedUser>,
+        campsites: List<Campsite>,
+        ownerId: String,
+        currentTime: Date = Date()
+    ): List<ReservedUser> {
+
+        val ownerCampsiteIds = filterOwnerCampsites(
+            campsites,
+            ownerId
+        ).map { it.id }.toSet()
+
+        val ownerReservations = reservations.filter {
+            it.campsiteId in ownerCampsiteIds
+        }
+
+        return filterActiveReservations(
+            ownerReservations,
+            currentTime
+        )
+    }
+
+    /**
+     * Listens for active reservations across all campsites
+     * belonging to the specified owner.
+     *
+     * @param ownerId Current owner's account ID.
+     * @param campsites Available campsites.
+     * @param onSuccess Called with the combined active reservations.
+     * @param onError Called when reservation retrieval fails.
+     * @return Listener registrations used to stop listening.
+     */
+    fun listenToOwnerActiveReservations(
+        ownerId: String,
+        campsites: List<Campsite>,
+        onSuccess: (List<ReservedUser>) -> Unit,
+        onError: (Exception) -> Unit
+    ): List<ListenerRegistration> {
+
+        val ownerCampsites = filterOwnerCampsites(
+            campsites,
+            ownerId
+        ).distinctBy { it.id }
+
+        if (ownerCampsites.isEmpty()) {
+            onSuccess(emptyList())
+            return emptyList()
+        }
+
+        val reservationsByCampsite =
+            mutableMapOf<String, List<ReservedUser>>()
+
+        var hasFailed = false
+
+        return ownerCampsites.map { campsite ->
+
+            model.listenToCampsiteReservations(
+                campsiteId = campsite.id,
+
+                onSuccess = { reservations ->
+
+                    reservationsByCampsite[campsite.id] =
+                        reservations
+
+                    if (!hasFailed &&
+                        reservationsByCampsite.size ==
+                        ownerCampsites.size
+                    ) {
+                        val allReservations =
+                            reservationsByCampsite.values.flatten()
+
+                        val activeReservations =
+                            filterOwnerActiveReservations(
+                                reservations = allReservations,
+                                campsites = ownerCampsites,
+                                ownerId = ownerId
+                            )
+
+                        onSuccess(activeReservations)
+                    }
+                },
+
+                onError = { exception ->
+                    hasFailed = true
+                    onError(exception)
+                }
+            )
+        }
+    }
+
+    /**
+     * Stops listening for reservation changes.
+     *
+     * @param listeners Active Firebase listener registrations.
+     */
+    fun stopReservationListeners(
+        listeners: List<ListenerRegistration>
+    ) {
+        listeners.forEach { listener ->
+            listener.remove()
+        }
     }
 
     /**
