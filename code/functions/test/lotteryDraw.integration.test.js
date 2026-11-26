@@ -1,3 +1,7 @@
+// AI Citation [AI-38]
+// OpenAI, ChatGPT assisted with Cloud Function integration tests,
+// Firestore test fixtures, and regression testing.
+// AI usage and citation documented in the GitHub Wiki.
 const {test} = require("node:test");
 const assert = require("node:assert/strict");
 const {randomUUID} = require("node:crypto");

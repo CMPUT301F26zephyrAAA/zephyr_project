@@ -1,3 +1,6 @@
+// AI Citation [AI-37]
+// OpenAI, ChatGPT assisted with lottery winner selection unit tests.
+// AI usage and citation documented in the GitHub Wiki.
 const {test} = require("node:test");
 const assert = require("node:assert/strict");
 const {selectWinners} = require("../index");
