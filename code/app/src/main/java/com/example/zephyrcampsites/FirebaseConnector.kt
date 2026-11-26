@@ -194,6 +194,34 @@ class FirebaseConnector(target: String, firestore: FirebaseFirestore = Firebase.
             }
     }
 
+    /**
+     * Uploads a profile image to Firebase Storage.
+     *
+     * @param accountId ID of the account uploading the image.
+     * @param imageUri URI of the selected image.
+     * @param onSuccess Called with the uploaded image path.
+     * @param onFailure Called when the image upload fails.
+     */
+    fun uploadProfileImage(
+        accountId: String,
+        imageUri: Uri,
+        onSuccess: (String) -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        val imageName = java.util.UUID.randomUUID().toString()
+
+        val storageRef = Firebase.storage.reference
+            .child("profile_images/$accountId/$imageName")
+
+        storageRef.putFile(imageUri)
+            .addOnSuccessListener {
+                onSuccess(storageRef.path)
+            }
+            .addOnFailureListener { exception ->
+                onFailure(exception.message ?: "Profile image upload failed")
+            }
+    }
+
 
         /**
          * Saves a document and reports whether the operation succeeded.
