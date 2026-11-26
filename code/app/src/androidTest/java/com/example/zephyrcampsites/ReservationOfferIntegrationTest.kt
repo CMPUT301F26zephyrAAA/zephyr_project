@@ -1,3 +1,8 @@
+// **AI Citation** [AI-35]
+// OpenAI, ChatGPT assisted with Firestore emulator integration
+// tests for reservation declines and automatic backup promotion.
+// AI usage and citation documented in the GitHub Wiki.
+
 package com.example.zephyrcampsites
 
 import androidx.test.ext.junit.runners.AndroidJUnit4

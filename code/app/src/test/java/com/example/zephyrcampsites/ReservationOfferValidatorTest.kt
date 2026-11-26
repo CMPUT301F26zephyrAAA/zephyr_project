@@ -1,6 +1,6 @@
 package com.example.zephyrcampsites
 
-// AI Citation [AI-25]
+// **AI Citation** [AI-25], [AI-34]
 // OpenAI, ChatGPT assisted with JUnit 4 tests
 // for reservation offer decline eligibility.
 // AI usage and citations documented in the GitHub Wiki.
