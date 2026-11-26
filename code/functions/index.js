@@ -1,3 +1,7 @@
+// AI Citation [AI-32], [AI-36]
+// OpenAI, ChatGPT assisted with entrant eligibility validation,
+// interrupted draw recovery, scheduling, and failure handling.
+// AI usage and citations documented in the GitHub Wiki.
 const {setGlobalOptions} = require("firebase-functions/v2");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
@@ -13,6 +17,10 @@ setGlobalOptions({maxInstances: 1});
 
 /**
  * Returns canonical, unique waiting-list registrations for a lottery.
+ *
+ * Excludes invalid account IDs, mismatched lottery IDs, noncanonical
+ * document IDs, duplicate accounts, and entrants not in WAITING status.
+ *
  * @param {Array<Object>} entrantDocs Firestore registration documents.
  * @param {string} lotteryId ID of the lottery.
  * @return {Array<Object>} Eligible registration candidates.
@@ -55,7 +63,10 @@ function getEligibleEntrants(entrantDocs, lotteryId) {
 }
 
 /**
- * Excludes entrants whose accounts are unavailable.
+ * Excludes entrants whose accounts are missing or pending deletion.
+ *
+ * Supports both standalone Firestore reads and transactional reads
+ * when validating eligibility before saving lottery results.
  *
  * @param {Array<Object>} entrants Valid registration candidates.
  * @param {Object|null} transaction Optional Firestore transaction.
@@ -199,9 +210,13 @@ async function releaseLotteryDraw(lotteryId, attemptId) {
   });
 }
 
-
 /**
- * Resets a draw that has been stuck for more than five minutes.
+ * Recovers unfinished draws with expired or invalid start timestamps.
+ *
+ * Resets PROCESSING lotteries to PENDING when their processing
+ * timeout has expired or their start timestamp is missing or invalid.
+ * Preserves completed draws and draws with existing saved results.
+ *
  * @param {string} lotteryId ID of the lottery.
  * @return {Promise<boolean>} True if the draw was reset.
  */
@@ -254,7 +269,12 @@ async function recoverExpiredLotteryDraw(lotteryId) {
 exports.selectWinners = selectWinners;
 
 /**
- * Saves the winners and backups after the lottery draw.
+ * Atomically saves winners, backups, and completed lottery results.
+ *
+ * Revalidates draw ownership, registration deadlines, winner limits,
+ * entrant eligibility, and the current waiting-list contents before
+ * committing the draw results and updating entrant statuses.
+ *
  * @param {string} lotteryId ID of the lottery.
  * @param {string} attemptId ID of the current draw attempt.
  * @param {Array<Object>} winners Selected winners.
@@ -419,7 +439,18 @@ async function saveLotteryDraw(
 }
 
 
-// Check for lotteries that need a draw every minute.
+/**
+ * Scheduled Cloud Function responsible for automatic lottery draws.
+ *
+ * Configured to run every minute independently of the Android app.
+ * Recovers interrupted draws, identifies lotteries whose registration
+ * periods have ended, claims each eligible lottery, randomly selects
+ * winners and backups, and persists the results in Firestore.
+ *
+ * Handles individual lottery failures without interrupting the
+ * processing of other lotteries and releases failed draw claims
+ * so they can be retried during subsequent scheduled invocations.
+ */
 exports.automaticLotteryDraw = onSchedule(
     {
       schedule: "* * * * *",
