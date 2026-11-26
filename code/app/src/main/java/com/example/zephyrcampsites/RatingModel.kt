@@ -143,6 +143,7 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         check(campsite.exists()) { "Campsite no longer available." }
         val role = account.get("userType")
         check(role == "entrant" || (role is List<*> && "entrant" in role)) { "Only entrants can rate or review a campsite." }
+        check(account.getBoolean("deletionPending") != true) { "Your profile is being deleted." }
         val reservation = readReservation(stay)
         check(reservation != null && RatingValidator.hasStayed(
             reservation, account.id, campsite.id, System.currentTimeMillis()

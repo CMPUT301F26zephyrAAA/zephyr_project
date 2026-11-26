@@ -121,6 +121,19 @@ class RatingModelTest {
     }
 
     @Test
+    fun deletionPendingBlocksRatingAndReviewAfterOpeningForm() {
+        val eligible = load()!!
+        await(firestore.document("accounts/$accountId").update("deletionPending", true))
+
+        assertRejected(eligible.copy(score = 4))
+        org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException::class.java) {
+            await(submitReview("Quiet lakeside stay."))
+        }
+        assertFalse(await(firestore.document("campsite/$campsiteId/ratings/$accountId").get(Source.SERVER)).exists())
+        assertEquals(listOf(4L, 5L), await(firestore.document("campsite/$campsiteId").get(Source.SERVER)).get("rating"))
+    }
+
+    @Test
     fun concurrentEntrantsDoNotOverwriteEachOthersRatings() {
         val otherAccount = "other-$suffix"
         val otherStay = "other-stay-$suffix"
