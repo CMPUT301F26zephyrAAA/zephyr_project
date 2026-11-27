@@ -4,6 +4,7 @@ import java.util.Date
 import org.junit.Assert.*
 import org.junit.Test
 
+// Hiral - [AI-05] OpenAI, ChatGPT, Testing Admin Rating Deletion.
 /** Verifies completed-stay boundaries and rating replacement calculations without Firebase. */
 class RatingValidatorTest {
     private val stay = ReservedUser("stay-1", "entrant-1", "1", Date(1000), Date(2000))

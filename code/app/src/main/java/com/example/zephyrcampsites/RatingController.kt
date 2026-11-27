@@ -53,6 +53,7 @@ class RatingController(private val model: RatingGateway = RatingModel()) {
         model.submitRating(campsiteId, account.id, rating.copy(review = rating.review.trim()), onSuccess, onError)
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     fun observeRating(
         campsiteId: String,
         account: Account?,

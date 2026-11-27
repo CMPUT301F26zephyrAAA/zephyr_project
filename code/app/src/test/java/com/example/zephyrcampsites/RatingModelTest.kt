@@ -20,6 +20,7 @@ import org.junit.Test
 import org.mockito.Mockito.*
 import java.util.Date
 
+// Hiral - [AI-05] OpenAI, ChatGPT, Testing Admin Rating Deletion.
 /**
  * Local JUnit unit tests for RatingModel.
  *

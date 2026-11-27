@@ -21,6 +21,7 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.Mockito.*
 
+// Hiral - [AI-05] OpenAI, ChatGPT, Testing Admin Rating Deletion.
 /**
  * Local JUnit tests for admin rating moderation.
  *

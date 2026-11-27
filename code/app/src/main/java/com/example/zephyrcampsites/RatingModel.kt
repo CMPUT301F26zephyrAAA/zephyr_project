@@ -58,6 +58,7 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         )
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     /**
      * Finds a completed stay and loads this account's current score and review.
      * Has a listener that reloads every time the rating is updated.
@@ -109,6 +110,15 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         }
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    /**
+     * Finds a completed stay and loads this account's current score and review.
+     *
+     * @param campsiteId Campsite being rated.
+     * @param accountId Entrant whose completed reservations are checked.
+     * @param onResult Receives the saved rating, or null if no completed stay qualifies.
+     * @param onError Receives a readable load error.
+     */
     private fun findEligibleStay(
         campsiteId: String,
         accountId: String,
@@ -179,6 +189,14 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             .addOnFailureListener { onError("Unable to save your rating. Check your completed stay and try again.") }
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    /**
+     * Loads all ratings for a campsite. (Admin only feature)
+     *
+     * @param campsiteId Campsite being rated.
+     * @param onRatings Receives the list of ratings.
+     * @param onError Receives a readable load error.
+     */
     override fun observeAdminRatings(
         campsiteId: String,
         onRatings: (List<CampsiteRating>) -> Unit,
@@ -210,6 +228,15 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         return super.equals(other)
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    /**
+     * Removes an individual's rating from a campsite. (Admin only feature)
+     *
+     * @param campsiteId Campsite being rated.
+     * @param selected Rating to remove.
+     * @param onResult Called after the rating is removed.
+     * @param onError Receives a readable error.
+     */
     override fun removeAdminRating(
         campsiteId: String,
         selected: CampsiteRating,
@@ -252,6 +279,7 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             }
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     /**
      * Converts a Firestore document to a rating.
      *
@@ -275,6 +303,7 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         )
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     /**
      * Converts a Firestore document to a list of scores.
      *

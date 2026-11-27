@@ -33,6 +33,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+// Hiral - [AI-05] OpenAI, ChatGPT, Testing Admin Rating Deletion.
 /** Tests entrant rating controls and navigation with local account, stay, and campsite fixtures. */
 @RunWith(AndroidJUnit4::class)
 class RatingViewTest {

@@ -2,6 +2,7 @@ package com.example.zephyrcampsites
 
 import com.google.firebase.Timestamp
 
+// Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
 /**
  * Holds an entrant's rating and the reservation that permits them to submit it.
  *

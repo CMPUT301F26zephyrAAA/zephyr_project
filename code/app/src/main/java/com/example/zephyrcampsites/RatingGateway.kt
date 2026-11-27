@@ -26,6 +26,7 @@ interface RatingGateway {
         onSuccess: () -> Unit, onError: (String) -> Unit
     )
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     fun observeRating(
         campsiteId: String,
         accountId: String,

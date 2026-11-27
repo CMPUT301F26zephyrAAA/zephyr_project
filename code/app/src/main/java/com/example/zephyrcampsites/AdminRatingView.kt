@@ -14,7 +14,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
-
+// Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
 /**
  * Displays a list of ratings for a campsite.
  *

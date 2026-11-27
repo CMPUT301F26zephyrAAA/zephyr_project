@@ -251,6 +251,7 @@ class CampsiteDetailView {
         val ratingsCampsiteId = campsite?.id?.takeIf {
             moderationAccountId != null && it.isNotBlank() && '/' !in it
         }
+        // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
         val moderationModel = remember(ratingsCampsiteId, moderationAccountId) {
             if (ratingsCampsiteId != null) adminRatingGateway ?: RatingModel() else null
         }
@@ -604,6 +605,7 @@ class CampsiteDetailView {
 
                         }
 
+                        // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
                         if (canRemoveCampsite) {
                             removalError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                             when {

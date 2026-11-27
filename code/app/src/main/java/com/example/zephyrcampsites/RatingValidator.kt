@@ -38,6 +38,7 @@ object RatingValidator {
         return updated
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     /**
      * Removes a rating from a list of scores.
      *
@@ -52,6 +53,7 @@ object RatingValidator {
         return updated
     }
 
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     /**
      * Calculates the average of a list of scores.
      *
