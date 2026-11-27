@@ -239,20 +239,34 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
      */
     override fun removeAdminRating(
         campsiteId: String,
+        adminAccountId: String,
         selected: CampsiteRating,
         onResult: (Boolean) -> Unit,
         onError: (String) -> Unit,
     ) {
+        if (adminAccountId.isBlank() || '/' in adminAccountId) {
+            onError("Administrator access required.")
+            return
+        }
+        if (campsiteId.isBlank() || '/' in campsiteId) {
+            onError("Invalid campsite ID.")
+            return
+        }
         val accountId = selected.accountId
         if (accountId.isNullOrBlank() || '/' in accountId) {
             onError("This rating has no valid document ID.")
             return
         }
 
+        val adminRef = firestore.collection("accounts").document(adminAccountId)
         val campsiteRef = campsites.document(campsiteId)
         val ratingRef = campsiteRef.collection("ratings").document(accountId)
 
         firestore.runTransaction { transaction ->
+            val adminDocument = transaction.get(adminRef)
+            check(adminDocument.exists() && "admin" in accountRoles(adminDocument.get("userType"))) {
+                "Administrator access required."
+            }
             val ratingDocument = transaction.get(ratingRef)
             if (!ratingDocument.exists()) return@runTransaction false
 
@@ -275,7 +289,7 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         }
             .addOnSuccessListener { removed -> onResult(removed) }
             .addOnFailureListener {
-                onError("Unable to remove this rating. Review the current rating and try again.")
+                onError("Unable to remove this rating. Verify you administrator privileges and try again.")
             }
     }
 

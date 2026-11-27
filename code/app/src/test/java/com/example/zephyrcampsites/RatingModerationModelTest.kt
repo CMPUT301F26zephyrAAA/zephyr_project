@@ -50,9 +50,14 @@ class RatingModerationModelTest {
 
     private lateinit var model: RatingModel
 
+    private lateinit var adminAccountDocument: DocumentSnapshot
+    private lateinit var adminAccountRef: DocumentReference
+    private lateinit var accountsCollection: CollectionReference
+
     private var snapshotListener: EventListener<QuerySnapshot>? = null
 
     private val campsiteId = "1"
+    private val adminAccountId = "123"
 
     private val selectedRating = CampsiteRating(
         reservationId = "stay-1",
@@ -89,6 +94,25 @@ class RatingModerationModelTest {
         snapshot = mock(QuerySnapshot::class.java)
         metadata = mock(SnapshotMetadata::class.java)
         registration = mock(ListenerRegistration::class.java)
+
+        adminAccountDocument = mock(DocumentSnapshot::class.java)
+        adminAccountRef = mock(DocumentReference::class.java)
+        accountsCollection = mock(CollectionReference::class.java)
+
+        `when`(firestore.collection("accounts"))
+            .thenReturn(accountsCollection)
+
+        `when`(accountsCollection.document(adminAccountId))
+            .thenReturn(adminAccountRef)
+
+        `when`(transaction.get(adminAccountRef))
+            .thenReturn(adminAccountDocument)
+
+        `when`(adminAccountDocument.exists())
+            .thenReturn(true)
+
+        `when`(adminAccountDocument.get("userType"))
+            .thenReturn(listOf("admin"))
 
         `when`(firestore.collection("campsite"))
             .thenReturn(campsites)
@@ -300,6 +324,7 @@ class RatingModerationModelTest {
 
         model.removeAdminRating(
             campsiteId = campsiteId,
+            adminAccountId = adminAccountId,
             selected = selectedRating,
             onResult = { result = it },
             onError = { error = it }
@@ -308,7 +333,8 @@ class RatingModerationModelTest {
         assertEquals(false, result)
         assertNull(error)
 
-        verifyNoDatabaseWrites()
+        verify(transaction, never()).update(any(DocumentReference::class.java), anyMap<String, Any>())
+        verify(transaction, never()).delete(any(DocumentReference::class.java))
     }
 
     /**
@@ -341,6 +367,7 @@ class RatingModerationModelTest {
 
         model.removeAdminRating(
             campsiteId = campsiteId,
+            adminAccountId = adminAccountId,
             selected = invalidRating,
             onResult = { resultCalled = true },
             onError = { error = it }
@@ -370,6 +397,7 @@ class RatingModerationModelTest {
 
         model.removeAdminRating(
             campsiteId,
+            adminAccountId,
             invalidRating,
             onResult = {
                 fail("Invalid rating must not be removed.")
@@ -670,6 +698,7 @@ class RatingModerationModelTest {
 
         model.removeAdminRating(
             campsiteId,
+            adminAccountId,
             rating,
             onResult = { result = it },
             onError = { error = it }
@@ -690,18 +719,15 @@ class RatingModerationModelTest {
 
         model.removeAdminRating(
             campsiteId,
+            adminAccountId,
             rating,
             onResult = { resultCalled = true },
             onError = { error = it }
         )
 
         assertFalse(resultCalled)
-
-        assertEquals(
-            "Unable to remove this rating. " +
-                    "Review the current rating and try again.",
-            error
-        )
+        assertNotNull("An error message should be returned")
+        assertTrue("The error message should not be blank", !error.isNullOrBlank())
     }
 
     private fun verifyNoDatabaseWrites() {

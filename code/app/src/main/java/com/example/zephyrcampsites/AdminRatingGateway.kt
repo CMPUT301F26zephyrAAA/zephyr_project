@@ -11,6 +11,7 @@ interface AdminRatingGateway {
 
     fun removeAdminRating(
         campsiteId: String,
+        adminAccountId: String,
         selected: CampsiteRating,
         onResult: (Boolean) -> Unit,
         onError: (String) -> Unit

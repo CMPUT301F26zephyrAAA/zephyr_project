@@ -294,6 +294,7 @@ class CampsiteDetailView {
                 removeRating = { selected, onResult, onError ->
                     moderationModel.removeAdminRating(
                         campsiteId = ratingsCampsiteId,
+                        adminAccountId = requireNotNull(moderationAccountId),
                         selected = selected,
                         onResult = { removed ->
                             if (removed) ratingRows = ratingRows?.filterNot { it == selected }

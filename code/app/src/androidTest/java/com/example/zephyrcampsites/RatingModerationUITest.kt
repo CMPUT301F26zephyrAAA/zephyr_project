@@ -798,20 +798,13 @@ class RatingModerationUITest {
             .assertIsDisplayed()
     }
 
-    // =====================================================
-    // FAKE RATING GATEWAY
-    // =====================================================
 
-    private class FakeRatingGateway(
-        var rows: List<CampsiteRating>
-    ) : AdminRatingGateway {
+    private class FakeRatingGateway(var rows: List<CampsiteRating>) : AdminRatingGateway {
 
         var requests = 0
-
         var observations = 0
-
         var removedRating: CampsiteRating? = null
-
+        var removedByAdminAccountId: String? = null
         var shouldFail = false
 
         private var listener:
@@ -836,12 +829,13 @@ class RatingModerationUITest {
 
         override fun removeAdminRating(
             campsiteId: String,
+            adminAccountId: String,
             selected: CampsiteRating,
             onResult: (Boolean) -> Unit,
             onError: (String) -> Unit
         ) {
-
             requests++
+            removedByAdminAccountId = adminAccountId
 
             if (shouldFail) {
 
