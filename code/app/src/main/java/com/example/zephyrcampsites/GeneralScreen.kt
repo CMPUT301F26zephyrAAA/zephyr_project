@@ -1,3 +1,4 @@
+// Defines the routes shared by the app's navigation graphs.
 package com.example.zephyrcampsites
 
 import android.net.Uri
@@ -8,6 +9,7 @@ sealed class GeneralScreen(val route: String) {
     data object OwnerMenu : GeneralScreen("GeneralScreen/OwnerMenu")
     data object AdminMenu : GeneralScreen("GeneralScreen/AdminMenu")
     data object Trips : GeneralScreen("entrant/trips")
+    data object LotteryNotifications : GeneralScreen("entrant/lottery-notifications")
     data object ViewReservations : GeneralScreen("owner/reservations")
     data object NotificationLogs : GeneralScreen("admin/notification-logs")
     data object MessageLogs : GeneralScreen("admin/message-logs")
