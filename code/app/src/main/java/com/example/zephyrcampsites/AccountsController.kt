@@ -1,15 +1,16 @@
 
+// Identifies the installation and coordinates profile operations.
 package com.example.zephyrcampsites
 
 import android.content.Context
 import android.provider.Settings
 import android.net.Uri
+import com.google.firebase.auth.FirebaseAuth
 
 /**
  * Controls account identification and initialization.
  *
- * Uses the Android device ID to retrieve or create
- * the user's account without requiring a login.
+ * Uses Firebase Auth at startup and the Android device ID to find legacy profiles.
  *
  * @param accountsModel Model used to read and update accounts.
  */
@@ -30,6 +31,18 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
             context.contentResolver,
             Settings.Secure.ANDROID_ID
         )
+    }
+
+    /** Matches a profile to this installation before requesting a profile change. */
+    private fun isOwnProfile(context: Context, accountId: String): Boolean {
+        if (accountId.isBlank() || '/' in accountId) {
+            return false
+        }
+        if (accountId.startsWith("auth_")) {
+            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return false
+            return accountId == "auth_$uid"
+        }
+        return accountId == getDeviceId(context)
     }
 
     /**
@@ -53,10 +66,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
             return
         }
 
-        accountsModel.getOrCreateAccount(deviceId, onResult = { account -> onSuccess(account) },
-            onError = { exception -> onError(exception)
-            }
-        )
+        accountsModel.getOrCreateAccount(deviceId, onResult = onSuccess, onError = onError)
     }
 
     /**
@@ -131,12 +141,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: (Account) -> Unit,
         onError: (String) -> Unit
     ) {
-        val deviceId = getDeviceId(context)
-
-        if (deviceId.isNullOrBlank() ||
-            '/' in deviceId ||
-            deviceId != account.id
-        ) {
+        if (!isOwnProfile(context, account.id)) {
             onError("You can only update your own profile image.")
             return
         }
@@ -177,12 +182,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: (Account) -> Unit,
         onError: (String) -> Unit
     ) {
-        val deviceId = getDeviceId(context)
-
-        if (deviceId.isNullOrBlank() ||
-            '/' in deviceId ||
-            deviceId != account.id
-        ) {
+        if (!isOwnProfile(context, account.id)) {
             onError("You can only remove your own profile image.")
             return
         }
@@ -247,9 +247,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        val deviceId = getDeviceId(context)
-
-        if (deviceId.isNullOrBlank() || '/' in deviceId || deviceId != account.id) {
+        if (!isOwnProfile(context, account.id)) {
             onError(IllegalArgumentException("You can only delete your own profile."))
             return
         }

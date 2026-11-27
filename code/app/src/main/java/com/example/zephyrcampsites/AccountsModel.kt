@@ -1,5 +1,9 @@
+// Reads accounts and coordinates authenticated profile creation and updates.
 package com.example.zephyrcampsites
 import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -27,6 +31,21 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     private val firestore by lazy { database ?: Firebase.firestore }
     private val accounts by lazy { firestore.collection("accounts") } // connecting to firestore
 
+    private companion object {
+        private var startupSignIn: Task<String>? = null
+
+        /** Shares an in-flight sign-in when the activity is recreated during startup. */
+        @Synchronized
+        fun authenticatedUid(): Task<String> {
+            val auth = FirebaseAuth.getInstance()
+            auth.currentUser?.let { return Tasks.forResult(it.uid) }
+            startupSignIn?.takeUnless { it.isComplete }?.let { return it }
+            return auth.signInAnonymously()
+                .onSuccessTask { Tasks.forResult(checkNotNull(it.user).uid) }
+                .also { startupSignIn = it }
+        }
+    }
+
     /**
      ** Retrieves an account using its device ID
      * @param deviceID ID of the device
@@ -35,66 +54,71 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
      */
 
     fun getAccount(deviceID: String, onResult: (Account?) -> Unit, onError: (Exception) -> Unit) {
-        accounts.document(deviceID).get().addOnSuccessListener { document ->
-            if (document.exists()) {
-                val account = Account(document.id)
-                account.userType = accountRoles(document.get("userType"))
-                account.name = document.getString("name") ?: ""
-                account.email = document.getString("email") ?: ""
-                account.phoneNumber = document.getString("phoneNumber") ?: ""
-                account.notificationsEnabled = document.getBoolean("notificationsEnabled") ?: true
-                account.imagePath = document.getString("imagePath") ?: ""
-                account.compressedImage = document.getString("compressedImage") ?: ""
-                onResult(account)
-            } else {
-                onResult(null)
-            }
+        accounts.document(deviceID).get()
+            .addOnSuccessListener { onResult(readAccount(it)) }
+            .addOnFailureListener(onError)
+    }
+
+    /** Decodes a saved account, including profiles created before preference settings. */
+    private fun readAccount(document: DocumentSnapshot): Account? {
+        if (!document.exists()) {
+            return null
         }
-            .addOnFailureListener { exception ->
-                onError(exception)
-            }
+        return Account(document.id).apply {
+            userType = accountRoles(document.get("userType"))
+            name = document.getString("name") ?: ""
+            email = document.getString("email") ?: ""
+            phoneNumber = document.getString("phoneNumber") ?: ""
+            notificationsEnabled = document.getBoolean("notificationsEnabled") ?: true
+            imagePath = document.getString("imagePath") ?: ""
+            compressedImage = document.getString("compressedImage") ?: ""
+        }
     }
 
+    // AI Citation [AI-39] (Bhav Saluja)
+    // OpenAI, Codex, Firebase Auth startup follow-up, 2026-11-27. See README.md.
     /**
-     * Creates an account in Firestore
-     * @param account Account to be stored.
-     * @param onSuccess Called when the account is saved
-     * @param onError Called if saving fails.
-     * **/
-    fun createAccount(account: Account, onSuccess: () -> Unit, onError: (Exception) -> Unit) {
-        //[AI-02] OpenAI, ChatGPT, explanation of hashMapOf for constructing Firestore account document fields
-        val accountData = hashMapOf(
-            "id" to account.id,
-            "userType" to accountRoles(null),
-            "notificationsEnabled" to account.notificationsEnabled
-        )
-        accounts.document(account.id).set(accountData).addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { exception -> onError(exception) }
-    }
-
-    /***Retrieve an existing account or create one if device has not been registered***/
+     * Signs in the installation and retains its device profile if it already exists.
+     * @param deviceID Device ID used by existing profiles and their bookings.
+     * @param onResult Called with the existing profile or the newly created Auth profile.
+     * @param onError Called if sign-in or profile initialization fails.
+     */
     fun getOrCreateAccount(
         deviceID: String,
         onResult: (Account) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        getAccount(
-            deviceID, onResult = { account ->
-                if (account != null) {
-                    //returning user
-                    onResult(account)
-                } else {
-                    //First time user
-                    val newAccount = Account(deviceID)
-                    createAccount(
-                        newAccount,
-                        onSuccess = { onResult(newAccount) },
-                        onError = onError
-                    )
+        authenticatedUid()
+            .onSuccessTask { uid -> loadOrCreateProfile(deviceID, "auth_$uid") }
+            .addOnSuccessListener(onResult)
+            .addOnFailureListener(onError)
+    }
+
+    /** Keeps profile creation atomic and leaves returning profiles untouched. */
+    private fun loadOrCreateProfile(deviceId: String, authId: String): Task<Account> {
+        val legacy = accounts.document(deviceId)
+        val profile = accounts.document(authId)
+        return legacy.get().onSuccessTask { document ->
+            readAccount(document)?.let { Tasks.forResult(it) }
+                ?: profile.get().onSuccessTask { saved ->
+                    readAccount(saved)?.let { Tasks.forResult(it) }
+                        ?: firestore.runTransaction { transaction ->
+                            readAccount(transaction.get(legacy))
+                                ?: readAccount(transaction.get(profile))
+                                ?: Account(authId).also { account ->
+                                    // [AI-02] OpenAI, ChatGPT, account field mapping.
+                                    transaction.set(
+                                        profile,
+                                        mapOf(
+                                            "id" to account.id,
+                                            "userType" to account.userType,
+                                            "notificationsEnabled" to account.notificationsEnabled
+                                        )
+                                    )
+                                }
+                        }
                 }
-            },
-            onError = onError
-        )
+        }
     }
 
     /**
@@ -507,7 +531,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                         // Update each lottery's entrant count.
                         savedLotteries
-                            .filter { it.exists() }
+                            .filter { it.exists() && it.id in removedCounts }
                             .forEach { lottery ->
 
                                 val currentCount =
@@ -521,9 +545,10 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
 
                                 transaction.update(
                                     lottery.reference,
-                                    "entrantCount",
-                                    (currentCount - removed)
-                                        .coerceAtLeast(0L)
+                                    mapOf(
+                                        "entrantCount" to (currentCount - removed).coerceAtLeast(0L),
+                                        "waitlistChangeAccountId" to accountId
+                                    )
                                 )
                             }
 
@@ -771,7 +796,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                                 .groupingBy { it.getString("lotteryId") }
                                                 .eachCount()
                                         savedLotteries
-                                            .filter { it.exists() }
+                                            .filter { it.exists() && it.id in removedCounts }
                                             .forEach { lottery ->
                                                 val count =
                                                     lottery.getLong("entrantCount")
@@ -780,9 +805,11 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                                                         )
                                                 transaction.update(
                                                     lottery.reference,
-                                                    "entrantCount",
-                                                    (count - (removedCounts[lottery.id] ?: 0))
-                                                        .coerceAtLeast(0L),
+                                                    mapOf(
+                                                        "entrantCount" to
+                                                            (count - removedCounts.getValue(lottery.id)).coerceAtLeast(0L),
+                                                        "waitlistChangeAccountId" to targetAccount.id
+                                                    ),
                                                 )
                                             }
                                         savedEntries

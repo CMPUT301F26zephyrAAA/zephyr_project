@@ -11,7 +11,8 @@ const {getFirestore, Timestamp} = require("firebase-admin/firestore");
 const projectId = "demo-zephyr-notifications";
 const auth = "http://127.0.0.1:9099";
 const functions = `http://127.0.0.1:5001/${projectId}/us-central1`;
-const firestore = `http://127.0.0.1:8082/v1/projects/${projectId}/databases/(default)/documents`;
+const documents = `projects/${projectId}/databases/(default)/documents`;
+const firestore = `http://127.0.0.1:8082/v1/${documents}`;
 const db = getFirestore(initializeApp({projectId}));
 const suffix = randomUUID();
 const lotteryId = `pines-${suffix}`;
@@ -34,44 +35,138 @@ before(async () => {
     );
     assert.equal(response.ok, true);
     const user = await response.json();
-    const accountId = `${key}-${suffix}`;
+    const accountId = `auth_${user.localId}`;
     accounts[key] = {...user, accountId};
-    const profile = {name: key};
-    if (key !== "allowed") {
-      profile.notificationsEnabled = key !== "optedOut";
-    }
-    await db.doc(`accounts/${accountId}`).set(profile);
-    await db.doc(`notificationAccountLinks/${accountId}`)
-        .set({uid: user.localId});
+    assert.equal((await patch(accounts[key], `accounts/${accountId}`, {
+      id: accountId, userType: ["entrant", "owner"], notificationsEnabled: true,
+    })).status, 200);
+    assert.equal((await patch(accounts[key], `accounts/${accountId}`, {
+      name: key,
+    }, true)).status, 200);
   }
-  const ownerAccountId = accounts.owner.accountId;
-  await db.doc(`campsite/${campsiteId}`).set({ownerID: ownerAccountId});
+  const optedOut = accounts.optedOut;
+  assert.equal((await patch(optedOut, `accounts/${optedOut.accountId}`, {
+    notificationsEnabled: false,
+  }, true)).status, 200);
+  const owner = accounts.owner;
+  assert.equal((await patch(owner, `campsite/${campsiteId}`, {
+    ownerID: owner.accountId,
+  })).status, 200);
+  const now = Date.now();
   for (const id of [lotteryId, emptyLotteryId]) {
-    await db.doc(`lottery/${id}`)
-        .set({campsiteId, lotteryName: "Whispering Pines"});
-    await db.doc(`notificationLotteryOwners/${id}`)
-        .set({campsiteId, ownerAccountId});
+    assert.equal((await patch(owner, `lottery/${id}`, {
+      campsiteId,
+      lotteryName: "Whispering Pines",
+      registrationStart: now - 60000,
+      registrationEnd: now + 600000,
+      waitlistCapacity: 2,
+      entrantCount: 0,
+    })).status, 200);
   }
-  await Promise.all([
-    register("allowed"),
-    register("optedOut", "WAITING"),
-    register("winner", "WINNER"),
-  ]);
+  assert.equal((await registration(accounts.allowed, 1, true)).status, 200);
+  assert.equal((await registration(accounts.optedOut, 2, true)).status, 200);
+  await db.doc(`waitingList/${lotteryId}_${accounts.winner.accountId}`).set({
+    lotteryId, accountId: accounts.winner.accountId, drawStatus: "WINNER",
+  });
 });
 
 /**
- * Seeds a registration shaped like the Android waiting-list writer.
- * @param {string} account Fixture account name.
- * @param {string=} drawStatus Optional waitlist status.
- * @return {Promise<Object>} Firestore write result.
+ * Encodes the scalar and list fields used by the Firestore REST fixtures.
+ * @param {Object} data Document fields.
+ * @return {Object} Typed Firestore fields.
  */
-function register(account, drawStatus) {
-  const accountId = accounts[account].accountId;
-  const registration = {lotteryId, accountId, joinedAt: Date.now()};
-  if (drawStatus !== undefined) {
-    registration.drawStatus = drawStatus;
+function fields(data) {
+  return Object.fromEntries(Object.entries(data).map(([key, value]) => [
+    key, typeof value === "boolean" ? {booleanValue: value} :
+      Number.isInteger(value) ? {integerValue: String(value)} :
+        Array.isArray(value) ?
+          {arrayValue: {values: value.map((v) => ({stringValue: v}))}} :
+          {stringValue: value},
+  ]));
+}
+
+/**
+ * Writes Firestore through client rules using the chosen Firebase identity.
+ * @param {Object} user Auth emulator user.
+ * @param {string} path Firestore document path.
+ * @param {Object} data Document fields.
+ * @param {boolean} merge Whether to update just the supplied fields.
+ * @return {Promise<Response>} Firestore REST response.
+ */
+function patch(user, path, data, merge = false) {
+  const query = new URLSearchParams();
+  if (merge) {
+    for (const key of Object.keys(data)) {
+      query.append("updateMask.fieldPaths", key);
+    }
   }
-  return db.doc(`waitingList/${lotteryId}_${accountId}`).set(registration);
+  return fetch(`${firestore}/${path}?${query}`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${user.idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({fields: fields(data)}),
+  });
+}
+
+/**
+ * Pairs a real client registration or withdrawal with its count update.
+ * @param {Object} user Auth emulator user.
+ * @param {number} count Expected next count.
+ * @param {boolean} join Whether to create the registration.
+ * @param {string} id Lottery to change.
+ * @return {Promise<Response>} Firestore REST response.
+ */
+function registration(user, count, join, id = lotteryId) {
+  const path = `${documents}/waitingList/${id}_${user.accountId}`;
+  const entryWrite = join ? {
+    update: {
+      name: path,
+      fields: fields({
+        lotteryId: id,
+        accountId: user.accountId,
+        joinedAt: Date.now(),
+        drawStatus: "WAITING",
+      }),
+    },
+    currentDocument: {exists: false},
+  } : {delete: path, currentDocument: {exists: true}};
+  return commit(user, [entryWrite, update(`lottery/${id}`, {
+    entrantCount: count,
+    waitlistChangeAccountId: user.accountId,
+  })]);
+}
+
+/**
+ * Writes related client changes together through the Firestore rules.
+ * @param {Object} user Auth emulator user.
+ * @param {Array<Object>} writes Typed Firestore mutations.
+ * @return {Promise<Response>} Firestore REST response.
+ */
+function commit(user, writes) {
+  return fetch(`${firestore}:commit`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${user.idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({writes}),
+  });
+}
+
+/**
+ * Builds a targeted update to an existing record.
+ * @param {string} path Firestore document path.
+ * @param {Object} data Fields to update.
+ * @return {Object} Typed Firestore mutation.
+ */
+function update(path, data) {
+  return {
+    update: {name: `${documents}/${path}`, fields: fields(data)},
+    updateMask: {fieldPaths: Object.keys(data)},
+    currentDocument: {exists: true},
+  };
 }
 
 /**
@@ -128,10 +223,6 @@ test("requires a verified owner and denies direct client writes", async () => {
   assert.equal(spoof.error.status, "PERMISSION_DENIED");
   assert.equal(spoof.error.details.linkRequired, true);
   assert.equal((await send(outsider)).error.status, "PERMISSION_DENIED");
-  const grant = db.doc(`notificationLotteryOwners/${lotteryId}`);
-  await grant.delete();
-  assert.equal((await send(owner)).error.status, "PERMISSION_DENIED");
-  await grant.set({campsiteId, ownerAccountId: owner.accountId});
   const campsite = db.doc(`campsite/${campsiteId}`);
   await campsite.update({ownerID: outsider.accountId});
   assert.equal((await send(owner)).error.status, "PERMISSION_DENIED");
@@ -152,6 +243,52 @@ test("requires a verified owner and denies direct client writes", async () => {
     });
     assert.equal(response.status, 403);
   }
+});
+
+test("protects preferences and waitlist writes for all profiles", async () => {
+  const {owner, allowed, outsider} = accounts;
+  assert.equal((await patch(outsider, `accounts/${allowed.accountId}`, {
+    notificationsEnabled: false,
+  }, true)).status, 403);
+  assert.equal((await patch(allowed, `accounts/${allowed.accountId}`, {
+    notificationsEnabled: "false",
+  }, true)).status, 403);
+
+  const legacyId = `legacy-${suffix}`;
+  const legacy = db.doc(`accounts/${legacyId}`);
+  await legacy.set({id: legacyId, name: "Legacy Camper", userType: "entrant"});
+  assert.equal((await patch(outsider, legacy.path, {
+    notificationsEnabled: false,
+  }, true)).status, 403);
+  assert.equal((await patch(outsider, legacy.path, {
+    name: "Legacy Camper",
+  }, true)).status, 200);
+
+  assert.equal((await registration(outsider, 3, true)).status, 403);
+  assert.equal((await patch(owner, `lottery/${lotteryId}`, {
+    entrantCount: 12,
+  }, true)).status, 403);
+  assert.equal((await patch(outsider,
+      `waitingList/${emptyLotteryId}_${outsider.accountId}`, {
+        accountId: outsider.accountId, lotteryId: emptyLotteryId,
+        joinedAt: Date.now(),
+      })).status, 403);
+  assert.equal((await patch(outsider,
+      `waitingList/${lotteryId}_${allowed.accountId}`, {
+        drawStatus: "BACKUP",
+      }, true)).status, 403);
+
+  await db.doc(`notificationAccountLinks/${legacyId}`)
+      .set({uid: outsider.localId});
+  const linked = {...outsider, accountId: legacyId};
+  assert.equal((await patch(linked, legacy.path, {
+    notificationsEnabled: false,
+  }, true)).status, 200);
+  const legacyJoin = await registration(linked, 1, true, emptyLotteryId);
+  const legacyLeave = await registration(linked, 0, false, emptyLotteryId);
+  assert.equal(legacyJoin.status, 200);
+  assert.equal(legacyLeave.status, 200);
+  assert.equal((await legacy.get()).get("name"), "Legacy Camper");
 });
 
 test("validates sends and delivers only to the chosen entrant", async () => {
@@ -200,14 +337,52 @@ test("validates sends and delivers only to the chosen entrant", async () => {
   assert.equal(response.status, 403);
 });
 
+test("a winner can decline and promote a backup in one commit", async () => {
+  const id = `finished-${suffix}`;
+  const winner = accounts.winner;
+  const backupId = accounts.late.accountId;
+  const winnerPath = `waitingList/${id}_${winner.accountId}`;
+  const backupPath = `waitingList/${id}_${backupId}`;
+  const resultPath = `lotteryDrawResults/${id}`;
+  const batch = db.batch();
+  batch.create(db.doc(`lottery/${id}`), {
+    campsiteId, drawCompleted: true, drawStatus: "COMPLETED", entrantCount: 2,
+  });
+  batch.create(db.doc(winnerPath), {
+    lotteryId: id, accountId: winner.accountId,
+    drawStatus: "WINNER", backupPosition: 0,
+  });
+  batch.create(db.doc(backupPath), {
+    lotteryId: id, accountId: backupId,
+    drawStatus: "BACKUP", backupPosition: 1,
+  });
+  batch.create(db.doc(resultPath), {
+    winnerIds: [winner.accountId], backupIds: [backupId],
+    declinedIds: [], winnerCount: 1, backupCount: 1,
+  });
+  await batch.commit();
+  const result = await commit(winner, [
+    update(winnerPath, {drawStatus: "DECLINED", backupPosition: 0}),
+    update(backupPath, {drawStatus: "WINNER", backupPosition: 0}),
+    update(resultPath, {
+      lastDeclinedAccountId: winner.accountId,
+      winnerIds: [backupId], backupIds: [], declinedIds: [winner.accountId],
+      winnerCount: 1, backupCount: 0,
+    }),
+  ]);
+  assert.equal(result.status, 200, await result.text());
+});
+
 test("everyone uses current membership and honors opt-outs", async () => {
   const owner = accounts.owner;
   const allowed = accounts.allowed;
   const optedOut = accounts.optedOut;
   const late = accounts.late;
   const previousInbox = await inbox(allowed);
-  await register("late", "BACKUP");
-  await db.doc(`waitingList/${lotteryId}_${allowed.accountId}`).delete();
+  assert.equal((await registration(allowed, 1, false)).status, 200);
+  assert.equal((await registration(late, 2, true)).status, 200);
+  await db.doc(`waitingList/${lotteryId}_${late.accountId}`)
+      .update({drawStatus: "BACKUP"});
   assert.equal((await send(owner, {
     allEntrants: false, recipientIds: [allowed.accountId],
   })).error.status, "FAILED_PRECONDITION");
@@ -230,10 +405,12 @@ test("everyone uses current membership and honors opt-outs", async () => {
   assert.deepEqual(new Set(record.intendedRecipientIds),
       new Set([late.accountId, optedOut.accountId]));
   assert.deepEqual(record.deliveredRecipientIds, [late.accountId]);
-  await db.doc(`accounts/${optedOut.accountId}`)
-      .update({notificationsEnabled: true});
+  assert.equal((await patch(optedOut, `accounts/${optedOut.accountId}`, {
+    notificationsEnabled: true,
+  }, true)).status, 200);
   assert.deepEqual((await inbox(optedOut)).result, []);
-  await db.doc(`accounts/${late.accountId}`)
-      .update({notificationsEnabled: false});
+  assert.equal((await patch(late, `accounts/${late.accountId}`, {
+    notificationsEnabled: false,
+  }, true)).status, 200);
   assert.deepEqual((await inbox(late)).result, []);
 });

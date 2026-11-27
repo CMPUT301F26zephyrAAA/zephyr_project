@@ -412,6 +412,7 @@ class ReservationOfferModel(
                     "winnerIds" to winnerIds,
                     "backupIds" to remainingBackupIds,
                     "declinedIds" to declinedIds,
+                    "lastDeclinedAccountId" to accountId,
                     "winnerCount" to winnerIds.size,
                     "backupCount" to remainingBackupIds.size
                 )

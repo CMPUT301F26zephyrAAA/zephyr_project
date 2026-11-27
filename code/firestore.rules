@@ -1,0 +1,383 @@
+// Firestore rules for reservation chat, verified accounts, and lottery notifications.
+// AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, write protection, 2026-11-27.
+// accounts/{accountId}: auth_<Firebase UID> or a preserved device ID. Preferences are booleans.
+// lottery/{lotteryId}: campsiteId, registration millis, entrantCount and waitlistChangeAccountId.
+// waitingList/{lotteryId}_{accountId}: paired entry for the lottery's counter transaction.
+// Admin-managed chatAccountLinks/{deviceAccountId}: uid (Firebase Auth UID).
+// Admin-managed reservationChatAccess/{reservationId}: entrantAccountId, ownerAccountId, campsiteId.
+// reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
+// reservationChat/{reservationId}: same participant fields, immutable after creation.
+// messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
+// readReceipts/{accountId}: readAt (newest incoming message timestamp seen).
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Preserve the current cutoff and permissions outside chat.
+    function legacyAccess() {
+      return request.time < timestamp.date(2026, 12, 31);
+    }
+
+    function isChatCollection(collection) {
+      return collection in ['chatAccountLinks', 'reservationChatAccess', 'reservationChat'];
+    }
+
+    // Notification account links, owner grants, and messages are server-managed.
+    function isNotificationCollection(collection) {
+      return collection in [
+        'notificationAccountLinks', 'notificationLotteryOwners', 'lotteryNotifications'
+      ];
+    }
+
+    match /{collection}/{document=**} {
+      allow read: if legacyAccess() && !isChatCollection(collection) && !isNotificationCollection(collection);
+      allow write: if legacyAccess() && !isChatCollection(collection) &&
+        !isNotificationCollection(collection) &&
+        !(collection in ['reservation', 'accounts', 'campsite', 'lottery', 'waitingList', 'lotteryDrawResults']);
+    }
+
+    // Firebase Auth owns auth_* profiles. An administrator can link verified legacy profiles.
+    function notificationLink(accountId) {
+      return /databases/$(database)/documents/notificationAccountLinks/$(accountId);
+    }
+
+    function managedAccount(accountId) {
+      return validId(accountId) &&
+        (accountId.matches('auth_.+') || exists(notificationLink(accountId)));
+    }
+
+    function verifiedAccount(accountId) {
+      return request.auth != null && validId(accountId) &&
+        (accountId == 'auth_' + request.auth.uid ||
+          (!accountId.matches('auth_.+') && exists(notificationLink(accountId)) &&
+            get(notificationLink(accountId)).data.uid == request.auth.uid));
+    }
+
+    function accountRecord(accountId) {
+      return /databases/$(database)/documents/accounts/$(accountId);
+    }
+
+    function notificationAdmin() {
+      return request.auth != null && (
+        request.auth.token.get('admin', false) == true ||
+        (exists(accountRecord('auth_' + request.auth.uid)) &&
+          get(accountRecord('auth_' + request.auth.uid)).data.get('userType', [])
+            .hasAny(['admin']))
+      );
+    }
+
+    function validManagedProfile(accountId) {
+      let data = request.resource.data;
+      return data.get('id', accountId) == accountId &&
+        data.get('notificationsEnabled', true) is bool &&
+        data.get('deletionPending', false) is bool;
+    }
+
+    match /accounts/{accountId} {
+      allow create: if verifiedAccount(accountId) && accountId.matches('auth_.+') &&
+        validManagedProfile(accountId) &&
+        request.resource.data.keys().hasOnly(['id', 'userType', 'notificationsEnabled']) &&
+        request.resource.data.id == accountId &&
+        request.resource.data.notificationsEnabled is bool &&
+        request.resource.data.userType == ['entrant', 'owner'];
+      allow update: if (!managedAccount(accountId) && legacyAccess() &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'email', 'phoneNumber', 'imagePath', 'compressedImage'
+          ])) ||
+        (validManagedProfile(accountId) &&
+          ((verifiedAccount(accountId) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'email', 'phoneNumber', 'notificationsEnabled',
+              'imagePath', 'compressedImage', 'deletionPending'
+            ])) ||
+            (notificationAdmin() &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'imagePath', 'compressedImage', 'deletionPending'
+              ]))));
+      allow delete: if verifiedAccount(accountId) || notificationAdmin();
+    }
+
+    function campsiteRecord(campsiteId) {
+      return /databases/$(database)/documents/campsite/$(campsiteId);
+    }
+
+    match /campsite/{campsiteId} {
+      allow create: if request.resource.data.get('ownerID', '') is string &&
+        verifiedAccount(request.resource.data.ownerID) &&
+        accountActive(request.resource.data.ownerID);
+      allow update: if
+        request.resource.data.get('ownerID', '') == resource.data.get('ownerID', '') &&
+        (verifiedAccount(resource.data.get('ownerID', '')) ||
+          (notificationAdmin() &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['imagePaths', 'compressedImages'])) ||
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['rating', 'averageRating']));
+      allow delete: if notificationAdmin();
+    }
+
+    function lotteryRecord(lotteryId) {
+      return /databases/$(database)/documents/lottery/$(lotteryId);
+    }
+
+    function lotteryOwner(lottery) {
+      let campsiteId = lottery.get('campsiteId', '');
+      return validId(campsiteId) && exists(campsiteRecord(campsiteId)) ?
+        get(campsiteRecord(campsiteId)).data.get('ownerID', '') : '';
+    }
+
+    function registrationRecord(lotteryId, accountId) {
+      return /databases/$(database)/documents/waitingList/$(lotteryId + '_' + accountId);
+    }
+
+    function drawOpen(lottery) {
+      return lottery.get('drawCompleted', false) == false &&
+        lottery.get('drawStatus', 'PENDING') == 'PENDING';
+    }
+
+    function joiningAllowed(lottery) {
+      let time = request.time.toMillis();
+      let capacity = lottery.get('waitlistCapacity', null);
+      return drawOpen(lottery) && lottery.registrationStart <= time &&
+        time < lottery.registrationEnd && lottery.entrantCount is int &&
+        (capacity == null || lottery.entrantCount < capacity);
+    }
+
+    function accountActive(accountId) {
+      return exists(accountRecord(accountId)) &&
+        get(accountRecord(accountId)).data.get('deletionPending', false) == false;
+    }
+
+    function countMatchesChange(lotteryId, accountId, before, after) {
+      let entry = registrationRecord(lotteryId, accountId);
+      return before is int && before >= 0 && after is int &&
+        ((after == before + 1 && !exists(entry) && existsAfter(entry)) ||
+          (after == (before > 0 ? before - 1 : 0) && exists(entry) && !existsAfter(entry)));
+    }
+
+    function validCountUpdate(lotteryId) {
+      let next = request.resource.data;
+      let accountId = next.get('waitlistChangeAccountId', '');
+      return next.diff(resource.data).affectedKeys()
+        .hasOnly(['entrantCount', 'waitlistChangeAccountId']) &&
+        validId(accountId) && (verifiedAccount(accountId) || notificationAdmin()) &&
+        countMatchesChange(lotteryId, accountId, resource.data.entrantCount, next.entrantCount);
+    }
+
+    match /lottery/{lotteryId} {
+      allow create: if
+        validId(request.resource.data.campsiteId) &&
+        request.resource.data.entrantCount == 0 && drawOpen(request.resource.data) &&
+        verifiedAccount(lotteryOwner(request.resource.data));
+      allow update: if
+        request.resource.data.campsiteId == resource.data.campsiteId &&
+          (validCountUpdate(lotteryId) ||
+            (verifiedAccount(lotteryOwner(resource.data)) &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                'lotteryName', 'registrationStart', 'registrationEnd',
+                'bookingStart', 'bookingEnd', 'numberOfWinners', 'waitlistCapacity'
+              ])) ||
+            (notificationAdmin() &&
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['registrationEnd'])));
+      allow delete: if notificationAdmin();
+    }
+
+    function validRegistration(entry, registrationId) {
+      return validId(entry.accountId) && validId(entry.lotteryId) &&
+        registrationId == entry.lotteryId + '_' + entry.accountId;
+    }
+
+    function verifiedJoin(entry) {
+      let path = lotteryRecord(entry.lotteryId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return verifiedAccount(entry.accountId) && accountActive(entry.accountId) &&
+        entry.keys().hasOnly(['id', 'name', 'accountId', 'lotteryId', 'joinedAt', 'drawStatus', 'backupPosition']) &&
+        entry.get('id', entry.lotteryId + '_' + entry.accountId) == entry.lotteryId + '_' + entry.accountId &&
+        entry.get('name', '') == '' &&
+        entry.get('drawStatus', 'WAITING') == 'WAITING' &&
+        entry.get('backupPosition', 0) == 0 && entry.joinedAt is int &&
+        joiningAllowed(before) && after.waitlistChangeAccountId == entry.accountId &&
+        after.entrantCount == before.entrantCount + 1;
+    }
+
+    function verifiedLeave(entry) {
+      let path = lotteryRecord(entry.lotteryId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return (notificationAdmin() || (verifiedAccount(entry.accountId) &&
+        (drawOpen(before) ||
+          (get(accountRecord(entry.accountId)).data.get('deletionPending', false) == true &&
+            !existsAfter(accountRecord(entry.accountId)))))) &&
+        after.waitlistChangeAccountId == entry.accountId &&
+        after.entrantCount == (before.entrantCount > 0 ? before.entrantCount - 1 : 0);
+    }
+
+    function drawResult(lotteryId) {
+      return /databases/$(database)/documents/lotteryDrawResults/$(lotteryId);
+    }
+
+    function validDecline(lotteryId, result) {
+      let actor = result.get('lastDeclinedAccountId', '');
+      let previous = get(drawResult(lotteryId)).data;
+      let registration = registrationRecord(lotteryId, actor);
+      let winners = result.winnerIds.toSet();
+      let previousWinners = previous.winnerIds.toSet();
+      let promoted = winners.difference(previousWinners);
+      let backups = result.backupIds.toSet();
+      return verifiedAccount(actor) && get(registration).data.drawStatus == 'WINNER' &&
+        getAfter(registration).data.drawStatus == 'DECLINED' &&
+        previousWinners.difference(winners) == [actor].toSet() &&
+        promoted.size() <= 1 && previous.backupIds.toSet().hasAll(promoted.union(backups)) &&
+        !winners.hasAny(backups) &&
+        result.declinedIds.toSet() == previous.get('declinedIds', []).toSet().union([actor].toSet()) &&
+        winners.size() == result.winnerIds.size() && result.winnerCount == winners.size() &&
+        backups.size() == result.backupIds.size() && result.backupCount == backups.size();
+    }
+
+    function validRegistrationTransition(entry) {
+      let changed = request.resource.data.diff(entry).affectedKeys();
+      let result = getAfter(drawResult(entry.lotteryId)).data;
+      let next = request.resource.data;
+      return changed.hasOnly(['drawStatus', 'backupPosition']) &&
+        validDecline(entry.lotteryId, result) &&
+        ((entry.drawStatus == 'WINNER' && next.drawStatus == 'DECLINED' &&
+          entry.accountId == result.lastDeclinedAccountId && next.backupPosition == 0) ||
+          (entry.drawStatus == 'BACKUP' &&
+            ((next.drawStatus == 'WINNER' && entry.accountId in result.winnerIds &&
+              next.backupPosition == 0) ||
+              (next.drawStatus == 'BACKUP' && entry.accountId in result.backupIds &&
+                next.backupPosition is int && next.backupPosition > 0))));
+    }
+
+    match /waitingList/{registrationId} {
+      allow create: if validRegistration(request.resource.data, registrationId) &&
+        verifiedJoin(request.resource.data);
+      allow update: if validRegistration(request.resource.data, registrationId) &&
+        validRegistrationTransition(resource.data);
+      allow delete: if validRegistration(resource.data, registrationId) &&
+        ((notificationAdmin() && !existsAfter(lotteryRecord(resource.data.lotteryId))) ||
+          verifiedLeave(resource.data));
+    }
+
+    match /lotteryDrawResults/{lotteryId} {
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'winnerIds', 'backupIds', 'declinedIds', 'lastDeclinedAccountId',
+          'winnerCount', 'backupCount'
+        ]) && validDecline(lotteryId, request.resource.data);
+    }
+
+
+    function hasChatApproval(reservationId) {
+      return exists(/databases/$(database)/documents/reservationChatAccess/$(reservationId));
+    }
+
+    function preservesChatApproval(reservationId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return !changed.hasAny(['accountId', 'campsiteId', 'bookedPeriodStart', 'bookedPeriodEnd']) &&
+        (!changed.hasAny(['cancelled']) ||
+          (resource.data.cancelled == false && request.resource.data.cancelled == true &&
+            isParticipant(approvedReservation(reservationId))));
+    }
+
+    match /reservation/{reservationId} {
+      // Existing app behavior is retained until a booking is approved for chat.
+      allow create, delete: if legacyAccess() && !hasChatApproval(reservationId);
+      allow update: if legacyAccess() &&
+        (!hasChatApproval(reservationId) || preservesChatApproval(reservationId));
+
+      match /{childCollection}/{document=**} {
+        allow write: if legacyAccess();
+      }
+    }
+
+    function validId(value) {
+      return value is string && value.size() > 0 && value.size() <= 128 &&
+        value.matches('[^/]+') && !(value in ['.', '..']);
+    }
+
+    function accountLink(accountId) {
+      return /databases/$(database)/documents/chatAccountLinks/$(accountId);
+    }
+
+    function isLinkedAccount(accountId) {
+      return request.auth != null && validId(accountId) && exists(accountLink(accountId)) &&
+        get(accountLink(accountId)).data.uid == request.auth.uid;
+    }
+
+    function approvedReservation(reservationId) {
+      return get(/databases/$(database)/documents/reservationChatAccess/$(reservationId)).data;
+    }
+
+    function isParticipant(booking) {
+      return isLinkedAccount(booking.entrantAccountId) || isLinkedAccount(booking.ownerAccountId);
+    }
+
+    function canOpenChat(reservationId, booking) {
+      let reservation = get(/databases/$(database)/documents/reservation/$(reservationId)).data;
+      return isParticipant(booking) &&
+        reservation.accountId == booking.entrantAccountId && reservation.campsiteId == booking.campsiteId &&
+        reservation.cancelled == false &&
+        reservation.bookedPeriodStart is timestamp && reservation.bookedPeriodEnd is timestamp &&
+        reservation.bookedPeriodStart < reservation.bookedPeriodEnd;
+    }
+
+    function sameBooking(data, booking) {
+      return data.entrantAccountId == booking.entrantAccountId &&
+        data.ownerAccountId == booking.ownerAccountId && data.campsiteId == booking.campsiteId;
+    }
+
+    function isValidConversation(data, booking) {
+      return data.keys().hasOnly(['entrantAccountId', 'ownerAccountId', 'campsiteId']) &&
+        validId(data.entrantAccountId) && validId(data.ownerAccountId) && validId(data.campsiteId) &&
+        sameBooking(data, booking) &&
+        exists(accountLink(booking.entrantAccountId)) && exists(accountLink(booking.ownerAccountId));
+    }
+
+    function isValidMessage(data, booking) {
+      return data.keys().hasOnly(['senderUid', 'senderAccountId', 'text', 'sentAt']) &&
+        data.senderUid == request.auth.uid && data.senderAccountId in [booking.entrantAccountId, booking.ownerAccountId] &&
+        isLinkedAccount(data.senderAccountId) &&
+        data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
+        data.text.matches('(?s).*\\S.*') &&
+        data.sentAt == request.time;
+    }
+
+    match /chatAccountLinks/{accountId} {
+      allow get: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    match /reservationChat/{reservationId} {
+      allow get: if canOpenChat(reservationId, approvedReservation(reservationId));
+      allow create: if canOpenChat(reservationId, approvedReservation(reservationId)) &&
+        isValidConversation(request.resource.data, approvedReservation(reservationId));
+
+      function canAccessChat(booking) {
+        let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId)).data;
+        return canOpenChat(reservationId, booking) && sameBooking(conversation, booking);
+      }
+
+      match /messages/{messageId} {
+        allow read: if canAccessChat(approvedReservation(reservationId));
+        allow create: if canAccessChat(approvedReservation(reservationId)) &&
+          isValidMessage(request.resource.data, approvedReservation(reservationId));
+      }
+
+      match /readReceipts/{accountId} {
+        function ownsReceipt(booking) {
+          return accountId in [booking.entrantAccountId, booking.ownerAccountId] &&
+            isLinkedAccount(accountId) && canAccessChat(booking);
+        }
+
+        function validReceipt(data) {
+          return data.keys().hasOnly(['readAt']) && data.readAt is timestamp && data.readAt <= request.time;
+        }
+
+        allow get: if ownsReceipt(approvedReservation(reservationId));
+        allow create: if ownsReceipt(approvedReservation(reservationId)) && validReceipt(request.resource.data);
+        allow update: if ownsReceipt(approvedReservation(reservationId)) &&
+          validReceipt(request.resource.data) && request.resource.data.readAt >= resource.data.readAt;
+      }
+    }
+  }
+}
