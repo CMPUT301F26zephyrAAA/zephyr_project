@@ -141,38 +141,6 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
 
                     val results = snapshot.documents.mapNotNull { document ->
                         parseReservation(document)
-
-
-                        // Skip reservations with missing or invalid dates.
-                        val start = document.get("bookedPeriodStart") as? Timestamp
-                            ?: return@mapNotNull null
-
-                        val end = document.get("bookedPeriodEnd") as? Timestamp
-                            ?: return@mapNotNull null
-
-                        if (!start.toDate().before(end.toDate())) {
-                            return@mapNotNull null
-                        }
-
-                        // Skip reservations with missing required fields.
-                        val campsiteId = document.getString("campsiteId")
-                            ?: return@mapNotNull null
-
-                        if (campsiteId.isBlank()) {
-                            return@mapNotNull null
-                        }
-
-                        val cancelled = document.get("cancelled") as? Boolean
-                            ?: return@mapNotNull null
-
-                        ReservedUser(
-                            id = document.id,
-                            accountId = accountId,
-                            campsiteId = campsiteId,
-                            bookedPeriodStart = start.toDate(),
-                            bookedPeriodEnd = end.toDate(),
-                            cancelled = cancelled
-                        )
                     }
                     onSuccess(results)
                 } catch (exception: Exception) {
@@ -218,35 +186,6 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                 try {
                     val results = snapshot.documents.mapNotNull { document ->
                         parseReservation(document)
-
-                        val start = document.get("bookedPeriodStart") as? Timestamp
-                            ?: return@mapNotNull null
-
-                        val end = document.get("bookedPeriodEnd") as? Timestamp
-                            ?: return@mapNotNull null
-
-                        if (!start.toDate().before(end.toDate())) {
-                            return@mapNotNull null
-                        }
-
-                        val accountId = document.getString("accountId")
-                            ?: return@mapNotNull null
-
-                        if (accountId.isBlank()) {
-                            return@mapNotNull null
-                        }
-
-                        val cancelled = document.get("cancelled") as? Boolean
-                            ?: return@mapNotNull null
-
-                        ReservedUser(
-                            id = document.id,
-                            accountId = accountId,
-                            campsiteId = campsiteId,
-                            bookedPeriodStart = start.toDate(),
-                            bookedPeriodEnd = end.toDate(),
-                            cancelled = cancelled
-                        )
                     }
 
                     onSuccess(results)
