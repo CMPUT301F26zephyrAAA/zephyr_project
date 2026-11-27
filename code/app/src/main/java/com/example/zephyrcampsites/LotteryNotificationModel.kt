@@ -1,7 +1,7 @@
 // Connects lottery notification screens to Firebase Auth and the notification callables.
 // AI Citation [AI-39]
 // OpenAI, Codex, US 02.10.01 waitlist notifications, 2026-11-27. Generated the Firebase client model.
-// See Bhav Saluja's entry in the team AI Documentation Google Doc.
+// See the Bhav Saluja entry prepared for the GitHub Wiki in README.md.
 package com.example.zephyrcampsites
 
 import com.google.android.gms.tasks.Task
@@ -32,7 +32,7 @@ internal class LotteryNotificationModel(
 
     /**
      * Loads a lottery's eligible waitlist for its verified owner.
-     * @param accountId Current Firebase Auth profile ID.
+     * @param accountId Current device account ID.
      * @param lotteryId Selected lottery ID.
      * @return The current recipients in display order.
      */
@@ -54,7 +54,7 @@ internal class LotteryNotificationModel(
 
     /**
      * Sends the message for the current owner and waits for the write to commit.
-     * @param accountId Current Firebase Auth profile ID.
+     * @param accountId Current device account ID.
      * @param lotteryId Selected lottery ID.
      * @param message Trimmed message that passed validation.
      * @param allEntrants Whether to resolve the entire waitlist at send time.
@@ -88,7 +88,7 @@ internal class LotteryNotificationModel(
 
     /**
      * Loads the current account's in-app notifications.
-     * @param accountId Current Firebase Auth profile ID.
+     * @param accountId Current device account ID.
      * @return Delivered messages in newest-first order.
      */
     fun loadReceived(accountId: String): Task<List<ReceivedLotteryNotification>> {

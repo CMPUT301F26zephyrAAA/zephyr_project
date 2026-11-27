@@ -37,28 +37,4 @@ object RatingValidator {
         updated.add(score)
         return updated
     }
-
-    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
-    /**
-     * Removes a rating from a list of scores.
-     *
-     * @param ratings Existing campsite rating values.
-     * @param score Score to remove.
-     */
-    fun removeRating(ratings: List<Int>, score: Int): List<Int> {
-        require(score in 1..5) { "Invalid selected rating." }
-        check(ratings.all { it in 1..5 }) { "Invalid stored rating." }
-        val updated = ratings.toMutableList()
-        check(updated.remove(score)) { "The score is missing from the campsite total." }
-        return updated
-    }
-
-    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
-    /**
-     * Calculates the average of a list of scores.
-     *
-     * @param scores Existing campsite rating values.
-     */
-    fun averageAfterRemoval(scores: List<Int>): Double? =
-        if (scores.isEmpty()) null else scores.average()
 }

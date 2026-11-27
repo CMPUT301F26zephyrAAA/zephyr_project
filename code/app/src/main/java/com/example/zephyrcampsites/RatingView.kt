@@ -104,35 +104,25 @@ class RatingView {
         var error by remember(campsite?.id, account?.id) { mutableStateOf<String?>(null) }
         var retry by remember { mutableStateOf(0) }
         var active by remember(campsite?.id, account?.id) { mutableStateOf(true) }
-        DisposableEffect(campsite?.id, account?.id, retry, controller) {
-            var observing = true
+        DisposableEffect(campsite?.id, account?.id, retry) {
             active = true
             loading = true
             error = null
-
-            val stop = controller.observeRating(
-                campsite?.id.orEmpty(),
-                account,
+            controller.loadRating(campsite?.id.orEmpty(), account,
                 onResult = { result ->
-                    if (observing) {
+                    if (active) {
                         rating = result
-                        error = null
                         loading = false
                     }
                 },
                 onError = { message ->
-                    if (observing) {
-                        rating = null
+                    if (active) {
                         error = message
                         loading = false
                     }
-                },
+                }
             )
-            onDispose {
-                observing = false
-                active = false
-                stop()
-            }
+            onDispose { active = false }
         }
         RatingForm(
             campsiteName = campsite?.name.orEmpty(), rating = rating, loading = loading, saving = saving,
@@ -220,9 +210,6 @@ class RatingView {
                     }
                 } else {
                     Text(stringResource(R.string.rating_your_rating), color = Color(0xFF237B67), fontSize = 16.sp)
-                    if (rating.score == 0) {
-                        Text("N/A", style = MaterialTheme.typography.bodySmall)
-                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         for (value in 1..5) {
                             IconToggleButton(

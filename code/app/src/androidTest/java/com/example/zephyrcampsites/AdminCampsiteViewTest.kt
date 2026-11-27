@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AdminCampsiteViewTest {
     @get:Rule val compose = createComposeRule()
-    private val admin = Account("admin", userType = listOf("admin"))
+    private val admin = Account("admin", userType = "admin")
     private val campsite =
         Campsite("1").apply {
             name = "Pine Lake"
@@ -93,7 +93,6 @@ class AdminCampsiteViewTest {
                     {},
                     account = admin,
                     onRemove = { requests++ },
-                    showAdminActions = true,
                 )
         }
         compose.onNodeWithTag("RemoveCampsite").performScrollTo().performClick()
@@ -148,7 +147,6 @@ class AdminCampsiteViewTest {
                     account = admin,
                     removalError = error.value,
                     onRemove = { error.value = "Removal failed." },
-                    showAdminActions = true,
                 )
         }
         compose.onNodeWithTag("RemoveCampsite").performScrollTo().performClick()

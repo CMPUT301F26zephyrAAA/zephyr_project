@@ -1,7 +1,7 @@
 // Verifies notification callables and client access on local Firebase.
 // AI Citation [AI-39]
 // OpenAI, Codex, US 02.10.01 integration tests, 2026-11-27.
-// See the team AI Documentation Google Doc.
+// See the Bhav Saluja entry in README.md.
 const assert = require("node:assert/strict");
 const {randomUUID} = require("node:crypto");
 const {before, test} = require("node:test");

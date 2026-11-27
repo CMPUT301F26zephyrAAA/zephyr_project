@@ -1,6 +1,6 @@
 // Exercises owner-to-entrant notification navigation on a local Firebase demo project.
 // AI Citation [AI-39]
-// OpenAI, Codex, US 02.10.01 Android test, 2026-11-27. See the team AI Documentation Google Doc.
+// OpenAI, Codex, US 02.10.01 Android test, 2026-11-27. See the Bhav Saluja entry in README.md.
 package com.example.zephyrcampsites
 
 import android.graphics.Bitmap

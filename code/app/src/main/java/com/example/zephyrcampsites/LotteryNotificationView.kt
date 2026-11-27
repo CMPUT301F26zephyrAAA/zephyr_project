@@ -1,7 +1,7 @@
 // Renders the owner notification composer and the entrant's in-app inbox.
 // AI Citation [AI-39]
 // OpenAI, Codex, US 02.10.01 waitlist notifications, 2026-11-27. Generated the Compose notification screens.
-// See Bhav Saluja's entry in the team AI Documentation Google Doc.
+// See the Bhav Saluja entry prepared for the GitHub Wiki in README.md.
 package com.example.zephyrcampsites
 
 import androidx.activity.compose.BackHandler

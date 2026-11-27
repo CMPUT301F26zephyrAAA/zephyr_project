@@ -24,8 +24,7 @@ import androidx.compose.ui.unit.dp
 import java.text.DateFormat
 import java.util.Date
 
-// AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, owner cancellation, 2026-11-27.
-// See the team AI Documentation Google Doc.
+// AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, generated owner reservation confirmation.
 @Composable
 internal fun OwnerReservationsScreen(owner: Account, controller: ReservationsController, onBack: () -> Unit) {
     var bookings by remember(owner.id) { mutableStateOf<OwnerReservationList?>(null) }

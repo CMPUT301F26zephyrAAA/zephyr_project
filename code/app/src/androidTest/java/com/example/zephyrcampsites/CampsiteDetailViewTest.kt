@@ -166,7 +166,7 @@ class CampsiteDetailViewTest {
 
     @Test
     fun adminDoesNotSeeOwnerControls() {
-        showDetails(account = Account("admin-demo").apply { userType = listOf("admin") })
+        showDetails(account = Account("admin-demo").apply { userType = "admin" })
         composeTestRule.onNodeWithText("Generate/Hide QR").assertDoesNotExist()
         composeTestRule.onNodeWithText("Download/Save QR").assertDoesNotExist()
         composeTestRule.onNodeWithText("Manage Lottery").assertDoesNotExist()
@@ -174,7 +174,7 @@ class CampsiteDetailViewTest {
 
     @Test
     fun differentOwnerDoesNotSeeOwnerControls() {
-        showDetails(account = Account("other-owner").apply { userType = listOf("owner") })
+        showDetails(account = Account("other-owner").apply { userType = "owner" })
         composeTestRule.onNodeWithText("Generate/Hide QR").assertDoesNotExist()
         composeTestRule.onNodeWithText("Download/Save QR").assertDoesNotExist()
         composeTestRule.onNodeWithText("Manage Lottery").assertDoesNotExist()
@@ -183,7 +183,7 @@ class CampsiteDetailViewTest {
     @Test
     fun differentOwnerCannotEditOrManageLotteryInOwnerView() {
         showDetails(
-            account = Account("other-owner").apply { userType = listOf("owner") },
+            account = Account("other-owner").apply { userType = "owner" },
             showOwnerView = true
         )
 
@@ -202,7 +202,7 @@ class CampsiteDetailViewTest {
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
                     showOwnerView = true,
-                    account = Account(campsite.ownerID).apply { userType = listOf("owner") },
+                    account = Account(campsite.ownerID).apply { userType = "owner" },
                     onManageLottery = { id -> managedId = id }
                 )
             }
@@ -312,7 +312,7 @@ class CampsiteDetailViewTest {
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
                     account = Account("entrant-test").apply {
-                        userType = listOf("entrant")
+                        userType = "entrant"
                     },
                     lottery = lottery,
                     waitingListController = controller
@@ -350,7 +350,7 @@ class CampsiteDetailViewTest {
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
                     account = Account("entrant-test").apply {
-                        userType = listOf("entrant")
+                        userType = "entrant"
                     },
                     lottery = lottery,
                     waitingListController = controller
@@ -400,7 +400,7 @@ class CampsiteDetailViewTest {
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
                     account = Account("entrant-test").apply {
-                        userType = listOf("entrant")
+                        userType = "entrant"
                     },
                     lottery = lottery,
                     waitingListController = controller
@@ -452,7 +452,7 @@ class CampsiteDetailViewTest {
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
                     account = Account("entrant-test").apply {
-                        userType = listOf("entrant")
+                        userType = "entrant"
                     },
                     lottery = lottery,
                     waitingListController = controller
@@ -486,7 +486,7 @@ class CampsiteDetailViewTest {
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
                     account = Account("entrant-test").apply {
-                        userType = listOf("entrant")
+                        userType = "entrant"
                     },
                     lottery = lottery,
                     waitingListController = controller
@@ -521,7 +521,7 @@ class CampsiteDetailViewTest {
                     codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                     onBack = {},
                     account = Account("entrant-test").apply {
-                        userType = listOf("entrant")
+                        userType = "entrant"
                     },
                     lottery = lottery,
                     waitingListController = controller
