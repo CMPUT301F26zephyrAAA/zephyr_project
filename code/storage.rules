@@ -1,0 +1,28 @@
+// Access for the profile and campsite image paths used by the Android app.
+// AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, 2026-11-27. See the team AI Documentation Google Doc.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function admin() {
+      return request.auth != null && request.auth.token.get('admin', false) == true;
+    }
+
+    function owns(accountId) {
+      return request.auth != null && accountId is string &&
+        (accountId == 'auth_' + request.auth.uid ||
+          (!accountId.matches('auth_.+') &&
+            firestore.get(/databases/(default)/documents/notificationAccountLinks/$(accountId))
+              .data.uid == request.auth.uid));
+    }
+
+    match /campsites/{campsiteId}/{file} {
+      allow get: if true;
+      allow write: if admin() ||
+        owns(firestore.get(/databases/(default)/documents/campsite/$(campsiteId)).data.ownerID);
+    }
+
+    match /profile_images/{accountId}/{file} {
+      allow get, write: if admin() || owns(accountId);
+    }
+  }
+}

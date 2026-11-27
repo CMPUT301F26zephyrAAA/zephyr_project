@@ -70,9 +70,21 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
     }
 
     /**
-     * Reads an existing account without creating one.
+     * Loads the public owner name used in campsite details.
+     * @param campsiteId Campsite being viewed.
+     * @param onResult Receives the owner label, if available.
+     * @param onError Receives a lookup error.
+     */
+    fun findCampsiteOwnerName(
+        campsiteId: String, onResult: (String?) -> Unit, onError: (Exception) -> Unit
+    ) {
+        accountsModel.getCampsiteOwnerName(campsiteId, onResult, onError)
+    }
+
+    /**
+     * Reads an existing account for authorized profile management.
      *
-     * @param deviceId Device ID of the account to retrieve.
+     * @param deviceId Original account ID to retrieve.
      * @param onResult Called with the account, or null if it does not exist.
      * @param onError Called if the ID is invalid or the account cannot be read.
      */

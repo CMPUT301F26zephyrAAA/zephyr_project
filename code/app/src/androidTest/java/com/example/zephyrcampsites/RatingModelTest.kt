@@ -7,6 +7,8 @@ import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
@@ -21,9 +23,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Verifies rating reads and transactions against a local Firestore emulator on port 8082.
- * Requires ratingFirestoreEmulator=true and adb reverse tcp:8082 tcp:8082. Uses a named demo project;
- * it never accesses the app's live Firebase project or launches MainActivity.
+ * Verifies rating reads and callable writes against the demo Firebase workflow emulators.
+ * Requires ratingFirestoreEmulator=true and reversed TCP ports 8082, 9099, and 5001.
  */
 @RunWith(AndroidJUnit4::class)
 class RatingModelTest {
@@ -31,7 +32,9 @@ class RatingModelTest {
     private lateinit var firestore: FirebaseFirestore
     private lateinit var model: RatingModel
     private val suffix = UUID.randomUUID().toString()
-    private val accountId = "entrant-$suffix"
+    private lateinit var accountId: String
+    private val sessions = mutableListOf<FirebaseApp>()
+    private val accountModels = mutableMapOf<String, RatingModel>()
     private val campsiteId = "campsite-$suffix"
     private val reservationId = "stay-$suffix"
     private val createdDocuments = mutableListOf<com.google.firebase.firestore.DocumentReference>()
@@ -39,12 +42,13 @@ class RatingModelTest {
     @Before
     fun connectToLocalEmulator() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("ratingFirestoreEmulator") == "true")
-        val options = FirebaseOptions.Builder().setProjectId("demo-zephyr-rating")
-            .setApplicationId("1:123456789:android:rating-test").setApiKey("local-emulator-only").build()
+        val options = FirebaseOptions.Builder().setProjectId("demo-zephyr")
+            .setApplicationId("1:123456789:android:rating-test").setApiKey("AIza" + "x".repeat(35)).build()
         app = FirebaseApp.initializeApp(InstrumentationRegistry.getInstrumentation().targetContext, options, "rating-$suffix")
         firestore = FirebaseFirestore.getInstance(app)
         firestore.useEmulator("127.0.0.1", 8082)
-        model = RatingModel(firestore)
+        accountId = signIn(app)
+        model = accountModels.getValue(accountId)
         createDocument("accounts/$accountId", mapOf("userType" to "entrant"))
         createDocument("campsite/$campsiteId", mapOf("id" to campsiteId, "name" to "Pine Lake Campground", "rating" to listOf(4, 5)))
         createDocument("reservation/$reservationId", stayData(accountId))
@@ -59,9 +63,7 @@ class RatingModelTest {
             }
             await(firestore.terminate())
         }
-        if (this::app.isInitialized) {
-            app.delete()
-        }
+        sessions.asReversed().forEach { it.delete() }
     }
 
     @Test
@@ -135,7 +137,10 @@ class RatingModelTest {
 
     @Test
     fun concurrentEntrantsDoNotOverwriteEachOthersRatings() {
-        val otherAccount = "other-$suffix"
+        val otherApp = FirebaseApp.initializeApp(
+            InstrumentationRegistry.getInstrumentation().targetContext, app.options, "rating-other-$suffix"
+        )
+        val otherAccount = signIn(otherApp)
         val otherStay = "other-stay-$suffix"
         createDocument("accounts/$otherAccount", mapOf("userType" to "entrant"))
         createDocument("reservation/$otherStay", stayData(otherAccount))
@@ -202,6 +207,15 @@ class RatingModelTest {
         assertFalse(await(firestore.document("campsite/$campsiteId/ratings/$accountId").get(Source.SERVER)).exists())
     }
 
+    private fun signIn(session: FirebaseApp): String {
+        sessions.add(session)
+        val auth = FirebaseAuth.getInstance(session).apply { useEmulator("127.0.0.1", 9099) }
+        val id = "auth_${checkNotNull(await(auth.signInAnonymously()).user).uid}"
+        val functions = FirebaseFunctions.getInstance(session).apply { useEmulator("127.0.0.1", 5001) }
+        accountModels[id] = RatingModel(firestore, functions)
+        return id
+    }
+
     private fun <T> await(task: Task<T>): T = Tasks.await(task, 30, TimeUnit.SECONDS)
 
     private fun createDocument(path: String, data: Map<String, Any>) {
@@ -224,7 +238,7 @@ class RatingModelTest {
 
     private fun submit(rating: CampsiteRating, entrantId: String = accountId): Task<Boolean> {
         val result = TaskCompletionSource<Boolean>()
-        model.submitRating(campsiteId, entrantId, rating, { result.setResult(true) }, { result.setException(IllegalStateException(it)) })
+        accountModels.getValue(entrantId).submitRating(campsiteId, entrantId, rating, { result.setResult(true) }, { result.setException(IllegalStateException(it)) })
         return result.task
     }
 

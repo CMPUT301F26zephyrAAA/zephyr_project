@@ -4,16 +4,21 @@
 // See the Bhav Saluja entry in README.md.
 const assert = require("node:assert/strict");
 const {randomUUID} = require("node:crypto");
+const {readFileSync} = require("node:fs");
+const {join} = require("node:path");
 const {before, test} = require("node:test");
 const {initializeApp} = require("firebase-admin/app");
+const {getAuth} = require("firebase-admin/auth");
 const {getFirestore, Timestamp} = require("firebase-admin/firestore");
+const {getStorage} = require("firebase-admin/storage");
 
 const projectId = "demo-zephyr-notifications";
 const auth = "http://127.0.0.1:9099";
 const functions = `http://127.0.0.1:5001/${projectId}/us-central1`;
 const documents = `projects/${projectId}/databases/(default)/documents`;
 const firestore = `http://127.0.0.1:8082/v1/${documents}`;
-const db = getFirestore(initializeApp({projectId}));
+const app = initializeApp({projectId});
+const db = getFirestore(app);
 const suffix = randomUUID();
 const lotteryId = `pines-${suffix}`;
 const campsiteId = `site-${suffix}`;
@@ -22,11 +27,22 @@ const accounts = {};
 
 before(async () => {
   assert.equal(process.env.FIRESTORE_EMULATOR_HOST, "127.0.0.1:8082");
-  const roles = ["owner", "allowed", "optedOut", "late", "outsider", "winner"];
+  const roles = [
+    "owner",
+    "allowed",
+    "optedOut",
+    "late",
+    "outsider",
+    "winner",
+    "legacy",
+    "admin",
+    "unlinked",
+  ];
   for (const key of roles) {
     const response = await fetch(
-        auth + "/identitytoolkit.googleapis.com/v1/" +
-          "accounts:signUp?key=local-test",
+        auth +
+        "/identitytoolkit.googleapis.com/v1/" +
+        "accounts:signUp?key=local-test",
         {
           method: "POST",
           headers: {"Content-Type": "application/json"},
@@ -37,36 +53,91 @@ before(async () => {
     const user = await response.json();
     const accountId = `auth_${user.localId}`;
     accounts[key] = {...user, accountId};
-    assert.equal((await patch(accounts[key], `accounts/${accountId}`, {
-      id: accountId, userType: ["entrant", "owner"], notificationsEnabled: true,
-    })).status, 200);
-    assert.equal((await patch(accounts[key], `accounts/${accountId}`, {
-      name: key,
-    }, true)).status, 200);
+    assert.equal(
+        (
+          await patch(accounts[key], `accounts/${accountId}`, {
+            id: accountId,
+            userType: ["entrant", "owner"],
+            notificationsEnabled: true,
+          })
+        ).status,
+        200,
+    );
+    assert.equal(
+        (
+          await patch(
+              accounts[key],
+              `accounts/${accountId}`,
+              {
+                name: key,
+              },
+              true,
+          )
+        ).status,
+        200,
+    );
   }
+  await getAuth(app).setCustomUserClaims(accounts.admin.localId, {
+    admin: true,
+  });
+  const refreshed = await fetch(
+      auth + "/securetoken.googleapis.com/v1/token?key=local-test",
+      {
+        method: "POST",
+        headers: {"Content-Type": "application/x-www-form-urlencoded"},
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: accounts.admin.refreshToken,
+        }),
+      },
+  );
+  assert.equal(refreshed.status, 200);
+  accounts.admin.idToken = (await refreshed.json()).id_token;
   const optedOut = accounts.optedOut;
-  assert.equal((await patch(optedOut, `accounts/${optedOut.accountId}`, {
-    notificationsEnabled: false,
-  }, true)).status, 200);
+  assert.equal(
+      (
+        await patch(
+            optedOut,
+            `accounts/${optedOut.accountId}`,
+            {
+              notificationsEnabled: false,
+            },
+            true,
+        )
+      ).status,
+      200,
+  );
   const owner = accounts.owner;
-  assert.equal((await patch(owner, `campsite/${campsiteId}`, {
-    ownerID: owner.accountId,
-  })).status, 200);
+  assert.equal(
+      (
+        await patch(owner, `campsite/${campsiteId}`, {
+          ownerID: owner.accountId,
+        })
+      ).status,
+      200,
+  );
   const now = Date.now();
   for (const id of [lotteryId, emptyLotteryId]) {
-    assert.equal((await patch(owner, `lottery/${id}`, {
-      campsiteId,
-      lotteryName: "Whispering Pines",
-      registrationStart: now - 60000,
-      registrationEnd: now + 600000,
-      waitlistCapacity: 2,
-      entrantCount: 0,
-    })).status, 200);
+    assert.equal(
+        (
+          await patch(owner, `lottery/${id}`, {
+            campsiteId,
+            lotteryName: "Whispering Pines",
+            registrationStart: now - 60000,
+            registrationEnd: now + 600000,
+            waitlistCapacity: 2,
+            entrantCount: 0,
+          })
+        ).status,
+        200,
+    );
   }
   assert.equal((await registration(accounts.allowed, 1, true)).status, 200);
   assert.equal((await registration(accounts.optedOut, 2, true)).status, 200);
   await db.doc(`waitingList/${lotteryId}_${accounts.winner.accountId}`).set({
-    lotteryId, accountId: accounts.winner.accountId, drawStatus: "WINNER",
+    lotteryId,
+    accountId: accounts.winner.accountId,
+    drawStatus: "WINNER",
   });
 });
 
@@ -247,137 +318,440 @@ test("requires a verified owner and denies direct client writes", async () => {
   }
 });
 
-test("keeps legacy writes and protects managed records", async () => {
-  const {owner, allowed, outsider} = accounts;
-  assert.equal((await patch(outsider, `accounts/${allowed.accountId}`, {
-    notificationsEnabled: false,
-  }, true)).status, 403);
-  assert.equal((await patch(allowed, `accounts/${allowed.accountId}`, {
-    notificationsEnabled: "false",
-  }, true)).status, 403);
+/**
+ * Reads a document through Firestore's client rules.
+ * @param {Object|null} user Auth emulator identity.
+ * @param {string} path Document or collection to read.
+ * @return {Promise<Response>} Firestore REST response.
+ */
+function read(user, path) {
+  return fetch(firestore + "/" + path, {
+    headers: user ? {Authorization: "Bearer " + user.idToken} : {},
+  });
+}
 
-  const legacyId = `legacy-${suffix}`;
-  const legacy = db.doc(`accounts/${legacyId}`);
-  await legacy.set({id: legacyId, name: "Legacy Camper", userType: "entrant"});
-  const unlinked = {accountId: legacyId};
-  assert.equal((await patch(unlinked, legacy.path, {
-    notificationsEnabled: false,
-  }, true)).status, 200);
-  assert.equal((await legacy.get()).get("notificationsEnabled"), false);
-  assert.equal((await patch(unlinked, legacy.path, {
-    notificationsEnabled: "false",
-  }, true)).status, 403);
-  const legacyCampsite = `legacy-camp-${suffix}`;
-  const legacyLottery = `legacy-lottery-${suffix}`;
-  assert.equal((await patch(unlinked, `campsite/${legacyCampsite}`, {
-    ownerID: legacyId,
-  })).status, 200);
-  assert.equal((await patch(unlinked, `lottery/${legacyLottery}`, {
-    campsiteId: legacyCampsite,
-    registrationStart: Date.now() - 60000,
-    registrationEnd: Date.now() + 600000,
-    entrantCount: 0,
-  })).status, 200);
-  // Installed clients omit the account marker.
-  const joined = await registration(unlinked, 1, true, legacyLottery, false);
-  assert.equal(joined.status, 200);
-  assert.equal((await db.doc(`lottery/${legacyLottery}`).get())
-      .get("entrantCount"), 1);
-  const left = await registration(unlinked, 0, false, legacyLottery, false);
-  assert.equal(left.status, 200);
-  const managedJoin = await registration(unlinked, 1, true, emptyLotteryId);
-  assert.equal(managedJoin.status, 403);
-  const unlinkedSend = await send(
-      {...outsider, accountId: legacyId}, {lotteryId: legacyLottery},
+const legacyId = "legacy-" + suffix;
+const adminId = "admin-" + suffix;
+const unlinkedId = "unlinked-" + suffix;
+const validBooking = {
+  cancelled: false,
+  bookedPeriodStart: Timestamp.fromMillis(1000),
+  bookedPeriodEnd: Timestamp.fromMillis(2000),
+};
+
+test("verified profile reads, preferences and waitlist writes", async () => {
+  const {legacy, admin, outsider, unlinked} = accounts;
+  const profile = "accounts/" + legacyId;
+  const unlinkedProfile = "accounts/" + unlinkedId;
+  await db.doc(profile).set({
+    id: legacyId,
+    name: "Legacy Camper",
+    email: "private@example.test",
+    phoneNumber: "555-0100",
+    userType: "entrant",
+  });
+  await db
+      .doc(unlinkedProfile)
+      .set({id: unlinkedId, name: "Unlinked", userType: "admin"});
+  await db.doc("accounts/" + adminId).set({id: adminId, userType: "entrant"});
+  await db
+      .doc("notificationAccountLinks/" + legacyId)
+      .set({uid: legacy.localId});
+  await db
+      .doc("notificationAccountLinks/" + adminId)
+      .set({uid: admin.localId});
+
+  assert.deepEqual(
+      (await call("resolveAccount", unlinked, {deviceId: unlinkedId})).result,
+      {accountId: unlinkedId, linkRequired: true},
   );
-  assert.equal(unlinkedSend.error.status, "PERMISSION_DENIED");
+  assert.deepEqual(
+      (await call("resolveAccount", outsider, {deviceId: legacyId})).result,
+      {accountId: legacyId, linkRequired: true},
+  );
+  assert.deepEqual(
+      (await call("resolveAccount", legacy, {deviceId: "replacement-device"}))
+          .result,
+      {accountId: legacyId, admin: false},
+  );
+  assert.deepEqual(
+      (
+        await call("resolveAccount", accounts.allowed, {
+          deviceId: "unknown-device",
+        })
+      ).result,
+      {accountId: accounts.allowed.accountId, admin: false},
+  );
+  assert.deepEqual(
+      (await call("resolveAccount", admin, {deviceId: adminId})).result,
+      {accountId: adminId, admin: true},
+  );
 
-  assert.equal((await registration(outsider, 3, true)).status, 403);
-  assert.equal((await patch(owner, `lottery/${lotteryId}`, {
-    entrantCount: 12,
-  }, true)).status, 403);
-  assert.equal((await patch(outsider,
-      `waitingList/${emptyLotteryId}_${outsider.accountId}`, {
-        accountId: outsider.accountId, lotteryId: emptyLotteryId,
-        joinedAt: Date.now(),
-      })).status, 403);
-  assert.equal((await patch(outsider,
-      `waitingList/${lotteryId}_${allowed.accountId}`, {
-        drawStatus: "BACKUP",
-      }, true)).status, 403);
+  assert.equal((await read(null, profile)).status, 403);
+  assert.equal((await read(outsider, profile)).status, 403);
+  assert.equal((await read(outsider, "accounts")).status, 403);
+  assert.equal((await read(admin, "accounts")).status, 200);
+  assert.equal((await read(legacy, profile)).status, 200);
+  assert.equal((await read(admin, unlinkedProfile)).status, 200);
+  assert.equal((await read(unlinked, unlinkedProfile)).status, 403);
+  assert.equal(
+      (
+        await patch(
+            unlinked,
+            unlinkedProfile,
+            {notificationsEnabled: false},
+            true,
+        )
+      ).status,
+      403,
+  );
+  assert.equal(
+      (await patch(outsider, profile, {notificationsEnabled: false}, true))
+          .status,
+      403,
+  );
+  assert.equal(
+      (await patch(admin, profile, {notificationsEnabled: false}, true)).status,
+      403,
+  );
+  assert.equal(
+      (await patch(legacy, profile, {notificationsEnabled: false}, true))
+          .status,
+      200,
+  );
+  assert.equal(
+      (await patch(legacy, profile, {userType: ["admin"]}, true)).status,
+      403,
+  );
 
-  await db.doc(`notificationAccountLinks/${legacyId}`)
-      .set({uid: outsider.localId});
-  const linked = {...outsider, accountId: legacyId};
-  assert.equal((await patch(linked, legacy.path, {
-    notificationsEnabled: false,
-  }, true)).status, 200);
-  const legacyJoin = await registration(linked, 1, true, emptyLotteryId);
-  const legacyLeave = await registration(linked, 0, false, emptyLotteryId);
-  assert.equal(legacyJoin.status, 200);
-  assert.equal(legacyLeave.status, 200);
-  assert.equal((await legacy.get()).get("name"), "Legacy Camper");
+  const campsite = "legacy-campsite-" + suffix;
+  await db.doc("campsite/" + campsite).set({ownerID: legacyId});
+  const {result: label} = await call("getAccountDisplayName", outsider, {
+    campsiteId: campsite,
+  });
+  assert.deepEqual(label, {name: "Legacy Camper"});
+  assert.equal((await read(null, "campsite/" + campsite)).status, 200);
+  assert.equal((await read(null, "lottery/" + emptyLotteryId)).status, 200);
+  assert.equal(
+      (await call("getAccountDisplayName", null, {campsiteId: campsite})).error
+          .status,
+      "UNAUTHENTICATED",
+  );
+  const linked = {...legacy, accountId: legacyId};
+  assert.equal(
+      (
+        await registration(
+            {...outsider, accountId: legacyId},
+            1,
+            true,
+            emptyLotteryId,
+        )
+      ).status,
+      403,
+  );
+  assert.equal(
+      (
+        await registration(
+            {...unlinked, accountId: unlinkedId},
+            1,
+            true,
+            emptyLotteryId,
+        )
+      ).status,
+      403,
+  );
+  assert.equal(
+      (await registration(linked, 1, true, emptyLotteryId)).status,
+      200,
+  );
+  assert.equal(
+      (await registration(linked, 0, false, emptyLotteryId)).status,
+      200,
+  );
 });
 
-test("an unlinked profile can complete deletion and cleanup", async () => {
-  const accountId = `legacy-delete-${suffix}`;
-  const user = {accountId};
-  const profilePath = `accounts/${accountId}`;
-  const site = `legacy-delete-site-${suffix}`;
-  const id = `legacy-delete-lottery-${suffix}`;
-  const waitingPath = `waitingList/${id}_${accountId}`;
-  const reservationPath = `reservation/legacy-delete-${suffix}`;
-  const bookingStart = Timestamp.fromMillis(Date.now() + 86400000);
-  const bookingEnd = Timestamp.fromMillis(Date.now() + 172800000);
-  const batch = db.batch();
-  batch.create(db.doc(profilePath), {
-    id: accountId, userType: "entrant", notificationsEnabled: false,
+test("rating and moderation update the average atomically", async () => {
+  const {legacy, outsider, admin, unlinked} = accounts;
+  const campsiteId = "rated-site-" + suffix;
+  const reservationId = "completed-" + suffix;
+  const site = db.doc("campsite/" + campsiteId);
+  const reservation = db.doc("reservation/" + reservationId);
+  await site.set({
+    ownerID: accounts.owner.accountId,
+    rating: [4],
+    averageRating: 4,
   });
-  batch.create(db.doc(`campsite/${site}`), {
-    ownerID: `legacy-owner-${suffix}`,
-  });
-  batch.create(db.doc(`lottery/${id}`), {
-    campsiteId: site, entrantCount: 1, drawStatus: "COMPLETED",
-  });
-  batch.create(db.doc(waitingPath), {
-    lotteryId: id, accountId, drawStatus: "WINNER", backupPosition: 0,
-  });
-  batch.create(db.doc(reservationPath), {
-    accountId, campsiteId: site, bookedPeriodStart: bookingStart,
-    bookedPeriodEnd: bookingEnd, cancelled: false,
-  });
-  await batch.commit();
+  await reservation.set({...validBooking, accountId: legacyId, campsiteId});
+  const data = {
+    accountId: legacyId,
+    campsiteId,
+    reservationId,
+    score: 2,
+    review: "Nice trail.",
+  };
+  const score = site.collection("ratings").doc(legacyId);
+  assert.equal(
+      (await call("saveCampsiteFeedback", outsider, data)).error.status,
+      "PERMISSION_DENIED",
+  );
+  assert.equal(
+      (
+        await call("saveCampsiteFeedback", unlinked, {
+          ...data,
+          accountId: unlinkedId,
+        })
+      ).error.status,
+      "PERMISSION_DENIED",
+  );
+  assert.equal(
+      (
+        await call("saveCampsiteFeedback", outsider, {
+          ...data,
+          accountId: outsider.accountId,
+        })
+      ).error.status,
+      "FAILED_PRECONDITION",
+  );
+  assert.equal(
+      (
+        await patch(
+            legacy,
+            reservation.path,
+            {accountId: outsider.accountId},
+            true,
+        )
+      ).status,
+      403,
+  );
+  assert.equal(
+      (
+        await patch(legacy, "reservation/fabricated-" + suffix, {
+          accountId: legacyId,
+          campsiteId,
+          cancelled: false,
+        })
+      ).status,
+      403,
+  );
+  assert.equal(
+      (await patch(accounts.owner, site.path, {rating: [5]}, true)).status,
+      403,
+  );
+  assert.equal((await patch(legacy, score.path, {score: 5})).status, 403);
 
-  const managedPath = `accounts/${accounts.allowed.accountId}`;
-  assert.equal((await patch(user, managedPath, {deletionPending: true},
-      true)).status, 403);
-  assert.equal((await commit(user, [
-    {delete: `${documents}/${managedPath}`},
-  ])).status, 403);
-  const removeProfile = {delete: `${documents}/${profilePath}`};
-  assert.equal((await commit(user, [removeProfile])).status, 403);
-  const pending = await patch(user, profilePath, {deletionPending: true}, true);
-  assert.equal(pending.status, 200, await pending.text());
-
-  const detachBooking = update(reservationPath, {cancelled: true});
-  detachBooking.updateMask.fieldPaths.push("accountId");
-  const deleted = await commit(user, [
-    update(`lottery/${id}`, {
-      entrantCount: 0, waitlistChangeAccountId: accountId,
+  const query = await fetch(firestore + ":runQuery", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + legacy.idToken,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{collectionId: "reservation"}],
+        where: {
+          fieldFilter: {
+            field: {fieldPath: "accountId"},
+            op: "EQUAL",
+            value: {stringValue: legacyId},
+          },
+        },
+      },
     }),
-    {delete: `${documents}/${waitingPath}`},
-    detachBooking,
-    removeProfile,
+  });
+  assert.equal(query.status, 200, await query.clone().text());
+  assert.equal(
+      (await query.json())[0].document.name.endsWith(reservationId),
+      true,
+  );
+  assert.equal((await read(outsider, reservation.path)).status, 403);
+  assert.equal((await read(legacy, reservation.path)).status, 200);
+  assert.deepEqual(
+      (await call("saveCampsiteFeedback", legacy, data)).result,
+      {},
+  );
+  assert.equal((await site.get()).get("averageRating"), 3);
+  assert.equal((await score.get()).get("score"), 2);
+  assert.deepEqual(
+      (
+        await call("saveCampsiteFeedback", legacy, {
+          accountId: legacyId,
+          campsiteId,
+          reservationId,
+          review: "Edited review.",
+        })
+      ).result,
+      {},
+  );
+  assert.equal((await score.get()).get("review"), "Edited review.");
+  assert.equal((await score.get()).get("score"), 2);
+  assert.equal((await site.get()).get("averageRating"), 3);
+  assert.equal((await read(outsider, score.path)).status, 200);
+  assert.equal(
+      (await call("removeCampsiteFeedback", legacy, data)).error.status,
+      "PERMISSION_DENIED",
+  );
+  assert.deepEqual(
+      (await call("removeCampsiteFeedback", admin, data)).result,
+      {},
+  );
+  assert.deepEqual((await site.get()).get("rating"), [4]);
+  assert.equal((await site.get()).get("averageRating"), 4);
+  assert.equal((await score.get()).exists, false);
+});
+
+test("verified legacy admin can moderate managed campsite images", async () => {
+  const {admin, outsider, unlinked} = accounts;
+  const site = db.doc("campsite/managed-images-" + suffix);
+  const selected = "campsites/" + site.id + "/selected.png";
+  const other = "campsites/" + site.id + "/other.png";
+  const bucket = getStorage(app).bucket(projectId + ".appspot.com");
+  await bucket.file(selected).save(Buffer.from("selected image"));
+  await bucket.file(other).save(Buffer.from("another image"));
+  await site.set({
+    ownerID: accounts.owner.accountId,
+    compressedImages: ["first", "keep"],
+    imagePath: selected,
+    promoImagePaths: [selected, other],
+  });
+  const deleteObject = (account) =>
+    fetch(
+        "http://127.0.0.1:9199/v0/b/" +
+        bucket.name +
+        "/o/" +
+        encodeURIComponent(selected),
+        {
+          method: "DELETE",
+          headers: {Authorization: "Firebase " + account.idToken},
+        },
+    );
+  for (const user of [outsider, unlinked]) {
+    assert.equal(
+        (await patch(user, site.path, {compressedImages: ["keep"]}, true))
+            .status,
+        403,
+    );
+    assert.equal(
+        (
+          await patch(
+              user,
+              site.path,
+              {imagePath: "", promoImagePaths: [other]},
+              true,
+          )
+        ).status,
+        403,
+    );
+    assert.equal((await deleteObject(user)).status, 403);
+  }
+  assert.equal(
+      (await patch(admin, site.path, {compressedImages: ["keep"]}, true))
+          .status,
+      200,
+  );
+  assert.deepEqual((await site.get()).get("compressedImages"), ["keep"]);
+  assert.equal((await deleteObject(admin)).status, 204);
+  assert.equal(
+      (
+        await patch(
+            admin,
+            site.path,
+            {imagePath: "", promoImagePaths: [other]},
+            true,
+        )
+      ).status,
+      200,
+  );
+  assert.equal((await site.get()).get("imagePath"), "");
+  assert.deepEqual((await site.get()).get("promoImagePaths"), [other]);
+  assert.equal((await bucket.file(selected).exists())[0], false);
+  assert.equal((await bucket.file(other).exists())[0], true);
+  assert.equal(
+      (await patch(admin, site.path, {ownerID: adminId}, true)).status,
+      403,
+  );
+});
+
+test("profile cleanup is atomic and can be retried", async () => {
+  const {legacy, outsider} = accounts;
+  const accountId = "delete-" + suffix;
+  const profile = db.doc("accounts/" + accountId);
+  const link = db.doc("notificationAccountLinks/" + accountId);
+  const id = "cleanup-" + suffix;
+  const campsiteId = "cleanup-site-" + suffix;
+  const site = db.doc("campsite/" + campsiteId);
+  const lottery = db.doc("lottery/" + id);
+  const entry = db.doc("waitingList/" + id + "_" + accountId);
+  const past = db.doc("reservation/past-" + suffix);
+  const future = db.doc("reservation/future-" + suffix);
+  const score = site.collection("ratings").doc(accountId);
+
+  await Promise.all([
+    profile.set({id: accountId, userType: "entrant"}),
+    site.set({
+      ownerID: accounts.owner.accountId,
+      rating: [4],
+      averageRating: 4,
+    }),
+    lottery.set({campsiteId, entrantCount: 2}),
+    entry.set({accountId, lotteryId: id, drawStatus: "WAITING"}),
+    past.set({...validBooking, accountId, campsiteId}),
+    future.set({
+      ...validBooking,
+      accountId,
+      campsiteId,
+      bookedPeriodEnd: Timestamp.fromMillis(Date.now() + 60000),
+    }),
+    score.set({accountId, campsiteId, score: 5}),
   ]);
-  assert.equal(deleted.status, 200, await deleted.text());
-  assert.equal((await db.doc(profilePath).get()).exists, false);
-  assert.equal((await db.doc(waitingPath).get()).exists, false);
-  assert.equal((await db.doc(`lottery/${id}`).get()).get("entrantCount"), 0);
-  const booking = await db.doc(reservationPath).get();
-  assert.equal(booking.get("cancelled"), true);
-  assert.equal(booking.get("accountId"), undefined);
-  assert.deepEqual(booking.get("bookedPeriodStart"), bookingStart);
-  assert.deepEqual(booking.get("bookedPeriodEnd"), bookingEnd);
+
+  const args = {accountId};
+  assert.equal(
+      (await call("deleteProfile", legacy, args)).error.status,
+      "PERMISSION_DENIED",
+  );
+  await link.set({uid: legacy.localId});
+  assert.equal(
+      (await call("deleteProfile", outsider, args)).error.status,
+      "PERMISSION_DENIED",
+  );
+  assert.equal(
+      (
+        await fetch(firestore + "/" + profile.path, {
+          method: "DELETE",
+          headers: {Authorization: "Bearer " + legacy.idToken},
+        })
+      ).status,
+      403,
+  );
+
+  // An inconsistent score makes cleanup fail before any state is committed.
+  assert.equal(
+      (await call("deleteProfile", legacy, args)).error.status,
+      "FAILED_PRECONDITION",
+  );
+  assert.equal((await profile.get()).exists, true);
+  assert.equal((await profile.get()).get("deletionPending"), undefined);
+  assert.equal((await entry.get()).exists, true);
+  assert.equal((await future.get()).get("cancelled"), false);
+  assert.equal(
+      (await patch(legacy, profile.path, {notificationsEnabled: false}, true))
+          .status,
+      200,
+  );
+
+  await site.update({rating: [5, 4], averageRating: 4.5});
+  assert.ok((await call("deleteProfile", legacy, args)).result);
+  assert.equal((await link.get()).exists, false);
+  assert.equal((await profile.get()).exists, false);
+  assert.equal((await entry.get()).exists, false);
+  assert.equal((await score.get()).exists, false);
+  assert.deepEqual((await site.get()).get("rating"), [4]);
+  assert.equal((await site.get()).get("averageRating"), 4);
+  assert.equal((await lottery.get()).get("entrantCount"), 1);
+  assert.equal((await past.get()).get("cancelled"), false);
+  assert.equal((await past.get()).get("accountId"), undefined);
+  assert.equal((await future.get()).get("cancelled"), true);
+  assert.equal((await future.get()).get("accountId"), undefined);
 });
 
 test("validates sends and delivers only to the chosen entrant", async () => {
@@ -426,95 +800,99 @@ test("validates sends and delivers only to the chosen entrant", async () => {
   assert.equal(response.status, 403);
 });
 
-for (const legacy of [false, true]) {
-  const actor = legacy ? "unlinked winner" : "verified winner";
-  test(`${actor} can promote a backup and preserve the queue`, async () => {
-    const id = `finished-${legacy ? "legacy" : "managed"}-${suffix}`;
-    const winner = legacy ? {accountId: `unlinked-winner-${suffix}`} :
-      accounts.winner;
-    const site = legacy ? `unlinked-site-${suffix}` : campsiteId;
-    const backupIds = [accounts.late, accounts.optedOut, accounts.outsider]
-        .map((backup) => backup.accountId);
-    const [promotedId, ...remaining] = backupIds;
-    const winnerPath = `waitingList/${id}_${winner.accountId}`;
-    const backupPath = (accountId) => `waitingList/${id}_${accountId}`;
-    const resultPath = `lotteryDrawResults/${id}`;
-    const batch = db.batch();
-    if (legacy) {
-      batch.create(db.doc(`accounts/${winner.accountId}`), {
-        name: "Old Camper",
-      });
-      batch.create(db.doc(`campsite/${site}`), {
-        ownerID: `legacy-owner-${suffix}`,
-      });
-    }
-    batch.create(db.doc(`lottery/${id}`), {
-      campsiteId: site, drawCompleted: true, drawStatus: "COMPLETED",
-      entrantCount: 4,
-    });
-    batch.create(db.doc(winnerPath), {
-      lotteryId: id, accountId: winner.accountId,
-      drawStatus: "WINNER", backupPosition: 0,
-    });
-    backupIds.forEach((accountId, index) => {
-      batch.create(db.doc(backupPath(accountId)), {
-        lotteryId: id, accountId, drawStatus: "BACKUP",
-        backupPosition: index + 1,
-      });
-    });
-    batch.create(db.doc(resultPath), {
-      winnerIds: [winner.accountId], backupIds,
-      declinedIds: [], winnerCount: 1, backupCount: 3,
-    });
-    await batch.commit();
-    const decline = update(winnerPath, {
-      drawStatus: "DECLINED", backupPosition: 0,
-    });
-    const promotion = update(backupPath(promotedId), {
-      drawStatus: "WINNER", backupPosition: 0,
-    });
-    const resultsForQueue = (queue) => update(resultPath, {
-      lastDeclinedAccountId: winner.accountId,
-      winnerIds: [promotedId], backupIds: queue,
-      declinedIds: [winner.accountId],
-      winnerCount: 1, backupCount: queue.length,
-    });
-    for (const queue of [remaining.slice(0, 1), [...remaining].reverse()]) {
-      const result = await commit(winner, [
-        decline, promotion, resultsForQueue(queue),
-      ]);
-      assert.equal(result.status, 403);
-    }
-    assert.equal((await commit(winner, [
-      decline, resultsForQueue(remaining),
-    ])).status, 403);
-    const original = await db.doc(resultPath).get();
-    assert.deepEqual(original.get("backupIds"), backupIds);
-    assert.equal((await commit(winner, [promotion])).status, 403);
-    const writes = [
-      decline, promotion, resultsForQueue(remaining),
-      ...remaining.map((accountId, index) => update(backupPath(accountId), {
-        backupPosition: index + 1,
-      })),
-    ];
-    if (legacy) {
-      const owner = db.doc(`campsite/${site}`);
-      await owner.update({ownerID: accounts.owner.accountId});
-      assert.equal((await commit(winner, writes)).status, 403);
-      await owner.update({ownerID: `legacy-owner-${suffix}`});
-    }
-    const result = await commit(winner, writes);
-    assert.equal(result.status, 200, await result.text());
-    const saved = await db.doc(resultPath).get();
-    assert.deepEqual(saved.get("backupIds"), remaining);
-    assert.equal(saved.get("backupCount"), 2);
-    for (const [index, accountId] of remaining.entries()) {
-      const registration = await db.doc(backupPath(accountId)).get();
-      assert.equal(registration.get("drawStatus"), "BACKUP");
-      assert.equal(registration.get("backupPosition"), index + 1);
-    }
+test("legacy winner promotes first eligible backup in order", async () => {
+  const {legacy, unlinked, outsider, allowed, late} = accounts;
+  const id = "completed-" + suffix;
+  const missing = "missing-" + suffix;
+  const available = [allowed.accountId, unlinkedId, late.accountId];
+  const backupIds = [missing, ...available];
+  const event = db.doc("lottery/" + id);
+  const result = db.doc("lotteryDrawResults/" + id);
+  const registrationRef = (accountId) =>
+    db.doc("waitingList/" + id + "_" + accountId);
+  await event.set({campsiteId, numberOfWinners: 1, drawCompleted: true});
+  await result.set({
+    winnerIds: [legacyId],
+    backupIds,
+    winnerCount: 1,
+    backupCount: backupIds.length,
   });
-}
+  await registrationRef(legacyId).set({
+    accountId: legacyId,
+    lotteryId: id,
+    drawStatus: "WINNER",
+  });
+  for (const [index, accountId] of backupIds.entries()) {
+    await registrationRef(accountId).set({
+      accountId,
+      lotteryId: id,
+      drawStatus: "BACKUP",
+      backupPosition: index + 1,
+    });
+  }
+  const args = {lotteryId: id, accountId: legacyId};
+  assert.equal(
+      (await call("declineLotteryOffer", unlinked, args)).error.status,
+      "PERMISSION_DENIED",
+  );
+  assert.equal(
+      (await call("declineLotteryOffer", outsider, args)).error.status,
+      "PERMISSION_DENIED",
+  );
+  assert.equal(
+      (await commit(legacy, [update(result.path, {backupIds: []})])).status,
+      403,
+  );
+  assert.equal(
+      (
+        await commit(legacy, [
+          update(registrationRef(legacyId).path, {drawStatus: "DECLINED"}),
+        ])
+      ).status,
+      403,
+  );
+  assert.deepEqual((await result.get()).get("backupIds"), backupIds);
+  assert.deepEqual(
+      (await call("declineLotteryOffer", legacy, args)).result,
+      {},
+  );
+  const updated = (await result.get()).data();
+  assert.deepEqual(updated.winnerIds, [available[0]]);
+  assert.deepEqual(updated.backupIds, [missing, available[1], available[2]]);
+  assert.deepEqual(updated.declinedIds, [legacyId]);
+  assert.equal(
+      (await registrationRef(legacyId).get()).get("drawStatus"),
+      "DECLINED",
+  );
+  assert.equal(
+      (await registrationRef(allowed.accountId).get()).get("drawStatus"),
+      "WINNER",
+  );
+  assert.equal(
+      (await registrationRef(unlinkedId).get()).get("backupPosition"),
+      2,
+  );
+  assert.equal(
+      (await registrationRef(late.accountId).get()).get("backupPosition"),
+      3,
+  );
+  // The fresh account may decline its own offer. The existing unlinked profile
+  // is eligible to receive that offer and must verify before it can decline.
+  assert.deepEqual(
+      (await call("declineLotteryOffer", allowed, {lotteryId: id})).result,
+      {},
+  );
+  assert.deepEqual((await result.get()).get("winnerIds"), [unlinkedId]);
+  assert.equal(
+      (
+        await call("declineLotteryOffer", unlinked, {
+          lotteryId: id,
+          accountId: unlinkedId,
+        })
+      ).error.status,
+      "PERMISSION_DENIED",
+  );
+});
 
 test("everyone uses current membership and honors opt-outs", async () => {
   const owner = accounts.owner;
@@ -556,4 +934,61 @@ test("everyone uses current membership and honors opt-outs", async () => {
     notificationsEnabled: false,
   }, true)).status, 200);
   assert.deepEqual((await inbox(late)).result, []);
+});
+
+test("app reads still work after the legacy cutoff", async () => {
+  const rules = readFileSync(
+      join(__dirname, "../../firestore.rules"),
+      "utf8",
+  );
+  const cutoff = rules.replace(
+      /timestamp\.date\(\d{4}, \d+, \d+\)/,
+      "timestamp.date(2000, 1, 1)",
+  );
+  assert.notEqual(cutoff, rules);
+  const endpoint =
+    "http://127.0.0.1:8082/emulator/v1/projects/" +
+    projectId +
+    ":securityRules";
+  const loadRules = async (content) => {
+    const response = await fetch(endpoint, {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        rules: {files: [{name: "firestore.rules", content}]},
+      }),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+  };
+  const unrelated = "legacyOnly/record-" + suffix;
+  await db.doc(unrelated).set({exists: true});
+  await loadRules(cutoff);
+  try {
+    assert.equal((await read(null, unrelated)).status, 403);
+    assert.equal((await read(null, "campsite/" + campsiteId)).status, 200);
+    assert.equal((await read(null, "lottery/" + lotteryId)).status, 200);
+    assert.equal(
+        (
+          await read(
+              accounts.late,
+              "waitingList/" + lotteryId + "_" + accounts.late.accountId,
+          )
+        ).status,
+        200,
+    );
+    assert.equal(
+        (await read(accounts.legacy, "reservation/completed-" + suffix)).status,
+        200,
+    );
+    assert.equal(
+        (await read(accounts.legacy, "accounts/" + legacyId)).status,
+        200,
+    );
+    assert.equal(
+        (await read(accounts.outsider, "accounts/" + legacyId)).status,
+        403,
+    );
+  } finally {
+    await loadRules(rules);
+  }
 });

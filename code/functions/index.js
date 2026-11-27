@@ -16,6 +16,7 @@ const db = admin.firestore();
 setGlobalOptions({maxInstances: 1});
 
 Object.assign(exports, require("./lotteryNotifications")(db));
+Object.assign(exports, require("./accountActions")(db));
 
 /**
  * Returns canonical, unique waiting-list registrations for a lottery.

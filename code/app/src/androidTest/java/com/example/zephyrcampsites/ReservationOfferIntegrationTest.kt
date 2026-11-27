@@ -12,6 +12,8 @@ import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -29,11 +31,10 @@ import org.junit.runner.RunWith
 /**
  * Integration tests for lottery backup promotion.
  *
- * Tests the actual ReservationOfferModel transactions
- * against the local Firestore emulator.
+ * Tests ReservationOfferModel and the callable transaction using the local demo emulators.
  *
  * Requires reservationFirestoreEmulator=true and
- * adb reverse tcp:8080 tcp:8080.
+ * reversed TCP ports 8082, 9099, and 5001.
  *
  * Does not use the production Firebase database.
  */
@@ -42,15 +43,16 @@ class ReservationOfferIntegrationTest {
 
     private lateinit var app: FirebaseApp
     private lateinit var firestore: FirebaseFirestore
-    private lateinit var model: ReservationOfferModel
+    private val sessions = mutableListOf<FirebaseApp>()
+    private val entrantModels = mutableMapOf<String, ReservationOfferModel>()
 
     private val suffix = UUID.randomUUID().toString()
 
     private val lotteryId = "offer-test-$suffix"
     private val campsiteId = "campsite-$suffix"
 
-    private val winner1 = "winner1-$suffix"
-    private val winner2 = "winner2-$suffix"
+    private lateinit var winner1: String
+    private lateinit var winner2: String
 
     private val backup1 = "backup1-$suffix"
     private val backup2 = "backup2-$suffix"
@@ -76,7 +78,7 @@ class ReservationOfferIntegrationTest {
             .setApplicationId(
                 "1:123456789:android:reservation-test"
             )
-            .setApiKey("local-emulator-only")
+            .setApiKey("AIza" + "x".repeat(35))
             .build()
 
         app = FirebaseApp.initializeApp(
@@ -88,11 +90,24 @@ class ReservationOfferIntegrationTest {
 
         firestore = FirebaseFirestore.getInstance(app)
 
-        firestore.useEmulator("127.0.0.1", 8080)
+        firestore.useEmulator("127.0.0.1", 8082)
 
-        model = ReservationOfferModel(firestore)
+        winner1 = signIn(app)
+        val otherApp = FirebaseApp.initializeApp(
+            InstrumentationRegistry.getInstrumentation().targetContext, options, "reservation-other-$suffix"
+        )
+        winner2 = signIn(otherApp)
 
         createLotteryFixtures()
+    }
+
+    private fun signIn(session: FirebaseApp): String {
+        sessions.add(session)
+        val auth = FirebaseAuth.getInstance(session).apply { useEmulator("127.0.0.1", 9099) }
+        val id = "auth_${checkNotNull(await(auth.signInAnonymously()).user).uid}"
+        val functions = FirebaseFunctions.getInstance(session).apply { useEmulator("127.0.0.1", 5001) }
+        entrantModels[id] = ReservationOfferModel(firestore, functions)
+        return id
     }
 
     /**
@@ -578,7 +593,7 @@ class ReservationOfferIntegrationTest {
 
         val result = TaskCompletionSource<Boolean>()
 
-        model.declineReservationOffer(
+        (entrantModels[accountId] ?: entrantModels.getValue(winner1)).declineReservationOffer(
             lotteryId = lotteryId,
             accountId = accountId,
             onSuccess = {
@@ -626,8 +641,6 @@ class ReservationOfferIntegrationTest {
             }
         }
 
-        if (this::app.isInitialized) {
-            app.delete()
-        }
+        sessions.asReversed().forEach { it.delete() }
     }
 }

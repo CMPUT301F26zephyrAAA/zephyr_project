@@ -7,10 +7,9 @@ import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.Source
-import com.google.firebase.firestore.FieldValue
 import com.google.android.gms.tasks.Tasks
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import com.google.firebase.storage.storage
 import android.net.Uri
@@ -29,6 +28,7 @@ import kotlinx.coroutines.CancellationException
 
 open class AccountsModel(private val database: FirebaseFirestore? = null, private val storage: FirebaseStorage? = null) {
     private val firestore by lazy { database ?: Firebase.firestore }
+    private val functions by lazy { FirebaseFunctions.getInstance() }
     private val accounts by lazy { firestore.collection("accounts") } // connecting to firestore
 
     private companion object {
@@ -38,7 +38,9 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         @Synchronized
         fun authenticatedUid(): Task<String> {
             val auth = FirebaseAuth.getInstance()
-            auth.currentUser?.let { return Tasks.forResult(it.uid) }
+            auth.currentUser?.let { user ->
+                return user.getIdToken(true).onSuccessTask { Tasks.forResult(user.uid) }
+            }
             startupSignIn?.takeUnless { it.isComplete }?.let { return it }
             return auth.signInAnonymously()
                 .onSuccessTask { Tasks.forResult(checkNotNull(it.user).uid) }
@@ -89,36 +91,52 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         onError: (Exception) -> Unit
     ) {
         authenticatedUid()
-            .onSuccessTask { uid -> loadOrCreateProfile(deviceID, "auth_$uid") }
+            .onSuccessTask { uid ->
+                functions.getHttpsCallable("resolveAccount").call(mapOf("deviceId" to deviceID))
+                    .onSuccessTask { response ->
+                        val data = response.data as Map<*, *>
+                        val accountId = data["accountId"] as String
+                        if (data["linkRequired"] == true) {
+                            Tasks.forException(LegacyAccountLinkRequired(accountId, uid))
+                        } else {
+                            loadOrCreateProfile(accountId, data["admin"] == true)
+                        }
+                    }
+            }
             .addOnSuccessListener(onResult)
             .addOnFailureListener(onError)
     }
 
-    /** Keeps profile creation atomic and leaves returning profiles untouched. */
-    private fun loadOrCreateProfile(deviceId: String, authId: String): Task<Account> {
-        val legacy = accounts.document(deviceId)
-        val profile = accounts.document(authId)
-        return legacy.get().onSuccessTask { document ->
-            readAccount(document)?.let { Tasks.forResult(it) }
-                ?: profile.get().onSuccessTask { saved ->
-                    readAccount(saved)?.let { Tasks.forResult(it) }
-                        ?: firestore.runTransaction { transaction ->
-                            readAccount(transaction.get(legacy))
-                                ?: readAccount(transaction.get(profile))
-                                ?: Account(authId).also { account ->
-                                    // [AI-02] OpenAI, ChatGPT, account field mapping.
-                                    transaction.set(
-                                        profile,
-                                        mapOf(
-                                            "id" to account.id,
-                                            "userType" to account.userType,
-                                            "notificationsEnabled" to account.notificationsEnabled
-                                        )
-                                    )
-                                }
-                        }
-                }
+    /** Loads a verified profile or creates a new Auth-owned profile atomically. */
+    private fun loadOrCreateProfile(accountId: String, isAdmin: Boolean): Task<Account> {
+        val profile = accounts.document(accountId)
+        return firestore.runTransaction { transaction ->
+            val document = transaction.get(profile)
+            val saved = readAccount(document)
+            val account = saved ?: Account(accountId)
+            if (saved == null) {
+                check(accountId.startsWith("auth_")) { "Linked profile no longer exists." }
+                // [AI-02] OpenAI, ChatGPT, account field mapping.
+                transaction.set(profile, mapOf(
+                    "id" to account.id,
+                    "userType" to account.userType,
+                    "notificationsEnabled" to account.notificationsEnabled
+                ))
+            } else if (document.getBoolean("deletionPending") == true) {
+                transaction.update(profile, "deletionPending", false)
+            }
+            account.userType = accountRoles(if (isAdmin) "admin" else null)
+            account
         }
+    }
+
+    /** Retrieves just the public owner name for a campsite. */
+    fun getCampsiteOwnerName(
+        campsiteId: String, onResult: (String?) -> Unit, onError: (Exception) -> Unit
+    ) {
+        functions.getHttpsCallable("getAccountDisplayName").call(mapOf("campsiteId" to campsiteId))
+            .addOnSuccessListener { onResult((it.data as? Map<*, *>)?.get("name") as? String) }
+            .addOnFailureListener(onError)
     }
 
     /**
@@ -356,501 +374,38 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             .addOnFailureListener { exception -> onError(exception) }
     }
 
-    // AI Citation [AI-12]
-    // OpenAI, ChatGPT was used to assist with understanding
-    // Firestore transactions, waiting-list cleanup, and
-    // reservation handling during entrant profile deletion.
-    // AI usage and citation documented in the GitHub Wiki.
+    // AI Citation [AI-12]. OpenAI, ChatGPT, Firestore cleanup and reservation handling.
+    // AI Citation [AI-39] (Bhav Saluja). Verified profile deletion. See the team AI documentation.
     /**
-     * Permanently deletes the profile of an entrant.
-     *
-     * Removes the entrant's waiting-list entries, updates the corresponding
-     * lottery entrant counts, and cancels active or upcoming reservations.
-     * Past reservations are preserved for historical records.
-     *
-     * This operation is intended for entrant self-deletion only.
-     * Administrator profile deletion remains handled by deleteAccount().
-     *
-     * @param accountId Device-linked account ID of the entrant.
-     * @param onSuccess Called after the deletion transaction commits.
-     * @param onError Called if validation or Firestore deletion fails.
+     * Deletes the verified entrant profile and releases its dependent records.
+     * @param accountId Original account ID, including linked legacy IDs.
+     * @param onSuccess Called after the transaction commits.
+     * @param onError Called if the profile and cleanup cannot be removed together.
      */
     open fun deleteOwnAccount(
-        accountId: String,
-        onSuccess: () -> Unit,
-        onError: (Exception) -> Unit
+        accountId: String, onSuccess: () -> Unit, onError: (Exception) -> Unit
     ) {
-        // Step 1: Validate the account ID.
-        if (accountId.isBlank() ||
-            accountId.contains("/") ||
-            accountId == "." ||
-            accountId == ".."
-        ) {
-            onError(IllegalArgumentException("Invalid account ID."))
-            return
-        }
-
-        val accountRef = accounts.document(accountId)
-
-        // Step 2: Verify the entrant and lock the account.
-        firestore.runTransaction { transaction ->
-            val account = transaction.get(accountRef)
-
-            check(account.exists()) {
-                "Profile no longer exists."
-            }
-
-            check("entrant" in accountRoles(account.get("userType"))) {
-                "Only entrants can delete their own profiles."
-            }
-
-            if (account.getBoolean("deletionPending") != true) {
-                transaction.update(accountRef, "deletionPending", true)
-            }
-
-            true
-        }.addOnSuccessListener {
-
-            // Restore the account if the cleanup cannot complete.
-            // Keep deletionPending set if cleanup fails.
-            // A later deletion attempt can resume the operation.
-            val fail: (Exception) -> Unit = { error ->
-                onError(error)
-            }
-
-            // Step 3: Retrieve all related records.
-            val queries = listOf(
-                firestore.collection("waitingList")
-                    .whereEqualTo("accountId", accountId)
-                    .get(Source.SERVER),
-
-                firestore.collection("reservation")
-                    .whereEqualTo("accountId", accountId)
-                    .get(Source.SERVER)
-            )
-
-            Tasks.whenAllSuccess<QuerySnapshot>(queries)
-                .addOnSuccessListener { results ->
-
-                    val entries = results[0].documents
-                    val reservations = results[1].documents
-                    // Step 4: Identify affected lotteries.
-                    val lotteryIds = entries.mapNotNull {
-                        it.getString("lotteryId")
-                    }.distinct()
-
-                    if (entries.any { it.getString("lotteryId").isNullOrBlank() }) {
-                        fail(
-                            IllegalStateException(
-                                "Waiting-list entry has an invalid lottery ID."
-                            )
-                        )
-                        return@addOnSuccessListener
-                    }
-
-                    val lotteryRefs = lotteryIds.map { lotteryId ->
-                        firestore.collection("lottery")
-                            .document(lotteryId)
-                    }
-
-                    // Find campsites associated with the entrant's reservations.
-                    val ratingCampsiteRefs = reservations
-                        .mapNotNull { it.getString("campsiteId") }
-                        .filter { it.isNotBlank() && !it.contains("/") }
-                        .distinct()
-                        .map { campsiteId ->
-                            firestore.collection("campsite").document(campsiteId)
-                        }
-
-                    // Ratings use the entrant's account ID as their document ID.
-                    val ratingRefs = ratingCampsiteRefs.map { campsiteRef ->
-                        campsiteRef.collection("ratings").document(accountId)
-                    }
-
-                    val operationCount =
-                        entries.size +
-                                reservations.size +
-                                lotteryRefs.size +
-                                ratingRefs.size +
-                                ratingCampsiteRefs.size + 1
-
-                    if (operationCount > 500) {
-                        fail(
-                            IllegalStateException(
-                                "Too many related records to delete at once."
-                            )
-                        )
-                        return@addOnSuccessListener
-                    }
-
-                    // Step 5: Atomically update related documents.
-                    firestore.runTransaction { transaction ->
-
-                        // All transaction reads must precede writes.
-                        val savedAccount = transaction.get(accountRef)
-
-                        val savedEntries = entries.map {
-                            transaction.get(it.reference)
-                        }
-
-                        val savedLotteries = lotteryRefs.map {
-                            transaction.get(it)
-                        }
-
-                        val savedReservations = reservations.map {
-                            transaction.get(it.reference)
-                        }
-
-                        val savedRatings = ratingRefs.map {
-                            transaction.get(it)
-                        }
-
-                        val savedRatingCampsites = ratingCampsiteRefs.map {
-                            transaction.get(it)
-                        }
-
-                        check(savedAccount.exists()) {
-                            "Profile no longer exists."
-                        }
-
-                        check("entrant" in accountRoles(savedAccount.get("userType"))) {
-                            "Only entrants can delete their own profiles."
-                        }
-
-                        check(
-                            savedAccount.getBoolean("deletionPending") == true
-                        ) {
-                            "Profile deletion is not pending."
-                        }
-
-                        // Step 6: Count waiting-list entries by lottery.
-                        val removedCounts = savedEntries
-                            .filter { it.exists() }
-                            .groupingBy { it.getString("lotteryId") }
-                            .eachCount()
-
-                        // Update each lottery's entrant count.
-                        savedLotteries
-                            .filter { it.exists() && it.id in removedCounts }
-                            .forEach { lottery ->
-
-                                val currentCount =
-                                    lottery.getLong("entrantCount")
-                                        ?: error(
-                                            "Lottery entrant count is missing."
-                                        )
-
-                                val removed =
-                                    removedCounts[lottery.id] ?: 0
-
-                                transaction.update(
-                                    lottery.reference,
-                                    mapOf(
-                                        "entrantCount" to (currentCount - removed).coerceAtLeast(0L),
-                                        "waitlistChangeAccountId" to accountId
-                                    )
-                                )
-                            }
-
-                        // Step 7: Delete waiting-list entries.
-                        savedEntries
-                            .filter { it.exists() }
-                            .forEach { entry ->
-                                transaction.delete(entry.reference)
-                            }
-
-                        // Step 8: Cancel active/upcoming reservations and detach
-                        // all historical reservations from the deleted profile.
-                        val currentTime = System.currentTimeMillis()
-
-                        savedReservations
-                            .filter { it.exists() }
-                            .forEach { reservation ->
-
-                                val updates = mutableMapOf<String, Any>(
-                                    "accountId" to FieldValue.delete()
-                                )
-
-                                // Only active/upcoming, non-cancelled reservations need cancellation.
-                                if (reservation.getBoolean("cancelled") != true) {
-                                    val endTime = reservation
-                                        .getTimestamp("bookedPeriodEnd")
-                                        ?.toDate()
-                                        ?.time
-
-                                    // A missing checkout date is treated as potentially active.
-                                    // This prevents malformed reservation data from blocking deletion.
-                                    if (endTime == null || endTime > currentTime) {
-                                        updates["cancelled"] = true
-                                        updates["status"] = "cancelled"
-                                        updates["cancelledBy"] = accountId
-                                        updates["cancelledAt"] = FieldValue.serverTimestamp()
-                                        updates["cancellationReason"] =
-                                            "Profile deleted by entrant."
-                                    }
-                                }
-
-                                transaction.update(reservation.reference, updates)
-                            }
-                        // Step 8B: Remove ratings belonging to the deleted entrant.
-// Update campsite rating aggregates if the campsite still exists.
-                        val ratingsByCampsite = savedRatings
-                            .filter { it.exists() }
-                            .groupBy { rating ->
-                                rating.reference.parent.parent?.path
-                                    ?: error("Rating has no parent campsite.")
-                            }
-
-                        savedRatingCampsites.forEach { campsite ->
-
-                            val campsiteRatings =
-                                ratingsByCampsite[campsite.reference.path].orEmpty()
-
-                            if (campsiteRatings.isNotEmpty()) {
-
-                                val scoredRatings = campsiteRatings.filter { it.contains("score") }
-                                if (!campsite.exists() || scoredRatings.isEmpty()) {
-                                    // Reviews without a score have no rating aggregate to update.
-                                    campsiteRatings.forEach { rating ->
-                                        transaction.delete(rating.reference)
-                                    }
-
-                                } else {
-                                    // Campsite exists: remove the entrant's rating
-                                    // and recalculate its rating aggregate.
-                                    val scores = (campsite.get("rating") as? List<*>)
-                                        ?.map { value ->
-                                            val number = value as? Number
-                                                ?: error("Invalid campsite rating.")
-
-                                            check(number.toDouble() == number.toInt().toDouble()) {
-                                                "Invalid campsite rating."
-                                            }
-
-                                            number.toInt()
-                                        }
-                                        ?: error("Campsite rating list is missing.")
-
-                                    val updatedScores = scores.toMutableList()
-
-                                    scoredRatings.forEach { rating ->
-                                        val score = rating.getLong("score")?.toInt()
-                                            ?: error("Saved rating has no valid score.")
-
-                                        check(updatedScores.remove(score)) {
-                                            "Saved rating was not found in campsite aggregate."
-                                        }
-
-                                    }
-                                    campsiteRatings.forEach { transaction.delete(it.reference) }
-
-                                    val updates = mutableMapOf<String, Any>(
-                                        "rating" to updatedScores
-                                    )
-
-                                    updates["averageRating"] =
-                                        if (updatedScores.isEmpty()) {
-                                            FieldValue.delete()
-                                        } else {
-                                            updatedScores.average()
-                                        }
-
-                                    transaction.update(campsite.reference, updates)
-                                }
-                            }
-                        }
-                        // Step 9: Delete the entrant's account.
-                        val profileImagePath = savedAccount.getString("imagePath").orEmpty()
-
-                        transaction.delete(accountRef)
-
-                        // Return the image path after the Firestore transaction commits.
-                        profileImagePath
-                    }
-                        .addOnSuccessListener { imagePath ->
-                            if (imagePath.isBlank()) {
-                                onSuccess()
-                            } else {
-                                FirebaseConnector("accounts", firestore).removeImage(
-                                    path = imagePath,
-                                    storage = storage ?: Firebase.storage,
-                                    onSuccess = {
-                                        onSuccess()
-                                    },
-                                    onError = { exception ->
-                                        android.util.Log.w(
-                                            "AccountsModel",
-                                            "Profile deleted, but profile image cleanup failed.",
-                                            exception
-                                        )
-                                        onSuccess()
-                                    }
-                                )
-                            }
-                        }
-                        .addOnFailureListener { exception ->
-                            fail(exception)
-                        }
-                }
-                .addOnFailureListener { exception ->
-                    fail(exception)
-                }
-        }
-            .addOnFailureListener { exception ->
-                onError(exception)
-            }
+        deleteAccountWithCleanup(accountId, onSuccess, onError)
     }
 
     /**
-     * Removes a profile, its waiting-list entries, and its active reservation holds.
+     * Removes another profile and dependent records using verified administrator access.
      * @param targetAccount Profile to remove.
-     * @param adminId Administrator recorded on cancelled reservations.
-     * @param onSuccess Called after the cleanup and deletion commit.
-     * @param onError Called when deletion fails.
+     * @param adminId Current administrator's account ID.
+     * @param onSuccess Called after the transaction commits.
+     * @param onError Called if authorization or cleanup fails.
      */
     open fun deleteAccount(
-        targetAccount: Account,
-        adminId: String,
-        onSuccess: () -> Unit,
-        onError: (Exception) -> Unit,
+        targetAccount: Account, adminId: String, onSuccess: () -> Unit, onError: (Exception) -> Unit
     ) {
-        deleteAccountWithCleanup(
-            targetAccount = targetAccount,
-            actorId = adminId,
-            onSuccess = onSuccess,
-            onError = onError,
-        )
+        deleteAccountWithCleanup(targetAccount.id, onSuccess, onError)
     }
 
-    /**
-     * Removes a profile, its waiting list entries, and its active reservations' availability holds.
-     *
-     * @param targetAccount Profile to remove.
-     * @param actorId Administrator recorded on cancelled reservations.
-     * @param onSuccess Called after the cleanup and deletion commit.
-     * @param onError Called when deletion fails.
-     */
-    fun deleteAccountWithCleanup(
-        targetAccount: Account,
-        actorId: String,
-        onSuccess: () -> Unit,
-        onError: (Exception) -> Unit,
+    private fun deleteAccountWithCleanup(
+        accountId: String, onSuccess: () -> Unit, onError: (Exception) -> Unit
     ) {
-        val accountRef = accounts.document(targetAccount.id)
-        accountRef
-            .get(Source.SERVER)
-            .addOnSuccessListener { existing ->
-                if (!existing.exists()) {
-                    onError(IllegalStateException("Profile no longer exists."))
-                    return@addOnSuccessListener
-                }
-                val fail: (Exception) -> Unit = { error ->
-                    accountRef.update("deletionPending", FieldValue.delete())
-                    onError(error)
-                }
-                accountRef
-                    .update("deletionPending", true)
-                    .addOnSuccessListener {
-                        val queries =
-                            listOf(
-                                firestore
-                                    .collection("waitingList")
-                                    .whereEqualTo("accountId", targetAccount.id)
-                                    .get(Source.SERVER),
-                                firestore
-                                    .collection("reservation")
-                                    .whereEqualTo("accountId", targetAccount.id)
-                                    .get(Source.SERVER),
-                            )
-                        Tasks.whenAllSuccess<QuerySnapshot>(queries)
-                            .addOnSuccessListener { results ->
-                                val entries = results[0].documents
-                                val reservations = results[1].documents
-                                val lotteryRefs =
-                                    entries
-                                        .mapNotNull { it.getString("lotteryId") }
-                                        .distinct()
-                                        .map { firestore.collection("lottery").document(it) }
-                                if (entries.size + reservations.size + lotteryRefs.size + 1 > 500) {
-                                    fail(
-                                        IllegalStateException(
-                                            "Too many related records to remove at once."
-                                        )
-                                    )
-                                    return@addOnSuccessListener
-                                }
-                                firestore
-                                    .runTransaction { transaction ->
-                                        val savedAccount = transaction.get(accountRef)
-                                        val savedEntries = entries.map {
-                                            transaction.get(it.reference)
-                                        }
-                                        val savedLotteries = lotteryRefs.map { transaction.get(it) }
-                                        val savedReservations = reservations.map {
-                                            transaction.get(it.reference)
-                                        }
-                                        check(savedAccount.exists()) { "Profile no longer exists." }
-                                        val removedCounts =
-                                            savedEntries
-                                                .filter { it.exists() }
-                                                .groupingBy { it.getString("lotteryId") }
-                                                .eachCount()
-                                        savedLotteries
-                                            .filter { it.exists() && it.id in removedCounts }
-                                            .forEach { lottery ->
-                                                val count =
-                                                    lottery.getLong("entrantCount")
-                                                        ?: error(
-                                                            "Lottery entrant count is missing."
-                                                        )
-                                                transaction.update(
-                                                    lottery.reference,
-                                                    mapOf(
-                                                        "entrantCount" to
-                                                            (count - removedCounts.getValue(lottery.id)).coerceAtLeast(0L),
-                                                        "waitlistChangeAccountId" to targetAccount.id
-                                                    ),
-                                                )
-                                            }
-                                        savedEntries
-                                            .filter { it.exists() }
-                                            .forEach { transaction.delete(it.reference) }
-                                        savedReservations
-                                            .filter {
-                                                it.exists() && it.getBoolean("cancelled") != true
-                                            }
-                                            .forEach { reservation ->
-                                                val end =
-                                                    reservation
-                                                        .getTimestamp("bookedPeriodEnd")
-                                                        ?.toDate()
-                                                        ?.time
-                                                        ?: error("Reservation checkout is missing.")
-                                                if (end > System.currentTimeMillis()) {
-                                                    transaction.update(
-                                                        reservation.reference,
-                                                        mapOf(
-                                                            "cancelled" to true,
-                                                            "status" to "cancelled",
-                                                            "cancelledBy" to actorId,
-                                                            "cancelledAt" to
-                                                                FieldValue.serverTimestamp(),
-                                                            "cancellationReason" to
-                                                                "Profile removed by administrator.",
-                                                        ),
-                                                    )
-                                                }
-                                            }
-                                        transaction.delete(accountRef)
-                                        true
-                                    }
-                                    .addOnSuccessListener { onSuccess() }
-                                    .addOnFailureListener(fail)
-                            }
-                            .addOnFailureListener(fail)
-                    }
-                    .addOnFailureListener(onError)
-            }
+        functions.getHttpsCallable("deleteProfile").call(mapOf("accountId" to accountId))
+            .addOnSuccessListener { onSuccess() }
             .addOnFailureListener(onError)
     }
 
@@ -936,3 +491,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             .addOnFailureListener(onError)
     }
 }
+
+/** Identifies the legacy enrollment that an administrator must verify. */
+internal class LegacyAccountLinkRequired(val accountId: String, val uid: String) :
+    IllegalStateException("Verify your existing profile before continuing.")

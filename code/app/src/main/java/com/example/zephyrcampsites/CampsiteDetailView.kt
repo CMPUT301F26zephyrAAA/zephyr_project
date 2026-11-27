@@ -134,11 +134,11 @@ class CampsiteDetailView {
                 )
             }
             if (ownerId.isNotBlank()) {
-                accountsController.findAccount(
-                    deviceId = ownerId,
-                    onResult = { owner ->
+                accountsController.findCampsiteOwnerName(
+                    campsiteId = campsiteId.toString(),
+                    onResult = { name ->
                         if (active) {
-                            ownerName = owner?.name
+                            ownerName = name
                         }
                     },
                     onError = {
@@ -471,6 +471,10 @@ class CampsiteDetailView {
                     }
 
                     CampsiteMapView().MapView(campsite.geolocation, campsite.name)
+
+                    if (canRemoveCampsite && ratingController != null) {
+                        AdminCampsiteFeedback(campsite.id)
+                    }
 
                     Column(
                         modifier = Modifier.padding(20.dp),

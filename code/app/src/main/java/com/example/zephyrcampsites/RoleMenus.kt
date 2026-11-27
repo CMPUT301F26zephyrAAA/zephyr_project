@@ -2,15 +2,26 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 
 @Composable
 internal fun RoleSelectionMenu(
     isLoading: Boolean,
     hasAccount: Boolean,
     isAdmin: Boolean,
+    accountError: String? = null,
+    recoveryUid: String? = null,
     onSelectRole: (String) -> Unit,
     onRetryAccount: () -> Unit
 ) {
+    var showRecovery by remember { mutableStateOf(false) }
     RolePage(
         actions = buildList {
             add(RoleAction("Entrant") { onSelectRole(ENTRANT) })
@@ -18,15 +29,39 @@ internal fun RoleSelectionMenu(
             if (isAdmin) {
                 add(RoleAction("Admin") { onSelectRole(ADMIN) })
             }
+            if (recoveryUid != null) {
+                add(RoleAction("Link existing profile") { showRecovery = true })
+            }
         },
         actionsEnabled = !isLoading && hasAccount,
         statusMessage = when {
             isLoading -> "Account loading…"
-            !hasAccount -> "Unable to load account."
+            !hasAccount -> accountError ?: "Unable to load account."
             else -> null
         },
         onRetry = if (!isLoading && !hasAccount) onRetryAccount else null
     )
+    if (showRecovery && recoveryUid != null) {
+        AlertDialog(
+            onDismissRequest = { showRecovery = false },
+            title = { Text("Link your existing profile") },
+            text = {
+                SelectionContainer {
+                    Text("Ask the profile administrator to verify your existing profile. " +
+                        "Share this Firebase UID through the administrator’s verified contact channel.\n\n$recoveryUid")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRecovery = false
+                    onRetryAccount()
+                }) { Text("Reload profile") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRecovery = false }) { Text("Close") }
+            }
+        )
+    }
 }
 
 @Composable

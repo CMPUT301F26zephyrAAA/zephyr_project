@@ -142,11 +142,20 @@ class LotteryNotificationNavigationTest {
 
         val legacyPath = "accounts/$deviceId"
         val bookingPath = "reservation/legacy-$suffix"
+        val linkPath = "notificationAccountLinks/$deviceId"
         try {
             writeApprovedFixture(legacyPath, mapOf("id" to deviceId, "name" to "Existing Camper"))
             writeApprovedFixture(bookingPath, mapOf("accountId" to deviceId, "campsiteId" to lottery.campsiteId))
             auth.signOut()
             ActivityScenario.launch(MainActivity::class.java).use {
+                compose.waitUntil(20_000) {
+                    compose.onAllNodesWithText("verify your existing profile", substring = true)
+                        .fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithText("Owner").assertIsNotEnabled()
+                val uid = checkNotNull(auth.currentUser).uid
+                writeApprovedFixture(linkPath, mapOf("uid" to uid))
+                compose.onNodeWithText("Retry").performClick()
                 waitForAccount()
                 val legacy = Tasks.await(firestore.document(legacyPath).get(Source.SERVER), 15, TimeUnit.SECONDS)
                 val booking = Tasks.await(firestore.document(bookingPath).get(Source.SERVER), 15, TimeUnit.SECONDS)
@@ -157,6 +166,7 @@ class LotteryNotificationNavigationTest {
                 assertFalse(separateProfile.exists())
             }
         } finally {
+            writeApprovedFixture(linkPath, null)
             writeApprovedFixture(legacyPath, null)
             writeApprovedFixture(bookingPath, null)
         }

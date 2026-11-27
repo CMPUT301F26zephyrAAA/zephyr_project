@@ -1,23 +1,27 @@
+// Loads campsite feedback and submits verified changes through Cloud Functions.
 package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
+import com.google.firebase.functions.FirebaseFunctions
 
 /**
- * Reads completed stays and stores each entrant's rating and written review in one campsite document.
- * Saves the rating values and average together so campsite snapshot listeners refresh the list.
+ * Reads completed stays and each entrant's feedback in the campsite's ratings subcollection.
+ * Updates feedback and the campsite aggregate together through Cloud Functions.
  * Reservation creation must provide accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, and cancelled.
  *
- * @param firestore Database used for reservations, accounts, and campsite ratings.
+ * @param firestore Database used for reservations and campsite ratings.
+ * @param functions Callable endpoints for verified feedback changes.
  */
-class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore) : RatingGateway {
+class RatingModel(
+    private val firestore: FirebaseFirestore = Firebase.firestore,
+    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
+) : RatingGateway {
     private val reservations = firestore.collection("reservation")
     private val campsites = firestore.collection("campsite")
 
@@ -65,35 +69,7 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         campsiteId: String, accountId: String, rating: CampsiteRating,
         onSuccess: () -> Unit, onError: (String) -> Unit
     ) {
-        val campsiteRef = campsites.document(campsiteId)
-        val ratingRef = campsiteRef.collection("ratings").document(accountId)
-        val reservationRef = reservations.document(rating.reservationId)
-        val accountRef = firestore.collection("accounts").document(accountId)
-
-        firestore.runTransaction { transaction ->
-            val campsiteDocument = transaction.get(campsiteRef)
-            val previousRating = transaction.get(ratingRef)
-            checkCompletedStay(campsiteDocument, transaction.get(reservationRef), transaction.get(accountRef))
-
-            val scores = (campsiteDocument.get("rating") as? List<*>)?.map { value ->
-                val number = value as? Number ?: error("Invalid stored rating.")
-                check(number.toDouble() == number.toInt().toDouble()) { "Invalid stored rating." }
-                number.toInt()
-            } ?: emptyList()
-            val previousScore = if (previousRating.contains("score")) {
-                previousRating.getLong("score")?.toInt() ?: error("Invalid previous rating.")
-            } else {
-                null
-            }
-            val updated = RatingValidator.replaceRating(scores, previousScore, rating.score)
-            transaction.update(campsiteRef, mapOf("rating" to updated, "averageRating" to updated.average()))
-            transaction.set(ratingRef, mapOf(
-                "accountId" to accountId, "campsiteId" to campsiteId, "reservationId" to rating.reservationId,
-                "score" to rating.score, "review" to rating.review, "updatedAt" to FieldValue.serverTimestamp()
-            ))
-        }
-            .addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { onError("Unable to save your rating. Check your completed stay and try again.") }
+        saveFeedback(campsiteId, accountId, rating.reservationId, rating.review, rating.score, onSuccess, onError)
     }
 
     override fun observeReviews(
@@ -116,38 +92,56 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         campsiteId: String, accountId: String, reservationId: String, review: String,
         onSuccess: () -> Unit, onError: (String) -> Unit
     ) {
-        val text = review.trim()
-        if (text.isEmpty()) {
-            onError("Enter a review before submitting.")
-            return
-        }
-
-        val campsiteRef = campsites.document(campsiteId)
-        val ratingRef = campsiteRef.collection("ratings").document(accountId)
-        val reservationRef = reservations.document(reservationId)
-        val accountRef = firestore.collection("accounts").document(accountId)
-
-        firestore.runTransaction { transaction ->
-            checkCompletedStay(transaction.get(campsiteRef), transaction.get(reservationRef), transaction.get(accountRef))
-            transaction.set(ratingRef, mapOf(
-                "accountId" to accountId, "campsiteId" to campsiteId, "reservationId" to reservationId,
-                "review" to text, "updatedAt" to FieldValue.serverTimestamp()
-            ), SetOptions.merge())
-        }
-            .addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { onError("Unable to save your review. Check your completed stay and try again.") }
+        saveFeedback(campsiteId, accountId, reservationId, review, null, onSuccess, onError)
     }
 
-    /** Verifies the campsite, entrant, and completed reservation from the transaction snapshots. */
-    private fun checkCompletedStay(campsite: DocumentSnapshot, stay: DocumentSnapshot, account: DocumentSnapshot) {
-        check(campsite.exists()) { "Campsite no longer available." }
-        val role = account.get("userType")
-        check(role == "entrant" || (role is List<*> && "entrant" in role)) { "Only entrants can rate or review a campsite." }
-        check(account.getBoolean("deletionPending") != true) { "Your profile is being deleted." }
-        val reservation = readReservation(stay)
-        check(reservation != null && RatingValidator.hasStayed(
-            reservation, account.id, campsite.id, System.currentTimeMillis()
-        )) { "A non-cancelled stay must have ended." }
+    // AI Citation [AI-39] (Bhav Saluja). Verified feedback transactions. See the team AI Documentation Google Doc.
+    private fun saveFeedback(
+        campsiteId: String, accountId: String, reservationId: String, review: String, score: Int?,
+        onSuccess: () -> Unit, onError: (String) -> Unit
+    ) {
+        val data = mutableMapOf<String, Any>(
+            "campsiteId" to campsiteId, "accountId" to accountId,
+            "reservationId" to reservationId, "review" to review
+        )
+        if (score != null) {
+            data["score"] = score
+        }
+        functions.getHttpsCallable("saveCampsiteFeedback").call(data)
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { onError(it.message ?: "Unable to save campsite feedback.") }
+    }
+
+    /**
+     * Watches rating and review records for campsite moderation.
+     * @param campsiteId Campsite being moderated.
+     * @param onResult Receives current feedback.
+     * @param onError Receives a load error.
+     * @return Registration removed when the moderation screen closes.
+     */
+    internal fun observeFeedback(
+        campsiteId: String, onResult: (List<CampsiteFeedback>) -> Unit, onError: (String) -> Unit
+    ): ListenerRegistration =
+        campsites.document(campsiteId).collection("ratings").addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onError("Unable to load campsite feedback.")
+            } else {
+                onResult(snapshot?.documents.orEmpty().map { document ->
+                    CampsiteFeedback(document.id, document.getLong("score"), document.getString("review").orEmpty())
+                })
+            }
+        }
+
+    /**
+     * Removes feedback as a verified administrator and updates the campsite aggregate.
+     * @param campsiteId Campsite containing the feedback.
+     * @param accountId Author of the feedback.
+     * @param onError Receives a removal error.
+     */
+    internal fun removeFeedback(campsiteId: String, accountId: String, onError: (String) -> Unit) {
+        functions.getHttpsCallable("removeCampsiteFeedback")
+            .call(mapOf("campsiteId" to campsiteId, "accountId" to accountId))
+            .addOnFailureListener { onError(it.message ?: "Unable to remove campsite feedback.") }
     }
 
     /**

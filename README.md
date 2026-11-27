@@ -7,34 +7,16 @@ Owners open **View Lotteries**, select their lottery, and use **Notify Entrants*
 The sender's confirmation counts the messages made available in the inbox. Opted-out accounts are
 listed as intended recipients in the send record and do not receive a copy.
 
-### Firebase setup
+### Firebase account rollout
 
-The app signs in anonymously at startup. New profiles use `accounts/auth_<uid>`, so their own
-waitlist and preference writes work immediately. The installed app continues to use an existing
-device-ID profile and its booking references when it finds one.
-
-Existing unlinked profiles can change their notification preference and join or leave lotteries
-owned by unlinked profiles during the deployed legacy access window. This includes installed
-clients that omit the account marker. Managed lotteries and profiles use verified identity and
-paired registration and count updates.
-
-The legacy window also allows existing unlinked profiles to use the app's profile deletion and
-cleanup flow. In legacy lotteries, a valid winner decline can promote a backup whose profile uses
-Firebase Auth. The promotion, queue changes, and decline must commit together.
-
-Legacy participants use the notification flow once an administrator verifies the profile and
-sets its Firebase Auth UID in `notificationAccountLinks/{accountId}`. The app shows both IDs if a
-link is required. The notification functions verify ownership against the campsite and lottery
-records. The rules keep the deployed reservation and chat behavior. Roll out the updated Android
-build with the decline rules so the client identifies the declining account and preserves every
-unpromoted backup in queue order.
+See the [Firebase account rollout guide](code/FIREBASE-ROLLOUT.md) for legacy enrollment and cutover.
 
 ### Verification
 
 From `code/`, install the Functions dependencies with `npm --prefix functions ci`, then run:
 
 ```text
-firebase emulators:exec --only auth,firestore,functions --project demo-zephyr-notifications --config firebase.notifications.test.json "node --test functions/test/lotteryNotifications.integration.test.js"
+firebase emulators:exec --only auth,firestore,functions,storage --project demo-zephyr-notifications --config firebase.notifications.test.json "node --test functions/test/lotteryNotifications.integration.test.js"
 ```
 
 The Android navigation test requires an ignored debug `app/google-services.json` for the
@@ -71,3 +53,9 @@ On November 27, 2026, OpenAI Codex reproduced and fixed two emulator regressions
 It restored the legacy profile deletion flow and allowed atomic backup promotion in a legacy
 lottery when the winner is unlinked and the backup uses Firebase Auth. It added regression tests
 for both flows. See the team AI Documentation entry above.
+
+On November 27, 2026, OpenAI Codex also traced the legacy account rollout and generated
+the Firebase Auth binding, Firestore and Storage access changes, transactional profile
+deletion and booking cleanup, lottery decline and backup promotion, and rating and
+administrator moderation. It generated emulator cases covering linked, unlinked, fresh,
+and admin accounts. The team AI Documentation records the request and chat link.
