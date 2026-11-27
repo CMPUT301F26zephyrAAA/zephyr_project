@@ -529,7 +529,7 @@ internal fun CampsitesNavigation(
                         }
 
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(
                             route = "$OWNER/notifyEntrants/{lotteryId}",
                             arguments = listOf(navArgument("lotteryId") { type = NavType.StringType })
@@ -554,7 +554,7 @@ internal fun CampsitesNavigation(
                         }
 
                         composable(GeneralScreen.ViewReservations.route) {
-                            AccountContent { ReservationsScreen(onBack) }
+                            AccountContent { owner -> OwnerReservationsScreen(owner, reservationsController, onBack) }
                         }
 
                         composable(GeneralScreen.RegisterCampsite.route) {
@@ -663,7 +663,7 @@ internal fun CampsitesNavigation(
                         }
                     } else {
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(GeneralScreen.LotteryNotifications.route) {
                             AccountContent { entrant ->
                                 LotteryNotificationsScreen(entrant, notificationController, onBack)

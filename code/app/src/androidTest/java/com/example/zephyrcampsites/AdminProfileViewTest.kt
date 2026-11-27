@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AdminProfileViewTest {
     @get:Rule val compose = createComposeRule()
-    private val admin = Account("admin", userType = "admin")
+    private val admin = Account("admin", userType = listOf("admin"))
     private val profile =
         Account(
             "entrant",

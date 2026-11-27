@@ -1,3 +1,4 @@
+// Reads and changes lottery registrations with their corresponding entrant count.
 package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
@@ -142,8 +143,10 @@ class WaitingListModel(private val firestore: FirebaseFirestore = Firebase.fires
 
             transaction.update(
                 lotteryRef,
-                "entrantCount",
-                entrantCount + 1
+                mapOf(
+                    "entrantCount" to entrantCount + 1,
+                    "waitlistChangeAccountId" to accountId
+                )
             )
 
             true
@@ -209,8 +212,10 @@ class WaitingListModel(private val firestore: FirebaseFirestore = Firebase.fires
 
             transaction.update(
                 lotteryRef,
-                "entrantCount",
-                (entrantCount - 1).coerceAtLeast(0L)
+                mapOf(
+                    "entrantCount" to (entrantCount - 1).coerceAtLeast(0L),
+                    "waitlistChangeAccountId" to accountId
+                )
             )
             true
         }

@@ -69,5 +69,6 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.4.0")
     implementation("com.google.firebase:firebase-storage")
     implementation("io.coil-kt:coil-compose:2.7.0")
-
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.24.0")
 }

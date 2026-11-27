@@ -3,7 +3,6 @@ package com.example.zephyrcampsites
 
 import android.content.Context
 import android.net.Uri
-import android.provider.Settings
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -24,7 +23,8 @@ class ProfileImageControllerTest {
     private lateinit var model: FakeAccountsModel
     private lateinit var controller: AccountsController
 
-    private val deviceId = "test-device"
+    private val uid = "test-user"
+    private val accountId = "auth_$uid"
 
     private lateinit var imageUri: Uri
 
@@ -80,24 +80,18 @@ class ProfileImageControllerTest {
     fun setUp() {
         context = RuntimeEnvironment.getApplication()
 
-        Settings.Secure.putString(
-            context.contentResolver,
-            Settings.Secure.ANDROID_ID,
-            deviceId
-        )
-
         imageUri = Uri.parse(
             "content://test/profile.jpg"
         )
 
         model = FakeAccountsModel()
-        controller = AccountsController(model)
+        controller = AccountsController(model) { uid }
     }
 
     @Test
     fun entrantCanAddOwnProfileImage() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("entrant")
         )
 
@@ -126,7 +120,7 @@ class ProfileImageControllerTest {
     @Test
     fun entrantCanReplaceOwnProfileImage() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("entrant"),
             compressedImage = "old-image"
         )
@@ -157,7 +151,7 @@ class ProfileImageControllerTest {
     @Test
     fun entrantCanRemoveOwnProfileImage() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("entrant"),
             compressedImage = "existing-image"
         )
@@ -165,7 +159,6 @@ class ProfileImageControllerTest {
         var result: Account? = null
 
         controller.removeOwnProfileImage(
-            context,
             account,
             onSuccess = { result = it },
             onError = { fail(it) }
@@ -213,7 +206,6 @@ class ProfileImageControllerTest {
         var error: String? = null
 
         controller.removeOwnProfileImage(
-            context,
             account,
             onSuccess = { fail("Removal should be rejected") },
             onError = { error = it }
@@ -230,7 +222,7 @@ class ProfileImageControllerTest {
     @Test
     fun nonEntrantCannotUpdateProfileImage() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("owner")
         )
 
@@ -255,7 +247,7 @@ class ProfileImageControllerTest {
     @Test
     fun nonEntrantCannotRemoveProfileImage() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("owner"),
             compressedImage = "existing-image"
         )
@@ -263,7 +255,6 @@ class ProfileImageControllerTest {
         var error: String? = null
 
         controller.removeOwnProfileImage(
-            context,
             account,
             onSuccess = { fail("Removal should be rejected") },
             onError = { error = it }
@@ -280,7 +271,7 @@ class ProfileImageControllerTest {
     @Test
     fun updateFailureReturnsErrorAndPreservesImage() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("entrant"),
             compressedImage = "old-image"
         )
@@ -306,7 +297,7 @@ class ProfileImageControllerTest {
     @Test
     fun removalFailureReturnsErrorAndPreservesImage() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("entrant"),
             compressedImage = "existing-image"
         )
@@ -317,7 +308,6 @@ class ProfileImageControllerTest {
         var error: String? = null
 
         controller.removeOwnProfileImage(
-            context,
             account,
             onSuccess = { fail("Removal should fail") },
             onError = { error = it }
@@ -335,7 +325,7 @@ class ProfileImageControllerTest {
     @Test
     fun updateFailureWithoutMessageReturnsDefaultError() {
         val account = Account(
-            id = deviceId,
+            id = accountId,
             userType = listOf("entrant")
         )
 
