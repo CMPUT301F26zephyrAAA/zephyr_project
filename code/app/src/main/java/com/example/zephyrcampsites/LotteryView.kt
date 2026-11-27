@@ -1,3 +1,4 @@
+// Displays lottery details and the forms for creating or editing a lottery.
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.layout.*
@@ -326,7 +327,8 @@ class LotteryView (
     fun LotteryDetailsView(
         lotteryId: String,
         onEditClick: (() -> Unit)?,
-        onBackClick: () -> Unit
+        onBackClick: () -> Unit,
+        onNotifyClick: (() -> Unit)? = null
     ) {
         val lottery = lotteryController.getLotteryById(lotteryId)
         var declinedEntrants by remember(lotteryId) {
@@ -498,9 +500,11 @@ class LotteryView (
                     Text("VIEW WAITLIST")
                 }
 
+                // AI Citation [AI-39]
+                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the Bhav Saluja entry in README.md.
                 Button(
-                    onClick = {},
-                    enabled = false,
+                    onClick = { onNotifyClick?.invoke() },
+                    enabled = onNotifyClick != null,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("NOTIFY ENTRANTS")
