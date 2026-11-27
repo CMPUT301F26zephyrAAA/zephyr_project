@@ -45,8 +45,6 @@ internal fun CampsitesNavigation(
     accountsController: AccountsController,
     currentAccount: MutableState<Account?>,
     accountLoading: State<Boolean>,
-    accountError: String? = null,
-    recoveryUid: String? = null,
     profileDeletionInProgress: MutableState<Boolean>,
     onRetryAccount: () -> Unit,
     onFinishActivity: () -> Unit
@@ -375,8 +373,6 @@ internal fun CampsitesNavigation(
                     isLoading = isLoading,
                     hasAccount = account != null,
                     isAdmin = isAdmin,
-                    accountError = accountError,
-                    recoveryUid = recoveryUid,
                     onSelectRole = { role -> openRoleGraph(role) },
                     onRetryAccount = onRetryAccount
                 )
@@ -558,7 +554,7 @@ internal fun CampsitesNavigation(
                         }
 
                         composable(GeneralScreen.ViewReservations.route) {
-                            AccountContent { ReservationsScreen(onBack) }
+                            AccountContent { owner -> OwnerReservationsScreen(owner, reservationsController, onBack) }
                         }
 
                         composable(GeneralScreen.RegisterCampsite.route) {

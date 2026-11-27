@@ -21,7 +21,7 @@ import com.google.firebase.functions.FirebaseFunctions
 class RatingModel(
     private val firestore: FirebaseFirestore = Firebase.firestore,
     private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
-) : RatingGateway {
+) : RatingGateway, AdminRatingGateway {
     private val reservations = firestore.collection("reservation")
     private val campsites = firestore.collection("campsite")
 
@@ -113,34 +113,58 @@ class RatingModel(
     }
 
     /**
-     * Watches rating and review records for campsite moderation.
+     * Watches the same rating records that the PR #141 confirmation screen displays.
      * @param campsiteId Campsite being moderated.
-     * @param onResult Receives current feedback.
+     * @param onRatings Receives the feedback and its saved version.
      * @param onError Receives a load error.
-     * @return Registration removed when the moderation screen closes.
+     * @return Removes the snapshot listener when the screen closes.
      */
-    internal fun observeFeedback(
-        campsiteId: String, onResult: (List<CampsiteFeedback>) -> Unit, onError: (String) -> Unit
-    ): ListenerRegistration =
-        campsites.document(campsiteId).collection("ratings").addSnapshotListener { snapshot, error ->
+    override fun observeAdminRatings(
+        campsiteId: String, onRatings: (List<CampsiteRating>) -> Unit, onError: (String) -> Unit
+    ): () -> Unit {
+        val listener = campsites.document(campsiteId).collection("ratings").addSnapshotListener { snapshot, error ->
             if (error != null) {
                 onError("Unable to load campsite feedback.")
             } else {
-                onResult(snapshot?.documents.orEmpty().map { document ->
-                    CampsiteFeedback(document.id, document.getLong("score"), document.getString("review").orEmpty())
+                onRatings(snapshot?.documents.orEmpty().map { document ->
+                    CampsiteRating(
+                        reservationId = document.getString("reservationId").orEmpty(),
+                        score = document.getLong("score")?.toInt() ?: 0,
+                        review = document.getString("review").orEmpty(),
+                        accountId = document.id,
+                        updatedAt = document.getTimestamp("updatedAt")
+                    )
                 })
             }
         }
+        return { listener.remove() }
+    }
 
+    // AI Citation [AI-39] (Bhav Saluja). Connects PR #141 to version-checked server moderation.
     /**
-     * Removes feedback as a verified administrator and updates the campsite aggregate.
+     * Removes only the version displayed when the administrator confirmed the selection.
      * @param campsiteId Campsite containing the feedback.
-     * @param accountId Author of the feedback.
-     * @param onError Receives a removal error.
+     * @param adminAccountId Profile ID of the current administrator.
+     * @param selected Feedback snapshot displayed for confirmation.
+     * @param onResult Called after the server removes the selected version.
+     * @param onError Receives a stale-selection or other removal error.
      */
-    internal fun removeFeedback(campsiteId: String, accountId: String, onError: (String) -> Unit) {
+    override fun removeAdminRating(
+        campsiteId: String, adminAccountId: String, selected: CampsiteRating,
+        onResult: (Boolean) -> Unit, onError: (String) -> Unit
+    ) {
+        val version = selected.updatedAt
+        val accountId = selected.accountId
+        if (version == null || accountId == null) {
+            onError("Reload the rating and try again.")
+            return
+        }
         functions.getHttpsCallable("removeCampsiteFeedback")
-            .call(mapOf("campsiteId" to campsiteId, "accountId" to accountId))
+            .call(mapOf(
+                "campsiteId" to campsiteId, "accountId" to accountId, "adminAccountId" to adminAccountId,
+                "updatedAt" to mapOf("seconds" to version.seconds, "nanoseconds" to version.nanoseconds)
+            ))
+            .addOnSuccessListener { onResult(true) }
             .addOnFailureListener { onError(it.message ?: "Unable to remove campsite feedback.") }
     }
 

@@ -5,10 +5,7 @@
 package com.example.zephyrcampsites
 
 import com.google.android.gms.tasks.Task
-import com.google.android.gms.tasks.Tasks
-import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.functions.FirebaseFunctions
-import com.google.firebase.functions.FirebaseFunctionsException
 
 /** A waitlisted account and its display name for the recipient picker. */
 internal data class LotteryNotificationRecipient(val accountId: String, val name: String)
@@ -27,14 +24,11 @@ internal data class ReceivedLotteryNotification(
 /**
  * Reads and sends lottery notifications using the current installation's Firebase identity.
  *
- * @param auth Firebase Auth for the installation.
  * @param functions Firebase callable endpoint client.
  */
 internal class LotteryNotificationModel(
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
     private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
 ) {
-    private var signInTask: Task<String>? = null
 
     /**
      * Loads a lottery's eligible waitlist for its verified owner.
@@ -111,46 +105,13 @@ internal class LotteryNotificationModel(
         }
     }
 
-    /** Shares an in-flight sign-in across calls from the current installation. */
-    private fun authenticate(): Task<String> {
-        val uid = auth.currentUser?.uid
-        if (uid != null) {
-            return Tasks.forResult(uid)
-        }
-        val pending = signInTask
-        if (pending != null && !pending.isComplete) {
-            return pending
-        }
-        return auth.signInAnonymously().onSuccessTask {
-            Tasks.forResult(checkNotNull(it.user).uid)
-        }.also { signInTask = it }
-    }
-
-    /** Calls a Firebase endpoint and supplies setup details only when the account needs linking. */
+    /** Calls Firebase using the current signed-in session. */
     private fun <T> call(
-        endpoint: String,
-        accountId: String,
-        data: Map<String, Any> = emptyMap(),
+        endpoint: String, accountId: String, data: Map<String, Any> = emptyMap(),
         decode: (Any?) -> T
-    ): Task<T> {
-        return authenticate().onSuccessTask { uid ->
-            functions.getHttpsCallable(endpoint).call(data + ("accountId" to accountId))
-                .continueWith { task ->
-                    val error = task.exception
-                    if (error is FirebaseFunctionsException &&
-                        (error.details as? Map<*, *>)?.get("linkRequired") == true
-                    ) {
-                        throw NotificationAccountLinkRequired(accountId, uid)
-                    }
-                    if (error != null) {
-                        throw error
-                    }
-                    decode(task.result.data)
-                }
+    ): Task<T> = functions.getHttpsCallable(endpoint).call(data + ("accountId" to accountId))
+        .continueWith { task ->
+            task.exception?.let { throw it }
+            decode(task.result.data)
         }
-    }
 }
-
-/** Setup information for the app account currently open on this installation. */
-internal class NotificationAccountLinkRequired(accountId: String, uid: String) :
-    IllegalStateException("Notification setup required. Account ID: $accountId. Firebase UID: $uid.")

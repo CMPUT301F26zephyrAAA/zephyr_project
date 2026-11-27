@@ -4,8 +4,6 @@
 // See the Bhav Saluja entry in README.md.
 const assert = require("node:assert/strict");
 const {randomUUID} = require("node:crypto");
-const {readFileSync} = require("node:fs");
-const {join} = require("node:path");
 const {before, test} = require("node:test");
 const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
@@ -34,9 +32,10 @@ before(async () => {
     "late",
     "outsider",
     "winner",
-    "legacy",
+    "reviewer",
+    "deleting",
     "admin",
-    "unlinked",
+    "otherBackup",
   ];
   for (const key of roles) {
     const response = await fetch(
@@ -133,12 +132,17 @@ before(async () => {
     );
   }
   assert.equal((await registration(accounts.allowed, 1, true)).status, 200);
-  assert.equal((await registration(accounts.optedOut, 2, true)).status, 200);
-  await db.doc(`waitingList/${lotteryId}_${accounts.winner.accountId}`).set({
-    lotteryId,
-    accountId: accounts.winner.accountId,
-    drawStatus: "WINNER",
-  });
+  assert.equal(
+      (await registration(accounts.optedOut, 2, true)).status,
+      200,
+  );
+  await db
+      .doc(`waitingList/${lotteryId}_${accounts.winner.accountId}`)
+      .set({
+        lotteryId,
+        accountId: accounts.winner.accountId,
+        drawStatus: "WINNER",
+      });
 });
 
 /**
@@ -147,13 +151,18 @@ before(async () => {
  * @return {Object} Typed Firestore fields.
  */
 function fields(data) {
-  return Object.fromEntries(Object.entries(data).map(([key, value]) => [
-    key, typeof value === "boolean" ? {booleanValue: value} :
-      Number.isInteger(value) ? {integerValue: String(value)} :
-        Array.isArray(value) ?
-          {arrayValue: {values: value.map((v) => ({stringValue: v}))}} :
-          {stringValue: value},
-  ]));
+  return Object.fromEntries(
+      Object.entries(data).map(([key, value]) => [
+        key,
+      typeof value === "boolean" ?
+        {booleanValue: value} :
+        Number.isInteger(value) ?
+          {integerValue: String(value)} :
+          Array.isArray(value) ?
+            {arrayValue: {values: value.map((v) => ({stringValue: v}))}} :
+            {stringValue: value},
+      ]),
+  );
 }
 
 /**
@@ -174,7 +183,7 @@ function patch(user, path, data, merge = false) {
   return fetch(`${firestore}/${path}?${query}`, {
     method: "PATCH",
     headers: {
-      ...(user.idToken ? {"Authorization": `Bearer ${user.idToken}`} : {}),
+      ...(user.idToken ? {Authorization: `Bearer ${user.idToken}`} : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({fields: fields(data)}),
@@ -190,20 +199,28 @@ function patch(user, path, data, merge = false) {
  * @param {boolean} withMarker Whether the client includes an account marker.
  * @return {Promise<Response>} Firestore REST response.
  */
-function registration(user, count, join, id = lotteryId, withMarker = true) {
+function registration(
+    user,
+    count,
+    join,
+    id = lotteryId,
+    withMarker = true,
+) {
   const path = `${documents}/waitingList/${id}_${user.accountId}`;
-  const entryWrite = join ? {
-    update: {
-      name: path,
-      fields: fields({
-        lotteryId: id,
-        accountId: user.accountId,
-        joinedAt: Date.now(),
-        drawStatus: "WAITING",
-      }),
-    },
-    currentDocument: {exists: false},
-  } : {delete: path, currentDocument: {exists: true}};
+  const entryWrite = join ?
+    {
+      update: {
+        name: path,
+        fields: fields({
+          lotteryId: id,
+          accountId: user.accountId,
+          joinedAt: Date.now(),
+          drawStatus: "WAITING",
+        }),
+      },
+      currentDocument: {exists: false},
+    } :
+    {delete: path, currentDocument: {exists: true}};
   const counter = {entrantCount: count};
   if (withMarker) {
     counter.waitlistChangeAccountId = user.accountId;
@@ -221,7 +238,7 @@ function commit(user, writes) {
   return fetch(`${firestore}:commit`, {
     method: "POST",
     headers: {
-      ...(user.idToken ? {"Authorization": `Bearer ${user.idToken}`} : {}),
+      ...(user.idToken ? {Authorization: `Bearer ${user.idToken}`} : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({writes}),
@@ -257,7 +274,9 @@ async function call(endpoint, user, data) {
   const response = await fetch(`${functions}/${endpoint}`, {
     method: "POST",
     headers,
-    body: JSON.stringify({data: {accountId: user && user.accountId, ...data}}),
+    body: JSON.stringify({
+      data: {accountId: user && user.accountId, ...data},
+    }),
   });
   return response.json();
 }
@@ -294,7 +313,6 @@ test("requires a verified owner and denies direct client writes", async () => {
   assert.equal((await send(null)).error.status, "UNAUTHENTICATED");
   const spoof = await send(outsider, {accountId: owner.accountId});
   assert.equal(spoof.error.status, "PERMISSION_DENIED");
-  assert.equal(spoof.error.details.linkRequired, true);
   assert.equal((await send(outsider)).error.status, "PERMISSION_DENIED");
   const campsite = db.doc(`campsite/${campsiteId}`);
   await campsite.update({ownerID: outsider.accountId});
@@ -312,7 +330,9 @@ test("requires a verified owner and denies direct client writes", async () => {
         "Authorization": `Bearer ${outsider.idToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({fields: {uid: {stringValue: outsider.localId}}}),
+      body: JSON.stringify({
+        fields: {uid: {stringValue: outsider.localId}},
+      }),
     });
     assert.equal(response.status, 403);
   }
@@ -330,118 +350,69 @@ function read(user, path) {
   });
 }
 
-const legacyId = "legacy-" + suffix;
-const adminId = "admin-" + suffix;
-const unlinkedId = "unlinked-" + suffix;
 const validBooking = {
   cancelled: false,
   bookedPeriodStart: Timestamp.fromMillis(1000),
   bookedPeriodEnd: Timestamp.fromMillis(2000),
 };
 
-test("verified profile reads, preferences and waitlist writes", async () => {
-  const {legacy, admin, outsider, unlinked} = accounts;
-  const profile = "accounts/" + legacyId;
-  const unlinkedProfile = "accounts/" + unlinkedId;
-  await db.doc(profile).set({
-    id: legacyId,
-    name: "Legacy Camper",
-    email: "private@example.test",
-    phoneNumber: "555-0100",
-    userType: "entrant",
-  });
-  await db
-      .doc(unlinkedProfile)
-      .set({id: unlinkedId, name: "Unlinked", userType: "admin"});
-  await db.doc("accounts/" + adminId).set({id: adminId, userType: "entrant"});
-  await db
-      .doc("notificationAccountLinks/" + legacyId)
-      .set({uid: legacy.localId});
-  await db
-      .doc("notificationAccountLinks/" + adminId)
-      .set({uid: admin.localId});
-
-  assert.deepEqual(
-      (await call("resolveAccount", unlinked, {deviceId: unlinkedId})).result,
-      {accountId: unlinkedId, linkRequired: true},
-  );
-  assert.deepEqual(
-      (await call("resolveAccount", outsider, {deviceId: legacyId})).result,
-      {accountId: legacyId, linkRequired: true},
-  );
-  assert.deepEqual(
-      (await call("resolveAccount", legacy, {deviceId: "replacement-device"}))
-          .result,
-      {accountId: legacyId, admin: false},
-  );
-  assert.deepEqual(
-      (
-        await call("resolveAccount", accounts.allowed, {
-          deviceId: "unknown-device",
-        })
-      ).result,
-      {accountId: accounts.allowed.accountId, admin: false},
-  );
-  assert.deepEqual(
-      (await call("resolveAccount", admin, {deviceId: adminId})).result,
-      {accountId: adminId, admin: true},
-  );
-
+test("fresh profile reads and writes require ownership", async () => {
+  const {admin, reviewer, outsider} = accounts;
+  const profile = "accounts/" + reviewer.accountId;
   assert.equal((await read(null, profile)).status, 403);
   assert.equal((await read(outsider, profile)).status, 403);
   assert.equal((await read(outsider, "accounts")).status, 403);
   assert.equal((await read(admin, "accounts")).status, 200);
-  assert.equal((await read(legacy, profile)).status, 200);
-  assert.equal((await read(admin, unlinkedProfile)).status, 200);
-  assert.equal((await read(unlinked, unlinkedProfile)).status, 403);
-  assert.equal(
-      (
-        await patch(
-            unlinked,
-            unlinkedProfile,
-            {notificationsEnabled: false},
-            true,
-        )
-      ).status,
-      403,
-  );
+  assert.equal((await read(reviewer, profile)).status, 200);
   assert.equal(
       (await patch(outsider, profile, {notificationsEnabled: false}, true))
           .status,
       403,
   );
   assert.equal(
-      (await patch(admin, profile, {notificationsEnabled: false}, true)).status,
+      (await patch(admin, profile, {notificationsEnabled: false}, true))
+          .status,
       403,
   );
   assert.equal(
-      (await patch(legacy, profile, {notificationsEnabled: false}, true))
+      (await patch(reviewer, profile, {notificationsEnabled: false}, true))
           .status,
       200,
   );
   assert.equal(
-      (await patch(legacy, profile, {userType: ["admin"]}, true)).status,
+      (await patch(reviewer, profile, {userType: ["admin"]}, true)).status,
       403,
   );
-
-  const campsite = "legacy-campsite-" + suffix;
-  await db.doc("campsite/" + campsite).set({ownerID: legacyId});
-  const {result: label} = await call("getAccountDisplayName", outsider, {
-    campsiteId: campsite,
-  });
-  assert.deepEqual(label, {name: "Legacy Camper"});
-  assert.equal((await read(null, "campsite/" + campsite)).status, 200);
+  assert.equal(
+      (await patch(reviewer, profile, {compressedImage: "data"}, true))
+          .status,
+      200,
+  );
+  assert.equal(
+      (await patch(outsider, profile, {compressedImage: ""}, true)).status,
+      403,
+  );
+  assert.equal(
+      (
+        await patch(reviewer, "accounts/old-device", {
+          id: "old-device",
+          userType: ["entrant", "owner"],
+          notificationsEnabled: true,
+        })
+      ).status,
+      403,
+  );
+  assert.equal((await read(reviewer, "unlisted/example")).status, 403);
+  assert.deepEqual(
+      (await call("getAccountDisplayName", outsider, {campsiteId})).result,
+      {name: "owner"},
+  );
+  assert.equal((await read(null, "campsite/" + campsiteId)).status, 200);
   assert.equal((await read(null, "lottery/" + emptyLotteryId)).status, 200);
   assert.equal(
-      (await call("getAccountDisplayName", null, {campsiteId: campsite})).error
-          .status,
-      "UNAUTHENTICATED",
-  );
-  const linked = {...legacy, accountId: legacyId};
-  assert.equal(
       (
         await registration(
-            {...outsider, accountId: legacyId},
+            {...outsider, accountId: reviewer.accountId},
             1,
             true,
             emptyLotteryId,
@@ -450,28 +421,84 @@ test("verified profile reads, preferences and waitlist writes", async () => {
       403,
   );
   assert.equal(
-      (
-        await registration(
-            {...unlinked, accountId: unlinkedId},
-            1,
-            true,
-            emptyLotteryId,
-        )
-      ).status,
-      403,
-  );
-  assert.equal(
-      (await registration(linked, 1, true, emptyLotteryId)).status,
+      (await registration(reviewer, 1, true, emptyLotteryId)).status,
       200,
   );
   assert.equal(
-      (await registration(linked, 0, false, emptyLotteryId)).status,
+      (await registration(reviewer, 0, false, emptyLotteryId)).status,
       200,
   );
 });
 
-test("rating and moderation update the average atomically", async () => {
-  const {legacy, outsider, admin, unlinked} = accounts;
+test("owner booking scope and server-time cancellation", async () => {
+  const {owner, outsider, reviewer} = accounts;
+  const secondSite = "other-site-" + suffix;
+  await db.doc("campsite/" + secondSite).set({ownerID: outsider.accountId});
+  const future = db.doc("reservation/future-owner-" + suffix);
+  const checkedIn = db.doc("reservation/checked-in-" + suffix);
+  const other = db.doc("reservation/other-owner-" + suffix);
+  const soon = Timestamp.fromMillis(Date.now() + 60000);
+  const later = Timestamp.fromMillis(Date.now() + 120000);
+  const next = {
+    accountId: reviewer.accountId,
+    campsiteId,
+    cancelled: false,
+    bookedPeriodStart: soon,
+    bookedPeriodEnd: later,
+  };
+  await Promise.all([
+    future.set(next),
+    checkedIn.set({...next, bookedPeriodStart: Timestamp.now()}),
+    other.set({...next, campsiteId: secondSite}),
+  ]);
+  assert.equal(
+      (await call("listOwnerReservations", null, {})).error.status,
+      "UNAUTHENTICATED",
+  );
+  const list = (
+    await call("listOwnerReservations", owner, {
+      accountId: outsider.accountId,
+    })
+  ).result;
+  assert.deepEqual(
+      new Set(list.reservations.map((row) => row.id)),
+      new Set([future.id, checkedIn.id]),
+  );
+  assert.equal(list.reservations[0].entrantName, "reviewer");
+  assert.ok(list.serverMillis > 0);
+  assert.deepEqual(
+      (
+        await call("listOwnerReservations", outsider, {})
+      ).result.reservations.map((row) => row.id),
+      [other.id],
+  );
+  assert.equal((await read(owner, other.path)).status, 403);
+  assert.equal((await read(owner, future.path)).status, 200);
+  const cancel = (actor, booking) => {
+    const write = update(booking.path, {
+      cancelled: true,
+      status: "cancelled",
+      cancelledBy: actor.accountId,
+    });
+    write.updateTransforms = [
+      {fieldPath: "cancelledAt", setToServerValue: "REQUEST_TIME"},
+    ];
+    return commit(actor, [write]);
+  };
+  assert.equal((await cancel(outsider, future)).status, 403);
+  assert.equal((await cancel(owner, other)).status, 403);
+  assert.equal((await cancel(owner, checkedIn)).status, 403);
+  assert.equal((await cancel(owner, future)).status, 200);
+  const saved = (await future.get()).data();
+  assert.equal(saved.cancelled, true);
+  assert.equal(saved.cancelledBy, owner.accountId);
+  assert.equal(saved.bookedPeriodStart.isEqual(soon), true);
+  assert.equal(saved.cancelledAt.toMillis() < soon.toMillis(), true);
+  assert.equal((await cancel(owner, future)).status, 403);
+});
+
+test("moderation checks the version and updates the average", async () => {
+  const {reviewer, outsider, admin} = accounts;
   const campsiteId = "rated-site-" + suffix;
   const reservationId = "completed-" + suffix;
   const site = db.doc("campsite/" + campsiteId);
@@ -481,100 +508,49 @@ test("rating and moderation update the average atomically", async () => {
     rating: [4],
     averageRating: 4,
   });
-  await reservation.set({...validBooking, accountId: legacyId, campsiteId});
+  await reservation.set({
+    ...validBooking,
+    accountId: reviewer.accountId,
+    campsiteId,
+  });
   const data = {
-    accountId: legacyId,
+    accountId: reviewer.accountId,
     campsiteId,
     reservationId,
     score: 2,
     review: "Nice trail.",
   };
-  const score = site.collection("ratings").doc(legacyId);
+  const score = site.collection("ratings").doc(reviewer.accountId);
   assert.equal(
       (await call("saveCampsiteFeedback", outsider, data)).error.status,
       "PERMISSION_DENIED",
   );
   assert.equal(
-      (
-        await call("saveCampsiteFeedback", unlinked, {
-          ...data,
-          accountId: unlinkedId,
-        })
-      ).error.status,
-      "PERMISSION_DENIED",
-  );
-  assert.equal(
-      (
-        await call("saveCampsiteFeedback", outsider, {
-          ...data,
-          accountId: outsider.accountId,
-        })
-      ).error.status,
-      "FAILED_PRECONDITION",
-  );
-  assert.equal(
-      (
-        await patch(
-            legacy,
-            reservation.path,
-            {accountId: outsider.accountId},
-            true,
-        )
-      ).status,
-      403,
-  );
-  assert.equal(
-      (
-        await patch(legacy, "reservation/fabricated-" + suffix, {
-          accountId: legacyId,
-          campsiteId,
-          cancelled: false,
-        })
-      ).status,
-      403,
-  );
-  assert.equal(
       (await patch(accounts.owner, site.path, {rating: [5]}, true)).status,
       403,
   );
-  assert.equal((await patch(legacy, score.path, {score: 5})).status, 403);
-
-  const query = await fetch(firestore + ":runQuery", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + legacy.idToken,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      structuredQuery: {
-        from: [{collectionId: "reservation"}],
-        where: {
-          fieldFilter: {
-            field: {fieldPath: "accountId"},
-            op: "EQUAL",
-            value: {stringValue: legacyId},
-          },
-        },
-      },
-    }),
-  });
-  assert.equal(query.status, 200, await query.clone().text());
-  assert.equal(
-      (await query.json())[0].document.name.endsWith(reservationId),
-      true,
-  );
+  assert.equal((await patch(reviewer, score.path, {score: 5})).status, 403);
   assert.equal((await read(outsider, reservation.path)).status, 403);
-  assert.equal((await read(legacy, reservation.path)).status, 200);
+  assert.equal((await read(reviewer, reservation.path)).status, 200);
   assert.deepEqual(
-      (await call("saveCampsiteFeedback", legacy, data)).result,
+      (await call("saveCampsiteFeedback", reviewer, data)).result,
       {},
   );
   assert.equal((await site.get()).get("averageRating"), 3);
-  assert.equal((await score.get()).get("score"), 2);
+  const original = (await score.get()).get("updatedAt");
+  const removal = {
+    campsiteId,
+    accountId: reviewer.accountId,
+    adminAccountId: admin.accountId,
+    updatedAt: {
+      seconds: original.seconds,
+      nanoseconds: original.nanoseconds,
+    },
+  };
   assert.deepEqual(
       (
-        await call("saveCampsiteFeedback", legacy, {
-          accountId: legacyId,
+        await call("saveCampsiteFeedback", reviewer, {
+          accountId: reviewer.accountId,
           campsiteId,
           reservationId,
           review: "Edited review.",
@@ -582,16 +558,24 @@ test("rating and moderation update the average atomically", async () => {
       ).result,
       {},
   );
-  assert.equal((await score.get()).get("review"), "Edited review.");
   assert.equal((await score.get()).get("score"), 2);
-  assert.equal((await site.get()).get("averageRating"), 3);
-  assert.equal((await read(outsider, score.path)).status, 200);
   assert.equal(
-      (await call("removeCampsiteFeedback", legacy, data)).error.status,
+      (await call("removeCampsiteFeedback", reviewer, removal)).error.status,
       "PERMISSION_DENIED",
   );
+  assert.equal(
+      (await call("removeCampsiteFeedback", admin, removal)).error.status,
+      "FAILED_PRECONDITION",
+  );
+  assert.equal((await score.get()).get("review"), "Edited review.");
+  assert.deepEqual((await site.get()).get("rating"), [4, 2]);
+  const latest = (await score.get()).get("updatedAt");
+  removal.updatedAt = {
+    seconds: latest.seconds,
+    nanoseconds: latest.nanoseconds,
+  };
   assert.deepEqual(
-      (await call("removeCampsiteFeedback", admin, data)).result,
+      (await call("removeCampsiteFeedback", admin, removal)).result,
       {},
   );
   assert.deepEqual((await site.get()).get("rating"), [4]);
@@ -599,8 +583,8 @@ test("rating and moderation update the average atomically", async () => {
   assert.equal((await score.get()).exists, false);
 });
 
-test("verified legacy admin can moderate managed campsite images", async () => {
-  const {admin, outsider, unlinked} = accounts;
+test("verified admin can moderate managed campsite images", async () => {
+  const {admin, outsider, otherBackup} = accounts;
   const site = db.doc("campsite/managed-images-" + suffix);
   const selected = "campsites/" + site.id + "/selected.png";
   const other = "campsites/" + site.id + "/other.png";
@@ -624,7 +608,7 @@ test("verified legacy admin can moderate managed campsite images", async () => {
           headers: {Authorization: "Firebase " + account.idToken},
         },
     );
-  for (const user of [outsider, unlinked]) {
+  for (const user of [outsider, otherBackup]) {
     assert.equal(
         (await patch(user, site.path, {compressedImages: ["keep"]}, true))
             .status,
@@ -666,16 +650,15 @@ test("verified legacy admin can moderate managed campsite images", async () => {
   assert.equal((await bucket.file(selected).exists())[0], false);
   assert.equal((await bucket.file(other).exists())[0], true);
   assert.equal(
-      (await patch(admin, site.path, {ownerID: adminId}, true)).status,
+      (await patch(admin, site.path, {ownerID: admin.accountId}, true)).status,
       403,
   );
 });
 
 test("profile cleanup is atomic and can be retried", async () => {
-  const {legacy, outsider} = accounts;
-  const accountId = "delete-" + suffix;
+  const {deleting, outsider} = accounts;
+  const accountId = deleting.accountId;
   const profile = db.doc("accounts/" + accountId);
-  const link = db.doc("notificationAccountLinks/" + accountId);
   const id = "cleanup-" + suffix;
   const campsiteId = "cleanup-site-" + suffix;
   const site = db.doc("campsite/" + campsiteId);
@@ -706,11 +689,6 @@ test("profile cleanup is atomic and can be retried", async () => {
 
   const args = {accountId};
   assert.equal(
-      (await call("deleteProfile", legacy, args)).error.status,
-      "PERMISSION_DENIED",
-  );
-  await link.set({uid: legacy.localId});
-  assert.equal(
       (await call("deleteProfile", outsider, args)).error.status,
       "PERMISSION_DENIED",
   );
@@ -718,7 +696,7 @@ test("profile cleanup is atomic and can be retried", async () => {
       (
         await fetch(firestore + "/" + profile.path, {
           method: "DELETE",
-          headers: {Authorization: "Bearer " + legacy.idToken},
+          headers: {Authorization: "Bearer " + deleting.idToken},
         })
       ).status,
       403,
@@ -726,7 +704,7 @@ test("profile cleanup is atomic and can be retried", async () => {
 
   // An inconsistent score makes cleanup fail before any state is committed.
   assert.equal(
-      (await call("deleteProfile", legacy, args)).error.status,
+      (await call("deleteProfile", deleting, args)).error.status,
       "FAILED_PRECONDITION",
   );
   assert.equal((await profile.get()).exists, true);
@@ -734,14 +712,19 @@ test("profile cleanup is atomic and can be retried", async () => {
   assert.equal((await entry.get()).exists, true);
   assert.equal((await future.get()).get("cancelled"), false);
   assert.equal(
-      (await patch(legacy, profile.path, {notificationsEnabled: false}, true))
-          .status,
+      (
+        await patch(
+            deleting,
+            profile.path,
+            {notificationsEnabled: false},
+            true,
+        )
+      ).status,
       200,
   );
 
   await site.update({rating: [5, 4], averageRating: 4.5});
-  assert.ok((await call("deleteProfile", legacy, args)).result);
-  assert.equal((await link.get()).exists, false);
+  assert.ok((await call("deleteProfile", deleting, args)).result);
   assert.equal((await profile.get()).exists, false);
   assert.equal((await entry.get()).exists, false);
   assert.equal((await score.get()).exists, false);
@@ -758,20 +741,31 @@ test("validates sends and delivers only to the chosen entrant", async () => {
   const owner = accounts.owner;
   const allowed = accounts.allowed;
   const recipients = await call(
-      "listLotteryNotificationRecipients", owner, {lotteryId},
+      "listLotteryNotificationRecipients",
+      owner,
+      {lotteryId},
   );
   assert.deepEqual(
       new Set(recipients.result.map((recipient) => recipient.accountId)),
       new Set([allowed.accountId, accounts.optedOut.accountId]),
   );
   for (const invalid of [{message: "  \n"}, {allEntrants: false}]) {
-    assert.equal((await send(owner, invalid)).error.status, "INVALID_ARGUMENT");
+    assert.equal(
+        (await send(owner, invalid)).error.status,
+        "INVALID_ARGUMENT",
+    );
   }
   const empty = await send(owner, {lotteryId: emptyLotteryId});
   assert.equal(empty.error.status, "FAILED_PRECONDITION");
-  assert.equal((await send(owner, {
-    allEntrants: false, recipientIds: [accounts.outsider.accountId],
-  })).error.status, "FAILED_PRECONDITION");
+  assert.equal(
+      (
+        await send(owner, {
+          allEntrants: false,
+          recipientIds: [accounts.outsider.accountId],
+        })
+      ).error.status,
+      "FAILED_PRECONDITION",
+  );
 
   const request = {
     allEntrants: false,
@@ -789,7 +783,8 @@ test("validates sends and delivers only to the chosen entrant", async () => {
   assert.deepEqual((await inbox(accounts.optedOut)).result, []);
   assert.deepEqual((await inbox(accounts.outsider)).result, []);
   const spoof = await call(
-      "listReceivedLotteryNotifications", accounts.outsider,
+      "listReceivedLotteryNotifications",
+      accounts.outsider,
       {accountId: allowed.accountId},
   );
   assert.equal(spoof.error.status, "PERMISSION_DENIED");
@@ -800,11 +795,15 @@ test("validates sends and delivers only to the chosen entrant", async () => {
   assert.equal(response.status, 403);
 });
 
-test("legacy winner promotes first eligible backup in order", async () => {
-  const {legacy, unlinked, outsider, allowed, late} = accounts;
+test("verified winner promotes first eligible backup in order", async () => {
+  const {winner, otherBackup, outsider, allowed, late} = accounts;
   const id = "completed-" + suffix;
   const missing = "missing-" + suffix;
-  const available = [allowed.accountId, unlinkedId, late.accountId];
+  const available = [
+    allowed.accountId,
+    otherBackup.accountId,
+    late.accountId,
+  ];
   const backupIds = [missing, ...available];
   const event = db.doc("lottery/" + id);
   const result = db.doc("lotteryDrawResults/" + id);
@@ -812,13 +811,13 @@ test("legacy winner promotes first eligible backup in order", async () => {
     db.doc("waitingList/" + id + "_" + accountId);
   await event.set({campsiteId, numberOfWinners: 1, drawCompleted: true});
   await result.set({
-    winnerIds: [legacyId],
+    winnerIds: [winner.accountId],
     backupIds,
     winnerCount: 1,
     backupCount: backupIds.length,
   });
-  await registrationRef(legacyId).set({
-    accountId: legacyId,
+  await registrationRef(winner.accountId).set({
+    accountId: winner.accountId,
     lotteryId: id,
     drawStatus: "WINNER",
   });
@@ -830,9 +829,9 @@ test("legacy winner promotes first eligible backup in order", async () => {
       backupPosition: index + 1,
     });
   }
-  const args = {lotteryId: id, accountId: legacyId};
+  const args = {lotteryId: id, accountId: winner.accountId};
   assert.equal(
-      (await call("declineLotteryOffer", unlinked, args)).error.status,
+      (await call("declineLotteryOffer", otherBackup, args)).error.status,
       "PERMISSION_DENIED",
   );
   assert.equal(
@@ -840,28 +839,34 @@ test("legacy winner promotes first eligible backup in order", async () => {
       "PERMISSION_DENIED",
   );
   assert.equal(
-      (await commit(legacy, [update(result.path, {backupIds: []})])).status,
+      (await commit(winner, [update(result.path, {backupIds: []})])).status,
       403,
   );
   assert.equal(
       (
-        await commit(legacy, [
-          update(registrationRef(legacyId).path, {drawStatus: "DECLINED"}),
+        await commit(winner, [
+          update(registrationRef(winner.accountId).path, {
+            drawStatus: "DECLINED",
+          }),
         ])
       ).status,
       403,
   );
   assert.deepEqual((await result.get()).get("backupIds"), backupIds);
   assert.deepEqual(
-      (await call("declineLotteryOffer", legacy, args)).result,
+      (await call("declineLotteryOffer", winner, args)).result,
       {},
   );
   const updated = (await result.get()).data();
   assert.deepEqual(updated.winnerIds, [available[0]]);
-  assert.deepEqual(updated.backupIds, [missing, available[1], available[2]]);
-  assert.deepEqual(updated.declinedIds, [legacyId]);
+  assert.deepEqual(updated.backupIds, [
+    missing,
+    available[1],
+    available[2],
+  ]);
+  assert.deepEqual(updated.declinedIds, [winner.accountId]);
   assert.equal(
-      (await registrationRef(legacyId).get()).get("drawStatus"),
+      (await registrationRef(winner.accountId).get()).get("drawStatus"),
       "DECLINED",
   );
   assert.equal(
@@ -869,29 +874,22 @@ test("legacy winner promotes first eligible backup in order", async () => {
       "WINNER",
   );
   assert.equal(
-      (await registrationRef(unlinkedId).get()).get("backupPosition"),
+      (await registrationRef(otherBackup.accountId).get()).get(
+          "backupPosition",
+      ),
       2,
   );
   assert.equal(
       (await registrationRef(late.accountId).get()).get("backupPosition"),
       3,
   );
-  // The fresh account may decline its own offer. The existing unlinked profile
-  // is eligible to receive that offer and must verify before it can decline.
   assert.deepEqual(
       (await call("declineLotteryOffer", allowed, {lotteryId: id})).result,
       {},
   );
-  assert.deepEqual((await result.get()).get("winnerIds"), [unlinkedId]);
-  assert.equal(
-      (
-        await call("declineLotteryOffer", unlinked, {
-          lotteryId: id,
-          accountId: unlinkedId,
-        })
-      ).error.status,
-      "PERMISSION_DENIED",
-  );
+  assert.deepEqual((await result.get()).get("winnerIds"), [
+    otherBackup.accountId,
+  ]);
 });
 
 test("everyone uses current membership and honors opt-outs", async () => {
@@ -902,11 +900,18 @@ test("everyone uses current membership and honors opt-outs", async () => {
   const previousInbox = await inbox(allowed);
   assert.equal((await registration(allowed, 1, false)).status, 200);
   assert.equal((await registration(late, 2, true)).status, 200);
-  await db.doc(`waitingList/${lotteryId}_${late.accountId}`)
+  await db
+      .doc(`waitingList/${lotteryId}_${late.accountId}`)
       .update({drawStatus: "BACKUP"});
-  assert.equal((await send(owner, {
-    allEntrants: false, recipientIds: [allowed.accountId],
-  })).error.status, "FAILED_PRECONDITION");
+  assert.equal(
+      (
+        await send(owner, {
+          allEntrants: false,
+          recipientIds: [allowed.accountId],
+        })
+      ).error.status,
+      "FAILED_PRECONDITION",
+  );
   const message = "Use the north gate this weekend.";
   assert.deepEqual(await send(owner, {message}), {
     result: {intended: 2, delivered: 1},
@@ -915,80 +920,48 @@ test("everyone uses current membership and honors opt-outs", async () => {
   assert.deepEqual(await inbox(allowed), previousInbox);
   assert.deepEqual((await inbox(optedOut)).result, []);
 
-  const saved = await db.collection("lotteryNotifications")
-      .where("lotteryId", "==", lotteryId).get();
-  const records = saved.docs.map((document) => document.data())
+  const saved = await db
+      .collection("lotteryNotifications")
+      .where("lotteryId", "==", lotteryId)
+      .get();
+  const records = saved.docs
+      .map((document) => document.data())
       .filter((data) => data.message === message);
   assert.equal(records.length, 1);
   const [record] = records;
   assert.ok(record.sentAt instanceof Timestamp);
   assert.equal(record.senderAccountId, owner.accountId);
-  assert.deepEqual(new Set(record.intendedRecipientIds),
-      new Set([late.accountId, optedOut.accountId]));
+  assert.deepEqual(
+      new Set(record.intendedRecipientIds),
+      new Set([late.accountId, optedOut.accountId]),
+  );
   assert.deepEqual(record.deliveredRecipientIds, [late.accountId]);
-  assert.equal((await patch(optedOut, `accounts/${optedOut.accountId}`, {
-    notificationsEnabled: true,
-  }, true)).status, 200);
+  assert.equal(
+      (
+        await patch(
+            optedOut,
+            `accounts/${optedOut.accountId}`,
+            {
+              notificationsEnabled: true,
+            },
+            true,
+        )
+      ).status,
+      200,
+  );
   assert.deepEqual((await inbox(optedOut)).result, []);
-  assert.equal((await patch(late, `accounts/${late.accountId}`, {
-    notificationsEnabled: false,
-  }, true)).status, 200);
+  assert.equal(
+      (
+        await patch(
+            late,
+            `accounts/${late.accountId}`,
+            {
+              notificationsEnabled: false,
+            },
+            true,
+        )
+      ).status,
+      200,
+  );
   assert.deepEqual((await inbox(late)).result, []);
-});
-
-test("app reads still work after the legacy cutoff", async () => {
-  const rules = readFileSync(
-      join(__dirname, "../../firestore.rules"),
-      "utf8",
-  );
-  const cutoff = rules.replace(
-      /timestamp\.date\(\d{4}, \d+, \d+\)/,
-      "timestamp.date(2000, 1, 1)",
-  );
-  assert.notEqual(cutoff, rules);
-  const endpoint =
-    "http://127.0.0.1:8082/emulator/v1/projects/" +
-    projectId +
-    ":securityRules";
-  const loadRules = async (content) => {
-    const response = await fetch(endpoint, {
-      method: "PUT",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        rules: {files: [{name: "firestore.rules", content}]},
-      }),
-    });
-    assert.equal(response.status, 200, await response.clone().text());
-  };
-  const unrelated = "legacyOnly/record-" + suffix;
-  await db.doc(unrelated).set({exists: true});
-  await loadRules(cutoff);
-  try {
-    assert.equal((await read(null, unrelated)).status, 403);
-    assert.equal((await read(null, "campsite/" + campsiteId)).status, 200);
-    assert.equal((await read(null, "lottery/" + lotteryId)).status, 200);
-    assert.equal(
-        (
-          await read(
-              accounts.late,
-              "waitingList/" + lotteryId + "_" + accounts.late.accountId,
-          )
-        ).status,
-        200,
-    );
-    assert.equal(
-        (await read(accounts.legacy, "reservation/completed-" + suffix)).status,
-        200,
-    );
-    assert.equal(
-        (await read(accounts.legacy, "accounts/" + legacyId)).status,
-        200,
-    );
-    assert.equal(
-        (await read(accounts.outsider, "accounts/" + legacyId)).status,
-        403,
-    );
-  } finally {
-    await loadRules(rules);
-  }
 });

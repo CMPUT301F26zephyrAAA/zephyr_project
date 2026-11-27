@@ -8,11 +8,7 @@ service firebase.storage {
     }
 
     function owns(accountId) {
-      return request.auth != null && accountId is string &&
-        (accountId == 'auth_' + request.auth.uid ||
-          (!accountId.matches('auth_.+') &&
-            firestore.get(/databases/(default)/documents/notificationAccountLinks/$(accountId))
-              .data.uid == request.auth.uid));
+      return request.auth != null && accountId == 'auth_' + request.auth.uid;
     }
 
     match /campsites/{campsiteId}/{file} {

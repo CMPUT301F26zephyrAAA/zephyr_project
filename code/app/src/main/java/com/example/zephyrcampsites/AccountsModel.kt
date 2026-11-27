@@ -2,6 +2,7 @@
 package com.example.zephyrcampsites
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.android.gms.tasks.Task
 import com.google.firebase.firestore.firestore
@@ -32,18 +33,16 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     private val accounts by lazy { firestore.collection("accounts") } // connecting to firestore
 
     private companion object {
-        private var startupSignIn: Task<String>? = null
+        private var startupSignIn: Task<FirebaseUser>? = null
 
         /** Shares an in-flight sign-in when the activity is recreated during startup. */
         @Synchronized
-        fun authenticatedUid(): Task<String> {
+        fun authenticate(): Task<FirebaseUser> {
             val auth = FirebaseAuth.getInstance()
-            auth.currentUser?.let { user ->
-                return user.getIdToken(true).onSuccessTask { Tasks.forResult(user.uid) }
-            }
+            auth.currentUser?.let { return Tasks.forResult(it) }
             startupSignIn?.takeUnless { it.isComplete }?.let { return it }
             return auth.signInAnonymously()
-                .onSuccessTask { Tasks.forResult(checkNotNull(it.user).uid) }
+                .onSuccessTask { Tasks.forResult(checkNotNull(it.user)) }
                 .also { startupSignIn = it }
         }
     }
@@ -78,30 +77,18 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     }
 
     // AI Citation [AI-39] (Bhav Saluja)
-    // OpenAI, Codex, Firebase Auth startup follow-up, 2026-11-27. See README.md.
+    // OpenAI, Codex, Firebase Auth startup follow-up, 2026-11-27. See the team AI Documentation Google Doc.
     /**
-     * Signs in the installation and retains its device profile if it already exists.
-     * @param deviceID Device ID used by existing profiles and their bookings.
-     * @param onResult Called with the existing profile or the newly created Auth profile.
+     * Creates or loads the authenticated user's own profile.
+     * @param onResult Called with the profile at auth_<uid>.
      * @param onError Called if sign-in or profile initialization fails.
      */
-    fun getOrCreateAccount(
-        deviceID: String,
-        onResult: (Account) -> Unit,
-        onError: (Exception) -> Unit
-    ) {
-        authenticatedUid()
-            .onSuccessTask { uid ->
-                functions.getHttpsCallable("resolveAccount").call(mapOf("deviceId" to deviceID))
-                    .onSuccessTask { response ->
-                        val data = response.data as Map<*, *>
-                        val accountId = data["accountId"] as String
-                        if (data["linkRequired"] == true) {
-                            Tasks.forException(LegacyAccountLinkRequired(accountId, uid))
-                        } else {
-                            loadOrCreateProfile(accountId, data["admin"] == true)
-                        }
-                    }
+    fun getOrCreateAccount(onResult: (Account) -> Unit, onError: (Exception) -> Unit) {
+        authenticate()
+            .onSuccessTask { user ->
+                user.getIdToken(true).onSuccessTask { token ->
+                    loadOrCreateProfile("auth_" + user.uid, token.claims["admin"] == true)
+                }
             }
             .addOnSuccessListener(onResult)
             .addOnFailureListener(onError)
@@ -115,15 +102,12 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             val saved = readAccount(document)
             val account = saved ?: Account(accountId)
             if (saved == null) {
-                check(accountId.startsWith("auth_")) { "Linked profile no longer exists." }
                 // [AI-02] OpenAI, ChatGPT, account field mapping.
                 transaction.set(profile, mapOf(
                     "id" to account.id,
                     "userType" to account.userType,
                     "notificationsEnabled" to account.notificationsEnabled
                 ))
-            } else if (document.getBoolean("deletionPending") == true) {
-                transaction.update(profile, "deletionPending", false)
             }
             account.userType = accountRoles(if (isAdmin) "admin" else null)
             account
@@ -378,7 +362,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     // AI Citation [AI-39] (Bhav Saluja). Verified profile deletion. See the team AI documentation.
     /**
      * Deletes the verified entrant profile and releases its dependent records.
-     * @param accountId Original account ID, including linked legacy IDs.
+     * @param accountId Original account ID, matching the Firebase UID.
      * @param onSuccess Called after the transaction commits.
      * @param onError Called if the profile and cleanup cannot be removed together.
      */
@@ -491,7 +475,3 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
             .addOnFailureListener(onError)
     }
 }
-
-/** Identifies the legacy enrollment that an administrator must verify. */
-internal class LegacyAccountLinkRequired(val accountId: String, val uid: String) :
-    IllegalStateException("Verify your existing profile before continuing.")

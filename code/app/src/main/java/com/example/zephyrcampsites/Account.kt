@@ -2,7 +2,7 @@ package com.example.zephyrcampsites
 
 /**
  * Profile for an entrant, owner, or administrator in the Firestore accounts collection.
- * @param id Firebase Auth profile ID or the original device ID for a legacy profile.
+ * @param id Profile ID in the form auth_<Firebase UID>.
  * @property userType Account roles, defaulting to entrant and owner.
  * @property name Display name.
  * @property email Contact email address.

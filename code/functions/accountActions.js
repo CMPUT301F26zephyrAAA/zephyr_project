@@ -13,7 +13,6 @@ const logger = require("firebase-functions/logger");
  */
 module.exports = (db) => {
   const accounts = db.collection("accounts");
-  const links = db.collection("notificationAccountLinks");
   const reservations = db.collection("reservation");
   const campsites = db.collection("campsite");
   const lotteries = db.collection("lottery");
@@ -53,54 +52,18 @@ module.exports = (db) => {
   }
 
   /**
-   * Checks the binding inside the transaction that changes account data.
-   * @param {FirebaseFirestore.Transaction} transaction Active transaction.
-   * @param {Object} auth Firebase Auth context of the caller.
+   * Requires the caller to own the requested profile.
+   * @param {Object} auth Verified Firebase Auth context.
    * @param {string} accountId Profile being acted on.
    */
-  async function verify(transaction, auth, accountId) {
-    const own = accountId.startsWith("auth_") ?
-      accountId === "auth_" + auth.uid :
-      (await transaction.get(links.doc(accountId))).get("uid") === auth.uid;
-    if (!own) {
+  function verify(auth, accountId) {
+    if (accountId !== "auth_" + auth.uid) {
       throw new HttpsError(
           "permission-denied",
-          "Verify profile ownership first.",
+          "This profile belongs to another account.",
       );
     }
   }
-
-  /** Finds the canonical profile without exposing private legacy fields. */
-  const resolveAccount = authenticated(async (data, auth) => {
-    const deviceId = id(data.deviceId);
-    const linked = await links.where("uid", "==", auth.uid).limit(2).get();
-    if (linked.size > 1) {
-      throw new HttpsError(
-          "failed-precondition",
-          "Contact the profile administrator.",
-      );
-    }
-    if (!linked.empty) {
-      const accountId = linked.docs[0].id;
-      if (
-        !accountId.startsWith("auth_") &&
-        (await accounts.doc(accountId).get()).exists
-      ) {
-        return {accountId, admin: auth.token.admin === true};
-      }
-      throw new HttpsError(
-          "failed-precondition",
-          "Contact the profile administrator.",
-      );
-    }
-    if (
-      !deviceId.startsWith("auth_") &&
-      (await accounts.doc(deviceId).get()).exists
-    ) {
-      return {linkRequired: true, accountId: deviceId};
-    }
-    return {accountId: "auth_" + auth.uid, admin: auth.token.admin === true};
-  });
 
   /** Returns the public label used on campsite detail screens. */
   const getAccountDisplayName = authenticated(async (data) => {
@@ -112,6 +75,80 @@ module.exports = (db) => {
       name:
         typeof account.get("name") === "string" ? account.get("name") : "",
     };
+  });
+
+  /** Lists only bookings for campsites currently owned by the caller. */
+  const listOwnerReservations = authenticated(async (_data, auth) => {
+    const accountId = "auth_" + auth.uid;
+    return db.runTransaction(
+        async (transaction) => {
+          const profile = await transaction.get(accounts.doc(accountId));
+          if (!profile.exists) {
+            throw new HttpsError(
+                "permission-denied",
+                "Your profile is unavailable.",
+            );
+          }
+          const sites = await transaction.get(
+              campsites.where("ownerID", "==", accountId),
+          );
+          const groups = await Promise.all(
+              sites.docs.map(async (site) => {
+                const bookings = await transaction.get(
+                    reservations.where("campsiteId", "==", site.id),
+                );
+                return bookings.docs.flatMap((booking) => {
+                  const startMillis = booking
+                      .get("bookedPeriodStart")
+                      ?.toMillis?.();
+                  const endMillis = booking
+                      .get("bookedPeriodEnd")
+                      ?.toMillis?.();
+                  const cancelled = booking.get("cancelled");
+                  if (
+                    !(startMillis < endMillis) ||
+                typeof cancelled !== "boolean"
+                  ) {
+                    return [];
+                  }
+                  return [
+                    {
+                      id: booking.id,
+                      campsiteName: site.get("name") ?? "",
+                      startMillis,
+                      endMillis,
+                      cancelled,
+                      entrantId: booking.get("accountId") ?? "",
+                    },
+                  ];
+                });
+              }),
+          );
+          const rows = groups.flat();
+          const entrantIds = [
+            ...new Set(rows.map((row) => row.entrantId)),
+          ].filter(
+              (value) =>
+                typeof value === "string" && /^auth_[^/]{1,123}$/.test(value),
+          );
+          const entrants = entrantIds.length ?
+          await transaction.getAll(
+              ...entrantIds.map((value) => accounts.doc(value)),
+          ) :
+          [];
+          const names = new Map(
+              entrants.map((profile) => [profile.id, profile.get("name")]),
+          );
+          return {
+            serverMillis: Date.now(),
+            reservations: rows.map(({entrantId, ...row}) => ({
+              ...row,
+              entrantName: names.get(entrantId) ?? "",
+            })),
+          };
+        },
+        {readOnly: true},
+    );
   });
 
   /**
@@ -188,7 +225,7 @@ module.exports = (db) => {
     const accountId = id(data.accountId);
     const lotteryId = id(data.lotteryId);
     await db.runTransaction(async (transaction) => {
-      await verify(transaction, auth, accountId);
+      verify(auth, accountId);
       const [account, lottery, result, entry] = await transaction.getAll(
           accounts.doc(accountId),
           lotteries.doc(lotteryId),
@@ -302,7 +339,7 @@ module.exports = (db) => {
       );
     }
     await db.runTransaction(async (transaction) => {
-      await verify(transaction, auth, accountId);
+      verify(auth, accountId);
       const [profile, site, booking, previous] = await transaction.getAll(
           accounts.doc(accountId),
           campsite,
@@ -357,17 +394,46 @@ module.exports = (db) => {
           "Administrator access is required.",
       );
     }
+    verify(auth, id(data.adminAccountId));
     const campsite = campsites.doc(id(data.campsiteId));
     const rating = campsite.collection("ratings").doc(id(data.accountId));
+    const {seconds, nanoseconds} = data.updatedAt ?? {};
+    if (
+      !Number.isInteger(seconds) ||
+      !Number.isInteger(nanoseconds) ||
+      nanoseconds < 0 ||
+      nanoseconds >= 1000000000
+    ) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Reload the rating and try again.",
+      );
+    }
     await db.runTransaction(async (transaction) => {
       const [site, previous] = await transaction.getAll(campsite, rating);
-      if (site.exists && previous.get("score") !== undefined) {
+      if (!site.exists || !previous.exists) {
+        throw new HttpsError(
+            "failed-precondition",
+            "This rating is no longer available.",
+        );
+      }
+      const saved = previous.get("updatedAt");
+      if (
+        saved?.seconds !== seconds ||
+        saved?.nanoseconds !== nanoseconds
+      ) {
+        throw new HttpsError(
+            "failed-precondition",
+            "This rating has changed. Review it again.",
+        );
+      }
+      if (previous.get("score") !== undefined) {
         transaction.update(
             campsite,
             ratingAggregate(site, previous.get("score")),
         );
       }
-      if (previous.exists) transaction.delete(rating);
+      transaction.delete(rating);
     });
     return {};
   });
@@ -377,7 +443,7 @@ module.exports = (db) => {
     const accountId = id(data.accountId);
     const imagePath = await db.runTransaction(async (transaction) => {
       if (auth.token.admin !== true) {
-        await verify(transaction, auth, accountId);
+        verify(auth, accountId);
       }
       const profile = await transaction.get(accounts.doc(accountId));
       if (!profile.exists) return null;
@@ -440,7 +506,10 @@ module.exports = (db) => {
       for (const booking of bookings.docs) {
         const fields = {accountId: FieldValue.delete()};
         const checkout = booking.get("bookedPeriodEnd")?.toMillis?.();
-        if (booking.get("cancelled") !== true && !(checkout <= Date.now())) {
+        if (
+          booking.get("cancelled") !== true &&
+          !(checkout <= Date.now())
+        ) {
           Object.assign(fields, {
             cancelled: true,
             status: "cancelled",
@@ -452,9 +521,6 @@ module.exports = (db) => {
       }
       const imagePath = profile.get("imagePath");
       transaction.delete(profile.ref);
-      if (!accountId.startsWith("auth_")) {
-        transaction.delete(links.doc(accountId));
-      }
       return typeof imagePath === "string" ? imagePath : null;
     });
     // Storage is independent of Firestore. Only remove the profile's own file.
@@ -477,8 +543,8 @@ module.exports = (db) => {
   });
 
   return {
-    resolveAccount,
     getAccountDisplayName,
+    listOwnerReservations,
     declineLotteryOffer,
     saveCampsiteFeedback,
     removeCampsiteFeedback,

@@ -1,9 +1,8 @@
 // Firestore rules for reservation chat, verified accounts, and lottery notifications.
 // AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, write protection, 2026-11-27.
-// accounts/{accountId}: auth_<Firebase UID> or a preserved device ID. Preferences are booleans.
+// accounts/{accountId}: auth_<Firebase UID>. Preferences are booleans.
 // lottery/{lotteryId}: campsiteId, registration millis, entrantCount and waitlistChangeAccountId.
 // waitingList/{lotteryId}_{accountId}: paired entry for the lottery's counter transaction.
-// Admin-managed chatAccountLinks/{deviceAccountId}: uid (Firebase Auth UID).
 // Admin-managed reservationChatAccess/{reservationId}: entrantAccountId, ownerAccountId, campsiteId.
 // reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
 // reservationChat/{reservationId}: same participant fields, immutable after creation.
@@ -12,42 +11,9 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Preserve the current cutoff and permissions outside chat.
-    function legacyAccess() {
-      return request.time < timestamp.date(2026, 12, 31);
-    }
-
-    function isChatCollection(collection) {
-      return collection in ['chatAccountLinks', 'reservationChatAccess', 'reservationChat'];
-    }
-
-    // Notification account links, owner grants, and messages are server-managed.
-    function isNotificationCollection(collection) {
-      return collection in [
-        'notificationAccountLinks', 'notificationLotteryOwners', 'lotteryNotifications'
-      ];
-    }
-
-    match /{collection}/{document=**} {
-      allow read: if legacyAccess() && !isChatCollection(collection) &&
-        !isNotificationCollection(collection) &&
-        !(collection in ['accounts', 'campsite', 'reservation', 'lottery',
-          'waitingList', 'lotteryDrawResults']);
-      allow write: if legacyAccess() && !isChatCollection(collection) &&
-        !isNotificationCollection(collection) &&
-        !(collection in ['reservation', 'accounts', 'campsite', 'lottery', 'waitingList', 'lotteryDrawResults']);
-    }
-
-    // Firebase Auth owns auth_* profiles. An administrator can link verified legacy profiles.
-    function notificationLink(accountId) {
-      return /databases/$(database)/documents/notificationAccountLinks/$(accountId);
-    }
-
     function verifiedAccount(accountId) {
       return request.auth != null && validId(accountId) &&
-        (accountId == 'auth_' + request.auth.uid ||
-          (!accountId.matches('auth_.+') && exists(notificationLink(accountId)) &&
-            get(notificationLink(accountId)).data.uid == request.auth.uid));
+        accountId == 'auth_' + request.auth.uid;
     }
 
     function accountRecord(accountId) {
@@ -61,12 +27,11 @@ service cloud.firestore {
     function validManagedProfile(accountId) {
       let data = request.resource.data;
       return data.get('id', accountId) == accountId &&
-        data.get('notificationsEnabled', true) is bool &&
-        data.get('deletionPending', false) is bool;
+        data.get('notificationsEnabled', true) is bool;
     }
 
     match /accounts/{accountId} {
-      allow create: if verifiedAccount(accountId) && accountId.matches('auth_.+') &&
+      allow create: if verifiedAccount(accountId) &&
         validManagedProfile(accountId) &&
         request.resource.data.keys().hasOnly(['id', 'userType', 'notificationsEnabled']) &&
         request.resource.data.id == accountId &&
@@ -76,12 +41,10 @@ service cloud.firestore {
       allow list: if notificationAdmin();
       allow update: if validManagedProfile(accountId) &&
         ((verifiedAccount(accountId) &&
-          (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'name', 'email', 'phoneNumber', 'notificationsEnabled',
               'imagePath', 'compressedImage'
-            ]) ||
-            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deletionPending']) &&
-              request.resource.data.get('deletionPending', false) == false))) ||
+            ])) ||
           (notificationAdmin() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'imagePath', 'compressedImage'
@@ -219,16 +182,32 @@ service cloud.firestore {
       // Declines, promotions, and queue changes are server-managed.
     }
 
+    // AI Citation [AI-39] (Bhav Saluja). Owner cancellation uses the server write time.
     match /reservation/{reservationId} {
-      // My Trips and completed-stay checks query by the verified entrant's account ID.
-      allow read: if verifiedAccount(resource.data.get('accountId', '')) || notificationAdmin();
-      allow update: if verifiedAccount(resource.data.get('accountId', '')) &&
-        resource.data.get('cancelled', false) == false &&
-        request.resource.data.cancelled == true &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'cancelled', 'status', 'cancelledAt', 'cancelledBy', 'cancellationReason'
-        ]);
-      // Reservation creation and historical booking metadata are trusted records.
+      function ownsReservedCampsite() {
+        let campsiteId = resource.data.get('campsiteId', '');
+        return validId(campsiteId) &&
+          verifiedAccount(get(campsiteRecord(campsiteId)).data.get('ownerID', ''));
+      }
+
+      function validCancellation() {
+        let next = request.resource.data;
+        return resource.data.get('cancelled', true) == false &&
+          resource.data.get('bookedPeriodStart', null) is timestamp &&
+          request.time < resource.data.bookedPeriodStart &&
+          next.cancelled == true && next.status == 'cancelled' &&
+          next.cancelledBy == 'auth_' + request.auth.uid &&
+          next.cancelledAt == request.time &&
+          next.diff(resource.data).affectedKeys().hasOnly([
+            'cancelled', 'status', 'cancelledAt', 'cancelledBy', 'cancellationReason'
+          ]);
+      }
+
+      allow get: if verifiedAccount(resource.data.get('accountId', '')) ||
+        notificationAdmin() || ownsReservedCampsite();
+      allow list: if verifiedAccount(resource.data.get('accountId', '')) || notificationAdmin();
+      allow update: if (verifiedAccount(resource.data.get('accountId', '')) ||
+        ownsReservedCampsite()) && validCancellation();
     }
 
     function validId(value) {
@@ -236,21 +215,12 @@ service cloud.firestore {
         value.matches('[^/]+') && !(value in ['.', '..']);
     }
 
-    function accountLink(accountId) {
-      return /databases/$(database)/documents/chatAccountLinks/$(accountId);
-    }
-
-    function isLinkedAccount(accountId) {
-      return request.auth != null && validId(accountId) && exists(accountLink(accountId)) &&
-        get(accountLink(accountId)).data.uid == request.auth.uid;
-    }
-
     function approvedReservation(reservationId) {
       return get(/databases/$(database)/documents/reservationChatAccess/$(reservationId)).data;
     }
 
     function isParticipant(booking) {
-      return isLinkedAccount(booking.entrantAccountId) || isLinkedAccount(booking.ownerAccountId);
+      return verifiedAccount(booking.entrantAccountId) || verifiedAccount(booking.ownerAccountId);
     }
 
     function canOpenChat(reservationId, booking) {
@@ -271,20 +241,16 @@ service cloud.firestore {
       return data.keys().hasOnly(['entrantAccountId', 'ownerAccountId', 'campsiteId']) &&
         validId(data.entrantAccountId) && validId(data.ownerAccountId) && validId(data.campsiteId) &&
         sameBooking(data, booking) &&
-        exists(accountLink(booking.entrantAccountId)) && exists(accountLink(booking.ownerAccountId));
+        exists(accountRecord(booking.entrantAccountId)) && exists(accountRecord(booking.ownerAccountId));
     }
 
     function isValidMessage(data, booking) {
       return data.keys().hasOnly(['senderUid', 'senderAccountId', 'text', 'sentAt']) &&
         data.senderUid == request.auth.uid && data.senderAccountId in [booking.entrantAccountId, booking.ownerAccountId] &&
-        isLinkedAccount(data.senderAccountId) &&
+        verifiedAccount(data.senderAccountId) &&
         data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
         data.text.matches('(?s).*\\S.*') &&
         data.sentAt == request.time;
-    }
-
-    match /chatAccountLinks/{accountId} {
-      allow get: if request.auth != null && resource.data.uid == request.auth.uid;
     }
 
     match /reservationChat/{reservationId} {
@@ -306,7 +272,7 @@ service cloud.firestore {
       match /readReceipts/{accountId} {
         function ownsReceipt(booking) {
           return accountId in [booking.entrantAccountId, booking.ownerAccountId] &&
-            isLinkedAccount(accountId) && canAccessChat(booking);
+            verifiedAccount(accountId) && canAccessChat(booking);
         }
 
         function validReceipt(data) {

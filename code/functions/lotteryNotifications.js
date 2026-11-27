@@ -19,7 +19,7 @@ function lotteryNotifications(db) {
   const notifications = db.collection("lotteryNotifications");
 
   /**
-   * Verifies the caller against an Auth profile or an approved legacy account.
+   * Verifies the caller against their Firebase Auth profile.
    * @param {Object} request Callable request.
    * @param {Object} reader Firestore or its current transaction.
    * @return {Promise<Object>} Verified account snapshot.
@@ -32,16 +32,8 @@ function lotteryNotifications(db) {
     if (!validId(accountId)) {
       throw new HttpsError("invalid-argument", "Invalid account.");
     }
-    const verified = accountId.startsWith("auth_") ?
-      accountId === `auth_${request.auth.uid}` :
-      (await reader.getAll(
-          db.collection("notificationAccountLinks").doc(accountId),
-      ))[0].get("uid") === request.auth.uid;
-    if (!verified) {
-      throw new HttpsError(
-          "permission-denied", "Notification account setup required.",
-          {linkRequired: true},
-      );
+    if (accountId !== "auth_" + request.auth.uid) {
+      throw new HttpsError("permission-denied", "This profile is not yours.");
     }
     const account = (await reader.getAll(accounts.doc(accountId)))[0];
     if (!account.exists || account.get("deletionPending") === true) {
@@ -96,7 +88,8 @@ function lotteryNotifications(db) {
       const status = document.get("drawStatus");
       const stillWaiting = status === undefined || status === null ||
         status === "WAITING" || status === "BACKUP";
-      if (!validId(accountId) || document.id !== `${lottery.id}_${accountId}` ||
+      if (!validId(accountId) || !accountId.startsWith("auth_") ||
+          document.id !== `${lottery.id}_${accountId}` ||
           !stillWaiting) {
         return [];
       }
@@ -183,15 +176,6 @@ function lotteryNotifications(db) {
         );
       }
       const enabled = intended.filter(notificationsEnabled);
-      const legacyAccounts = enabled.filter((profile) =>
-        !profile.id.startsWith("auth_"),
-      );
-      const legacyLinks = legacyAccounts.map((profile) =>
-        db.collection("notificationAccountLinks").doc(profile.id),
-      );
-      const linked = new Set(legacyLinks.length === 0 ? [] :
-        (await transaction.getAll(...legacyLinks))
-            .filter((link) => validId(link.get("uid"))).map((link) => link.id));
       const lotteryName = lottery.get("lotteryName");
       const record = {
         lotteryId: lottery.id,
@@ -202,9 +186,7 @@ function lotteryNotifications(db) {
         message,
         allEntrants: data.allEntrants,
         intendedRecipientIds: intended.map((profile) => profile.id),
-        deliveredRecipientIds: enabled.filter((profile) =>
-          profile.id.startsWith("auth_") || linked.has(profile.id),
-        ).map((profile) => profile.id),
+        deliveredRecipientIds: enabled.map((profile) => profile.id),
         sentAt: FieldValue.serverTimestamp(),
       };
       transaction.create(notification, record);
@@ -263,7 +245,7 @@ function sameRecipients(saved, selected) {
 }
 
 /**
- * Reads the preference, defaulting to enabled for legacy accounts.
+ * Reads the preference, defaulting to enabled when unset.
  * @param {Object} account Recipient account snapshot.
  * @return {boolean} Whether the account accepts notifications.
  */

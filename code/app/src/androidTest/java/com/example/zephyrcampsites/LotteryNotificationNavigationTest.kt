@@ -3,7 +3,8 @@
 // OpenAI, Codex, US 02.10.01 Android test, 2026-11-27. See the Bhav Saluja entry in README.md.
 package com.example.zephyrcampsites
 
-import android.provider.Settings
+import android.graphics.Bitmap
+import android.net.Uri
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasText
@@ -25,6 +26,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.functions.FirebaseFunctions
+import java.io.File
+import java.time.Instant
 import java.net.HttpURLConnection
 import java.net.URI
 import java.util.UUID
@@ -45,7 +48,7 @@ class LotteryNotificationNavigationTest {
     val compose = createEmptyComposeRule()
 
     @Test
-    fun freshProfilesSendReceiveAndOptOutWithoutReplacingLegacyData() {
+    fun freshProfilesSendReceiveOptOutAndCompleteProfileAndBookingFlows() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         assumeTrue(InstrumentationRegistry.getArguments().getString("notificationEmulator") == "true")
         val app = FirebaseApp.getInstance()
@@ -56,10 +59,6 @@ class LotteryNotificationNavigationTest {
         auth.useEmulator("127.0.0.1", 9099)
         FirebaseFunctions.getInstance(app).useEmulator("127.0.0.1", 5001)
 
-        val deviceId = Settings.Secure.getString(
-            instrumentation.targetContext.contentResolver,
-            Settings.Secure.ANDROID_ID
-        )
         val suffix = UUID.randomUUID().toString().take(8)
         val now = System.currentTimeMillis()
         val day = TimeUnit.DAYS.toMillis(1)
@@ -83,7 +82,9 @@ class LotteryNotificationNavigationTest {
             Tasks.await(firestore.document("campsite/${campsite.id}").set(campsite), 15, TimeUnit.SECONDS)
             Tasks.await(firestore.document("lottery/${lottery.id}").set(lottery), 15, TimeUnit.SECONDS)
         }
+        lateinit var entrantAccountId: String
         freshProfile(auth, firestore, entrantEmail) { entrantId ->
+            entrantAccountId = entrantId
             join(firestore, lottery.id, entrantId)
         }
         freshProfile(auth, firestore, optedOutEmail) { entrantId ->
@@ -140,35 +141,55 @@ class LotteryNotificationNavigationTest {
             assertTrue(Tasks.await(inbox, 15, TimeUnit.SECONDS).isEmpty())
         }
 
-        val legacyPath = "accounts/$deviceId"
-        val bookingPath = "reservation/legacy-$suffix"
-        val linkPath = "notificationAccountLinks/$deviceId"
+        val reservationPath = "reservation/owner-cancel-$suffix"
+        val checkIn = Instant.now().plusSeconds(7200)
+        writeApprovedFixture(reservationPath, mapOf(
+            "accountId" to entrantAccountId, "campsiteId" to lottery.campsiteId,
+            "bookedPeriodStart" to checkIn, "bookedPeriodEnd" to checkIn.plusSeconds(86400),
+            "cancelled" to false
+        ))
+        signIn(auth, ownerEmail)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            waitForAccount()
+            compose.onNodeWithText("Owner").performClick()
+            compose.onNodeWithText("View Reservations").performClick()
+            waitFor("Whispering Pines")
+            waitFor("Upcoming")
+            compose.onNodeWithText("Cancel reservation").performClick()
+            compose.onNodeWithText("Confirm cancellation").performClick()
+            waitFor("Cancelled")
+            val saved = Tasks.await(firestore.document(reservationPath).get(Source.SERVER), 15, TimeUnit.SECONDS)
+            assertEquals(true, saved.getBoolean("cancelled"))
+            assertEquals("auth_" + checkNotNull(auth.currentUser).uid, saved.getString("cancelledBy"))
+        }
+        writeApprovedFixture(reservationPath, null)
+
+        signIn(auth, optedOutEmail)
+        val uid = checkNotNull(auth.currentUser).uid
+        val account = Account("auth_" + uid)
+        val context = instrumentation.targetContext
+        val photo = File.createTempFile("profile-", ".png", context.cacheDir)
         try {
-            writeApprovedFixture(legacyPath, mapOf("id" to deviceId, "name" to "Existing Camper"))
-            writeApprovedFixture(bookingPath, mapOf("accountId" to deviceId, "campsiteId" to lottery.campsiteId))
-            auth.signOut()
-            ActivityScenario.launch(MainActivity::class.java).use {
-                compose.waitUntil(20_000) {
-                    compose.onAllNodesWithText("verify your existing profile", substring = true)
-                        .fetchSemanticsNodes().isNotEmpty()
-                }
-                compose.onNodeWithText("Owner").assertIsNotEnabled()
-                val uid = checkNotNull(auth.currentUser).uid
-                writeApprovedFixture(linkPath, mapOf("uid" to uid))
-                compose.onNodeWithText("Retry").performClick()
-                waitForAccount()
-                val legacy = Tasks.await(firestore.document(legacyPath).get(Source.SERVER), 15, TimeUnit.SECONDS)
-                val booking = Tasks.await(firestore.document(bookingPath).get(Source.SERVER), 15, TimeUnit.SECONDS)
-                assertEquals("Existing Camper", legacy.getString("name"))
-                assertEquals(deviceId, booking.getString("accountId"))
-                val authPath = "accounts/auth_${checkNotNull(auth.currentUser).uid}"
-                val separateProfile = Tasks.await(firestore.document(authPath).get(Source.SERVER), 15, TimeUnit.SECONDS)
-                assertFalse(separateProfile.exists())
-            }
+            val bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+            photo.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+            val controller = AccountsController()
+            val updated = TaskCompletionSource<Account>()
+            controller.updateOwnProfileImage(context, account, Uri.fromFile(photo),
+                onSuccess = { updated.setResult(it) },
+                onError = { updated.setException(IllegalStateException(it)) }
+            )
+            assertTrue(Tasks.await(updated.task, 15, TimeUnit.SECONDS).compressedImage.isNotBlank())
+            val profile = firestore.document("accounts/" + account.id)
+            val saved = Tasks.await(profile.get(Source.SERVER), 15, TimeUnit.SECONDS)
+            assertTrue(saved.getString("compressedImage").orEmpty().isNotBlank())
+            assertEquals(false, saved.getBoolean("notificationsEnabled"))
+            val deleted = TaskCompletionSource<Unit>()
+            controller.deleteOwnProfile(account, { deleted.setResult(Unit) }, { deleted.setException(it) })
+            Tasks.await(deleted.task, 15, TimeUnit.SECONDS)
+            assertFalse(Tasks.await(profile.get(Source.SERVER), 15, TimeUnit.SECONDS).exists())
         } finally {
-            writeApprovedFixture(linkPath, null)
-            writeApprovedFixture(legacyPath, null)
-            writeApprovedFixture(bookingPath, null)
+            photo.delete()
         }
     }
 
@@ -222,8 +243,8 @@ class LotteryNotificationNavigationTest {
         compose.waitUntil(20_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
     }
 
-    /** Creates or removes a legacy fixture in the local demo emulator. */
-    private fun writeApprovedFixture(path: String, fields: Map<String, String>?) {
+    /** Creates or removes a booking fixture in the local demo emulator. */
+    private fun writeApprovedFixture(path: String, fields: Map<String, Any>?) {
         val endpoint = "http://127.0.0.1:8082/v1/projects/demo-zephyr-notifications" +
             "/databases/(default)/documents/$path"
         val connection = URI(endpoint).toURL().openConnection() as HttpURLConnection
@@ -236,7 +257,12 @@ class LotteryNotificationNavigationTest {
             } else {
                 val values = JSONObject()
                 for ((key, value) in fields) {
-                    values.put(key, JSONObject().put("stringValue", value))
+                    val field = when (value) {
+                        is Boolean -> JSONObject().put("booleanValue", value)
+                        is Instant -> JSONObject().put("timestampValue", value.toString())
+                        else -> JSONObject().put("stringValue", value.toString())
+                    }
+                    values.put(key, field)
                 }
                 connection.requestMethod = "PATCH"
                 connection.doOutput = true

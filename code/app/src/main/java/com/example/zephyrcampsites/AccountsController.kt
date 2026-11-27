@@ -3,70 +3,37 @@
 package com.example.zephyrcampsites
 
 import android.content.Context
-import android.provider.Settings
 import android.net.Uri
 import com.google.firebase.auth.FirebaseAuth
 
 /**
  * Controls account identification and initialization.
  *
- * Uses Firebase Auth at startup and the Android device ID to find legacy profiles.
+ * Uses the current Firebase Auth identity for profile operations.
  *
  * @param accountsModel Model used to read and update accounts.
+ * @param currentUid Provides the UID of the signed-in Firebase account.
  */
-class AccountsController(private val accountsModel: AccountsModel = AccountsModel()) {
+class AccountsController(
+    private val accountsModel: AccountsModel = AccountsModel(),
+    private val currentUid: () -> String? = { FirebaseAuth.getInstance().currentUser?.uid }
+) {
     private val profileValidator = ProfileValidator()
 
-    /**
-     * Retrieves the device identifier.
-     *
-     * @param context Android application context.
-     * @return The Android device ID.
-     */
-    //AI Citation [AI-01]
-    //Open AI, ChatGPT was used for assistance understanding Android device identification
-    //AI Usage and citation in WIKI
-    fun getDeviceId(context: Context): String? {
-        return Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ANDROID_ID
-        )
-    }
-
-    /** Matches a profile to this installation before requesting a profile change. */
-    private fun isOwnProfile(context: Context, accountId: String): Boolean {
-        if (accountId.isBlank() || '/' in accountId) {
-            return false
-        }
-        if (accountId.startsWith("auth_")) {
-            val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return false
-            return accountId == "auth_$uid"
-        }
-        return accountId == getDeviceId(context)
+    /** Checks the active Firebase session before requesting a profile change. */
+    private fun isOwnProfile(accountId: String): Boolean {
+        val uid = currentUid() ?: return false
+        return accountId == "auth_$uid"
     }
 
     /**
-     * Identifies the device and initializes its account.
-     *
-     * @param context Android application context.
-     * @param onSuccess Returns the identified account.
-     * @param onError Called if identification fails.
+     * Loads the profile for the Firebase Auth session.
+     * @param onSuccess Returns the signed-in account.
+     * @param onError Called if authentication or profile initialization fails.
      */
-    // [AI-04] OpenAI, ChatGPT, assistance with device-based account initialization and Firebase callback handling.
-    fun initializeAccount(
-        context: Context,
-        onSuccess: (Account) -> Unit,
-        onError: (Exception) -> Unit
-    ) {
-
-        val deviceId = getDeviceId(context)
-
-        if (deviceId.isNullOrBlank()) {
-            onError(Exception("Device ID not found"))
-            return
-        }
-
-        accountsModel.getOrCreateAccount(deviceId, onResult = onSuccess, onError = onError)
+    // [AI-04] OpenAI, ChatGPT assisted with the original account initialization.
+    fun initializeAccount(onSuccess: (Account) -> Unit, onError: (Exception) -> Unit) {
+        accountsModel.getOrCreateAccount(onSuccess, onError)
     }
 
     /**
@@ -153,7 +120,7 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
         onSuccess: (Account) -> Unit,
         onError: (String) -> Unit
     ) {
-        if (!isOwnProfile(context, account.id)) {
+        if (!isOwnProfile(account.id)) {
             onError("You can only update your own profile image.")
             return
         }
@@ -189,12 +156,11 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
      * @param onError Returns an error message if removal fails.
      */
     fun removeOwnProfileImage(
-        context: Context,
         account: Account,
         onSuccess: (Account) -> Unit,
         onError: (String) -> Unit
     ) {
-        if (!isOwnProfile(context, account.id)) {
+        if (!isOwnProfile(account.id)) {
             onError("You can only remove your own profile image.")
             return
         }
@@ -246,20 +212,18 @@ class AccountsController(private val accountsModel: AccountsModel = AccountsMode
     }
 
     /**
-     * Requests deletion of the profile associated with this device.
+     * Requests deletion of the profile owned by the current Firebase user.
      *
-     * @param account Current administrator account.
-     * @param targetAccount Profile to remove.
+     * @param account Current user's account.
      * @param onSuccess Called after deletion succeeds.
      * @param onError Called when access or deletion fails.
      */
     fun deleteOwnProfile(
-        context: Context,
         account: Account,
         onSuccess: () -> Unit,
         onError: (Exception) -> Unit,
     ) {
-        if (!isOwnProfile(context, account.id)) {
+        if (!isOwnProfile(account.id)) {
             onError(IllegalArgumentException("You can only delete your own profile."))
             return
         }

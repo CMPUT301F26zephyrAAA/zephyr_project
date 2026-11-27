@@ -55,7 +55,6 @@ internal fun lotteryNotificationValidationError(message: String, hasRecipients: 
 /** Uses safe user-facing messages for expected errors and a fallback for unavailable Firebase. */
 internal fun lotteryNotificationError(error: Exception, fallback: String): String {
     return when {
-        error is NotificationAccountLinkRequired -> error.message ?: fallback
         error is InvalidLotteryNotification -> error.message ?: fallback
         error is FirebaseFunctionsException && error.code in setOf(
             FirebaseFunctionsException.Code.PERMISSION_DENIED,
