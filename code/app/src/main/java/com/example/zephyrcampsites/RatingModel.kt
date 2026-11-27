@@ -6,6 +6,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.google.firebase.functions.FirebaseFunctions
@@ -20,8 +21,9 @@ import com.google.firebase.functions.FirebaseFunctions
  */
 class RatingModel(
     private val firestore: FirebaseFirestore = Firebase.firestore,
-    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
+    functions: FirebaseFunctions? = null
 ) : RatingGateway, AdminRatingGateway {
+    private val callables by lazy { functions ?: FirebaseFunctions.getInstance() }
     private val reservations = firestore.collection("reservation")
     private val campsites = firestore.collection("campsite")
 
@@ -34,26 +36,111 @@ class RatingModel(
      * @param onError Receives a readable load error.
      */
     override fun loadRating(
-        campsiteId: String, accountId: String,
-        onResult: (CampsiteRating?) -> Unit, onError: (String) -> Unit
+        campsiteId: String,
+        accountId: String,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
     ) {
-        reservations.whereEqualTo("accountId", accountId).get(Source.SERVER)
-            .addOnSuccessListener { snapshot ->
-                val stay = snapshot.documents.mapNotNull { readReservation(it) }
-                    .filter { RatingValidator.hasStayed(it, accountId, campsiteId, System.currentTimeMillis()) }
-                    .maxByOrNull { it.bookedPeriodEnd?.time ?: Long.MIN_VALUE }
+        findEligibleStay(
+            campsiteId,
+            accountId,
+            onResult = { stay ->
                 if (stay == null) {
                     onResult(null)
                 } else {
-                    campsites.document(campsiteId).collection("ratings").document(accountId).get(Source.SERVER)
+                    campsites.document(campsiteId).collection("ratings")
+                        .document(accountId)
+                        .get(Source.SERVER)
                         .addOnSuccessListener { document ->
-                            onResult(CampsiteRating(stay.id, document.getLong("score")?.toInt() ?: 0,
-                                document.getString("review") ?: ""))
+                            onResult(document.toCampsiteRating(stay.id))
                         }
-                        .addOnFailureListener { onError("Unable to load your rating. Please try again.") }
+                        .addOnFailureListener {
+                            onError("Unable to load your rating. Please try again.")
+                        }
                 }
+            },
+            onError = onError,
+        )
+    }
+
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    /**
+     * Finds a completed stay and loads this account's current score and review.
+     * Has a listener that reloads every time the rating is updated.
+     *
+     * @param campsiteId Campsite being rated.
+     * @param accountId Entrant whose completed reservations are checked.
+     * @param onResult Receives the saved rating, or null if no completed stay qualifies.
+     * @param onError Receives a readable load error.
+     */
+    override fun observeRating(
+        campsiteId: String,
+        accountId: String,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        var active = true
+        var registration: ListenerRegistration? = null
+
+        findEligibleStay(
+            campsiteId,
+            accountId,
+            onResult = { stay ->
+                if (active) {
+                    if (stay == null) {
+                        onResult(null)
+                    } else {
+                        registration = campsites.document(campsiteId).collection("ratings")
+                            .document(accountId)
+                            .addSnapshotListener(MetadataChanges.INCLUDE) { document, error ->
+                                if (active) {
+                                    when {
+                                        error != null ->
+                                            onError("Unable to load your rating. Please try again.")
+
+                                        document != null && !document.metadata.isFromCache ->
+                                            onResult(document.toCampsiteRating(stay.id))
+                                    }
+                                }
+                            }
+                    }
+                }
+            },
+            onError = { message -> if (active) onError(message) },
+        )
+
+        return {
+            active = false
+            registration?.remove()
+        }
+    }
+
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    /**
+     * Finds a completed stay and loads this account's current score and review.
+     *
+     * @param campsiteId Campsite being rated.
+     * @param accountId Entrant whose completed reservations are checked.
+     * @param onResult Receives the saved rating, or null if no completed stay qualifies.
+     * @param onError Receives a readable load error.
+     */
+    private fun findEligibleStay(
+        campsiteId: String,
+        accountId: String,
+        onResult: (ReservedUser?) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        reservations.whereEqualTo("accountId", accountId).get(Source.SERVER)
+            .addOnSuccessListener { snapshot ->
+                val now = System.currentTimeMillis()
+                val stay = snapshot.documents.mapNotNull(::readReservation)
+                    .filter { RatingValidator.hasStayed(it, accountId, campsiteId, now) }
+                    .maxByOrNull { it.bookedPeriodEnd?.time ?: Long.MIN_VALUE }
+                onResult(stay)
             }
-            .addOnFailureListener { onError("Unable to check your past stays. Please try again.") }
+            .addOnFailureListener {
+                onError("Unable to check your past stays. Please try again.")
+            }
     }
 
     /**
@@ -107,7 +194,7 @@ class RatingModel(
         if (score != null) {
             data["score"] = score
         }
-        functions.getHttpsCallable("saveCampsiteFeedback").call(data)
+        callables.getHttpsCallable("saveCampsiteFeedback").call(data)
             .addOnSuccessListener { onSuccess() }
             .addOnFailureListener { onError(it.message ?: "Unable to save campsite feedback.") }
     }
@@ -120,24 +207,22 @@ class RatingModel(
      * @return Removes the snapshot listener when the screen closes.
      */
     override fun observeAdminRatings(
-        campsiteId: String, onRatings: (List<CampsiteRating>) -> Unit, onError: (String) -> Unit
+        campsiteId: String,
+        onRatings: (List<CampsiteRating>) -> Unit,
+        onError: (String) -> Unit,
     ): () -> Unit {
-        val listener = campsites.document(campsiteId).collection("ratings").addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                onError("Unable to load campsite feedback.")
-            } else {
-                onRatings(snapshot?.documents.orEmpty().map { document ->
-                    CampsiteRating(
-                        reservationId = document.getString("reservationId").orEmpty(),
-                        score = document.getLong("score")?.toInt() ?: 0,
-                        review = document.getString("review").orEmpty(),
-                        accountId = document.id,
-                        updatedAt = document.getTimestamp("updatedAt")
-                    )
-                })
+        val registration = campsites.document(campsiteId).collection("ratings")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                when {
+                    error != null ->
+                        onError("Unable to load campsite ratings.")
+
+                    snapshot != null && !snapshot.metadata.isFromCache ->
+                        onRatings(snapshot.documents.map { it.toCampsiteRating() })
+                }
             }
-        }
-        return { listener.remove() }
+
+        return { registration.remove() }
     }
 
     // AI Citation [AI-39] (Bhav Saluja). Connects PR #141 to version-checked server moderation.
@@ -159,13 +244,31 @@ class RatingModel(
             onError("Reload the rating and try again.")
             return
         }
-        functions.getHttpsCallable("removeCampsiteFeedback")
+        callables.getHttpsCallable("removeCampsiteFeedback")
             .call(mapOf(
                 "campsiteId" to campsiteId, "accountId" to accountId, "adminAccountId" to adminAccountId,
                 "updatedAt" to mapOf("seconds" to version.seconds, "nanoseconds" to version.nanoseconds)
             ))
             .addOnSuccessListener { onResult(true) }
             .addOnFailureListener { onError(it.message ?: "Unable to remove campsite feedback.") }
+    }
+
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    private fun DocumentSnapshot.toCampsiteRating(
+        eligibleReservationId: String? = null,
+    ): CampsiteRating {
+        val number = get("score") as? Number
+        val score = number?.let { value ->
+            value.toInt().takeIf { it in 1..5 && value.toDouble() == it.toDouble() }
+        } ?: 0
+
+        return CampsiteRating(
+            reservationId = eligibleReservationId ?: (get("reservationId") as? String).orEmpty(),
+            score = score,
+            review = (get("review") as? String).orEmpty(),
+            accountId = if (exists()) id else null,
+            updatedAt = get("updatedAt") as? Timestamp,
+        )
     }
 
     /**

@@ -68,7 +68,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
 
     /**
      * Retrieve reservations belonging to specified entrant
-     * @param accountId Current entrant's device linked accountID
+     * @param accountId Current entrant's Firebase Auth profile ID.
      * @param onSuccess called with the entrants reservations
      * @param onError called if retrieval or data validation fails
      */

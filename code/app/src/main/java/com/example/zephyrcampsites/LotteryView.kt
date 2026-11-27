@@ -501,7 +501,7 @@ class LotteryView (
                 }
 
                 // AI Citation [AI-39]
-                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the Bhav Saluja entry in README.md.
+                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the team AI Documentation Google Doc.
                 Button(
                     onClick = { onNotifyClick?.invoke() },
                     enabled = onNotifyClick != null,
