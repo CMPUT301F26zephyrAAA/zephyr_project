@@ -6,7 +6,6 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.firestore.FieldValue
@@ -28,12 +27,10 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class RatingModelTest {
-    private lateinit var app: FirebaseApp
     private lateinit var firestore: FirebaseFirestore
     private lateinit var model: RatingModel
     private val suffix = UUID.randomUUID().toString()
     private lateinit var accountId: String
-    private val sessions = mutableListOf<FirebaseApp>()
     private val accountModels = mutableMapOf<String, RatingModel>()
     private val campsiteId = "campsite-$suffix"
     private val reservationId = "stay-$suffix"
@@ -42,12 +39,8 @@ class RatingModelTest {
     @Before
     fun connectToLocalEmulator() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("ratingFirestoreEmulator") == "true")
-        val options = FirebaseOptions.Builder().setProjectId("demo-zephyr")
-            .setApplicationId("1:123456789:android:rating-test").setApiKey("AIza" + "x".repeat(35)).build()
-        app = FirebaseApp.initializeApp(InstrumentationRegistry.getInstrumentation().targetContext, options, "rating-$suffix")
-        firestore = FirebaseFirestore.getInstance(app)
-        firestore.useEmulator("127.0.0.1", 8082)
-        accountId = signIn(app)
+        firestore = FirebaseWorkflowFixtures.firestore
+        accountId = signIn(FirebaseWorkflowFixtures.primary)
         model = accountModels.getValue(accountId)
         createDocument("accounts/$accountId", mapOf("userType" to "entrant"))
         createDocument("campsite/$campsiteId", mapOf("id" to campsiteId, "name" to "Pine Lake Campground", "rating" to listOf(4, 5)))
@@ -56,14 +49,12 @@ class RatingModelTest {
 
     @After
     fun removeLocalFixtures() {
-        if (this::firestore.isInitialized) {
+        if (::accountId.isInitialized) {
             await(firestore.document("campsite/$campsiteId/ratings/$accountId").delete())
-            for (document in createdDocuments.reversed()) {
-                await(document.delete())
-            }
-            await(firestore.terminate())
         }
-        sessions.asReversed().forEach { it.delete() }
+        for (document in createdDocuments.reversed()) {
+            await(document.delete())
+        }
     }
 
     @Test
@@ -137,10 +128,7 @@ class RatingModelTest {
 
     @Test
     fun concurrentEntrantsDoNotOverwriteEachOthersRatings() {
-        val otherApp = FirebaseApp.initializeApp(
-            InstrumentationRegistry.getInstrumentation().targetContext, app.options, "rating-other-$suffix"
-        )
-        val otherAccount = signIn(otherApp)
+        val otherAccount = signIn(FirebaseWorkflowFixtures.secondary)
         val otherStay = "other-stay-$suffix"
         createDocument("accounts/$otherAccount", mapOf("userType" to "entrant"))
         createDocument("reservation/$otherStay", stayData(otherAccount))
@@ -208,10 +196,10 @@ class RatingModelTest {
     }
 
     private fun signIn(session: FirebaseApp): String {
-        sessions.add(session)
-        val auth = FirebaseAuth.getInstance(session).apply { useEmulator("127.0.0.1", 9099) }
+        val auth = FirebaseAuth.getInstance(session)
+        auth.signOut()
         val id = "auth_${checkNotNull(await(auth.signInAnonymously()).user).uid}"
-        val functions = FirebaseFunctions.getInstance(session).apply { useEmulator("127.0.0.1", 5001) }
+        val functions = FirebaseFunctions.getInstance(session)
         accountModels[id] = RatingModel(firestore, functions)
         return id
     }

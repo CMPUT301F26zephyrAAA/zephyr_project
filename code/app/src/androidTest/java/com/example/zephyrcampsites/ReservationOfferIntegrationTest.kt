@@ -11,7 +11,6 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.firestore.DocumentReference
@@ -41,9 +40,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class ReservationOfferIntegrationTest {
 
-    private lateinit var app: FirebaseApp
     private lateinit var firestore: FirebaseFirestore
-    private val sessions = mutableListOf<FirebaseApp>()
     private val entrantModels = mutableMapOf<String, ReservationOfferModel>()
 
     private val suffix = UUID.randomUUID().toString()
@@ -62,8 +59,7 @@ class ReservationOfferIntegrationTest {
         mutableListOf<DocumentReference>()
 
     /**
-     * Creates a separate Firebase instance connected
-     * exclusively to the local emulator.
+     * Creates two fresh Auth identities in the local demo project.
      */
     @Before
     fun connectToLocalEmulator() {
@@ -73,39 +69,18 @@ class ReservationOfferIntegrationTest {
                 .getString("reservationFirestoreEmulator") == "true"
         )
 
-        val options = FirebaseOptions.Builder()
-            .setProjectId("demo-zephyr")
-            .setApplicationId(
-                "1:123456789:android:reservation-test"
-            )
-            .setApiKey("AIza" + "x".repeat(35))
-            .build()
-
-        app = FirebaseApp.initializeApp(
-            InstrumentationRegistry.getInstrumentation()
-                .targetContext,
-            options,
-            "reservation-$suffix"
-        )
-
-        firestore = FirebaseFirestore.getInstance(app)
-
-        firestore.useEmulator("127.0.0.1", 8082)
-
-        winner1 = signIn(app)
-        val otherApp = FirebaseApp.initializeApp(
-            InstrumentationRegistry.getInstrumentation().targetContext, options, "reservation-other-$suffix"
-        )
-        winner2 = signIn(otherApp)
+        firestore = FirebaseWorkflowFixtures.firestore
+        winner1 = signIn(FirebaseWorkflowFixtures.primary)
+        winner2 = signIn(FirebaseWorkflowFixtures.secondary)
 
         createLotteryFixtures()
     }
 
     private fun signIn(session: FirebaseApp): String {
-        sessions.add(session)
-        val auth = FirebaseAuth.getInstance(session).apply { useEmulator("127.0.0.1", 9099) }
+        val auth = FirebaseAuth.getInstance(session)
+        auth.signOut()
         val id = "auth_${checkNotNull(await(auth.signInAnonymously()).user).uid}"
-        val functions = FirebaseFunctions.getInstance(session).apply { useEmulator("127.0.0.1", 5001) }
+        val functions = FirebaseFunctions.getInstance(session)
         entrantModels[id] = ReservationOfferModel(firestore, functions)
         return id
     }
@@ -630,17 +605,8 @@ class ReservationOfferIntegrationTest {
     @After
     fun removeLocalFixtures() {
 
-        if (this::firestore.isInitialized) {
-
-            try {
-                for (document in createdDocuments.reversed()) {
-                    await(document.delete())
-                }
-            } finally {
-                await(firestore.terminate())
-            }
+        for (document in createdDocuments.reversed()) {
+            await(document.delete())
         }
-
-        sessions.asReversed().forEach { it.delete() }
     }
 }
