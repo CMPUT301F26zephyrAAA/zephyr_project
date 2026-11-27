@@ -409,7 +409,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
 
             // Check whether the settings changed while the owner was editing.
             val savedSettings = mapOf<String, Any?>(
-                "lotteryName" to snapshot.getString("lotteryName"),
+                "lotteryName" to snapshot.getString("lotteryName").orEmpty(),
                 "registrationStart" to savedRegistrationStart,
                 "registrationEnd" to savedRegistrationEnd,
                 "bookingStart" to savedBookingStart,
