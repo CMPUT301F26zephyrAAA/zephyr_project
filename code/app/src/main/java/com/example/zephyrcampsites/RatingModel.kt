@@ -160,21 +160,16 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         firestore.runTransaction { transaction ->
             val campsiteDocument = transaction.get(campsiteRef)
             val previousRating = transaction.get(ratingRef)
-            val reservation = readReservation(transaction.get(reservationRef))
+            val reservationDocument = transaction.get(reservationRef)
             val accountDocument = transaction.get(accountRef)
-            check(campsiteDocument.exists()) { "Campsite no longer available." }
-            val roles = accountDocument.get("userType") as? List<*>
-            check(roles?.contains("entrant") == true) { "Only entrants can rate a campsite." }
-            check(reservation != null && RatingValidator.hasStayed(
-                reservation, accountId, campsiteId, System.currentTimeMillis()
-            )) { "You can only rate a campsite after a non-cancelled stay has ended." }
-            checkCompletedStay(campsiteDocument, transaction.get(reservationRef), transaction.get(accountRef))
-
-            val scores = (campsiteDocument.get("rating") as? List<*>)?.map { value ->
-                val number = value as? Number ?: error("Invalid stored rating.")
-                check(number.toDouble() == number.toInt().toDouble()) { "Invalid stored rating." }
-                number.toInt()
-            } ?: emptyList()
+            checkCompletedStay(
+                campsite = campsiteDocument,
+                stay = reservationDocument,
+                account = accountDocument,
+                campsiteId = campsiteId,
+                accountId = accountId,
+            )
+            val scores = readCampsiteScores(campsiteDocument)
             val previousScore = if (previousRating.contains("score")) {
                 previousRating.getLong("score")?.toInt() ?: error("Invalid previous rating.")
             } else {
@@ -276,16 +271,23 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
                 "The rating changed after it was selected."
             }
 
-            val campsiteDocument = transaction.get(campsiteRef)
-            check(campsiteDocument.exists()) { "Campsite no longer available." }
+            val storedScore = ratingDocument.get("score")
+            if (storedScore != null) {
+                val campsiteDocument = transaction.get(campsiteRef)
+                check(campsiteDocument.exists()) { "Campsite no longer available." }
 
-            val scores = RatingValidator.removeRating(readCampsiteScores(campsiteDocument), selected.score)
-            val average: Any = RatingValidator.averageAfterRemoval(scores) ?: FieldValue.delete()
+                val scores = RatingValidator.removeRating(
+                    readCampsiteScores(campsiteDocument),
+                    selected.score,
+                )
+                val average: Any =
+                    RatingValidator.averageAfterRemoval(scores) ?: FieldValue.delete()
 
-            transaction.update(
-                campsiteRef,
-                mapOf("rating" to scores, "averageRating" to average),
-            )
+                transaction.update(
+                    campsiteRef,
+                    mapOf("rating" to scores, "averageRating" to average),
+                )
+            }
             transaction.delete(ratingRef)
             true
         }
@@ -364,7 +366,13 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         val accountRef = firestore.collection("accounts").document(accountId)
 
         firestore.runTransaction { transaction ->
-            checkCompletedStay(transaction.get(campsiteRef), transaction.get(reservationRef), transaction.get(accountRef))
+            checkCompletedStay(
+                campsite = transaction.get(campsiteRef),
+                stay = transaction.get(reservationRef),
+                account = transaction.get(accountRef),
+                campsiteId = campsiteId,
+                accountId = accountId,
+            )
             transaction.set(ratingRef, mapOf(
                 "accountId" to accountId, "campsiteId" to campsiteId, "reservationId" to reservationId,
                 "review" to text, "updatedAt" to FieldValue.serverTimestamp()
@@ -374,16 +382,34 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             .addOnFailureListener { onError("Unable to save your review. Check your completed stay and try again.") }
     }
 
-    /** Verifies the campsite, entrant, and completed reservation from the transaction snapshots. */
-    private fun checkCompletedStay(campsite: DocumentSnapshot, stay: DocumentSnapshot, account: DocumentSnapshot) {
+    /** Verifies the campsite, entrant role, and completed reservation. */
+    private fun checkCompletedStay(
+        campsite: DocumentSnapshot,
+        stay: DocumentSnapshot,
+        account: DocumentSnapshot,
+        campsiteId: String,
+        accountId: String,
+    ) {
         check(campsite.exists()) { "Campsite no longer available." }
+
         val role = account.get("userType")
-        check(role == "entrant" || (role is List<*> && "entrant" in role)) { "Only entrants can rate or review a campsite." }
-        check(account.getBoolean("deletionPending") != true) { "Your profile is being deleted." }
+        check(role == "entrant" || (role is List<*> && "entrant" in role)) {
+            "Only entrants can rate or review a campsite."
+        }
+        check(account.getBoolean("deletionPending") != true) {
+            "Your profile is being deleted."
+        }
+
         val reservation = readReservation(stay)
-        check(reservation != null && RatingValidator.hasStayed(
-            reservation, account.id, campsite.id, System.currentTimeMillis()
-        )) { "A non-cancelled stay must have ended." }
+        check(
+            reservation != null &&
+                    RatingValidator.hasStayed(
+                        reservation,
+                        accountId,
+                        campsiteId,
+                        System.currentTimeMillis(),
+                    ),
+        ) { "A non-cancelled stay must have ended." }
     }
 
     /**

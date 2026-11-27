@@ -43,7 +43,7 @@ class RatingModelTest {
             .setApplicationId("1:123456789:android:rating-test").setApiKey("local-emulator-only").build()
         app = FirebaseApp.initializeApp(InstrumentationRegistry.getInstrumentation().targetContext, options, "rating-$suffix")
         firestore = FirebaseFirestore.getInstance(app)
-        firestore.useEmulator("127.0.0.1", 8082)
+        firestore.useEmulator("10.0.2.2", 8082)
         model = RatingModel(firestore)
         createDocument("accounts/$accountId", mapOf("userType" to "entrant"))
         createDocument("campsite/$campsiteId", mapOf("id" to campsiteId, "name" to "Pine Lake Campground", "rating" to listOf(4, 5)))
