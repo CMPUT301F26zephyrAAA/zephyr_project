@@ -149,7 +149,7 @@ class ReservationOfferIntegrationTest {
             "accounts/$accountId",
             mapOf(
                 "id" to accountId,
-                "userType" to "entrant",
+                "userType" to listOf("entrant"),
                 "deletionPending" to false
             )
         )
