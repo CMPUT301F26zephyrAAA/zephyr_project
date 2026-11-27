@@ -75,4 +75,28 @@ class RatingValidatorTest {
             RatingValidator.replaceRating(listOf(4), 2, 5)
         }
     }
+
+    @Test
+    fun removingOneRatingPreservesEqualScoresAndDoesNotMutateTheInput() {
+        val original = mutableListOf(5, 5, 2)
+
+        val updated = RatingValidator.removeRating(original, 5)
+
+        assertEquals(listOf(5, 2), updated)
+        assertEquals(listOf(5, 5, 2), original)
+    }
+
+    @Test
+    fun removalRejectsAScoreThatIsMissingFromTheAggregate() {
+        assertThrows(IllegalStateException::class.java) {
+            RatingValidator.removeRating(listOf(5, 2), 4)
+        }
+    }
+
+    @Test
+    fun removalRejectsTheUnsavedScoreSentinel() {
+        assertThrows(IllegalArgumentException::class.java) {
+            RatingValidator.removeRating(listOf(5, 2), 0)
+        }
+    }
 }

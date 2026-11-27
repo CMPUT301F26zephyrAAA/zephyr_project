@@ -5,6 +5,8 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 
@@ -15,12 +17,13 @@ import com.google.firebase.firestore.firestore
  *
  * @param firestore Database used for reservations, accounts, and campsite ratings.
  */
-class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore) : RatingGateway {
+class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore) : RatingGateway, AdminRatingGateway {
     private val reservations = firestore.collection("reservation")
     private val campsites = firestore.collection("campsite")
 
     /**
      * Finds a completed stay and loads this account's current score and review.
+     * Loads value only once.
      *
      * @param campsiteId Campsite being rated.
      * @param accountId Entrant whose completed reservations are checked.
@@ -28,26 +31,101 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
      * @param onError Receives a readable load error.
      */
     override fun loadRating(
-        campsiteId: String, accountId: String,
-        onResult: (CampsiteRating?) -> Unit, onError: (String) -> Unit
+        campsiteId: String,
+        accountId: String,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
     ) {
-        reservations.whereEqualTo("accountId", accountId).get(Source.SERVER)
-            .addOnSuccessListener { snapshot ->
-                val stay = snapshot.documents.mapNotNull { readReservation(it) }
-                    .filter { RatingValidator.hasStayed(it, accountId, campsiteId, System.currentTimeMillis()) }
-                    .maxByOrNull { it.bookedPeriodEnd?.time ?: Long.MIN_VALUE }
+        findEligibleStay(
+            campsiteId,
+            accountId,
+            onResult = { stay ->
                 if (stay == null) {
                     onResult(null)
                 } else {
-                    campsites.document(campsiteId).collection("ratings").document(accountId).get(Source.SERVER)
+                    campsites.document(campsiteId).collection("ratings")
+                        .document(accountId)
+                        .get(Source.SERVER)
                         .addOnSuccessListener { document ->
-                            onResult(CampsiteRating(stay.id, document.getLong("score")?.toInt() ?: 0,
-                                document.getString("review") ?: ""))
+                            onResult(document.toCampsiteRating(stay.id))
                         }
-                        .addOnFailureListener { onError("Unable to load your rating. Please try again.") }
+                        .addOnFailureListener {
+                            onError("Unable to load your rating. Please try again.")
+                        }
                 }
+            },
+            onError = onError,
+        )
+    }
+
+    /**
+     * Finds a completed stay and loads this account's current score and review.
+     * Has a listener that reloads every time the rating is updated.
+     *
+     * @param campsiteId Campsite being rated.
+     * @param accountId Entrant whose completed reservations are checked.
+     * @param onResult Receives the saved rating, or null if no completed stay qualifies.
+     * @param onError Receives a readable load error.
+     */
+    override fun observeRating(
+        campsiteId: String,
+        accountId: String,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        var active = true
+        var registration: ListenerRegistration? = null
+
+        findEligibleStay(
+            campsiteId,
+            accountId,
+            onResult = { stay ->
+                if (active) {
+                    if (stay == null) {
+                        onResult(null)
+                    } else {
+                        registration = campsites.document(campsiteId).collection("ratings")
+                            .document(accountId)
+                            .addSnapshotListener(MetadataChanges.INCLUDE) { document, error ->
+                                if (active) {
+                                    when {
+                                        error != null ->
+                                            onError("Unable to load your rating. Please try again.")
+
+                                        document != null && !document.metadata.isFromCache ->
+                                            onResult(document.toCampsiteRating(stay.id))
+                                    }
+                                }
+                            }
+                    }
+                }
+            },
+            onError = { message -> if (active) onError(message) },
+        )
+
+        return {
+            active = false
+            registration?.remove()
+        }
+    }
+
+    private fun findEligibleStay(
+        campsiteId: String,
+        accountId: String,
+        onResult: (ReservedUser?) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        reservations.whereEqualTo("accountId", accountId).get(Source.SERVER)
+            .addOnSuccessListener { snapshot ->
+                val now = System.currentTimeMillis()
+                val stay = snapshot.documents.mapNotNull(::readReservation)
+                    .filter { RatingValidator.hasStayed(it, accountId, campsiteId, now) }
+                    .maxByOrNull { it.bookedPeriodEnd?.time ?: Long.MIN_VALUE }
+                onResult(stay)
             }
-            .addOnFailureListener { onError("Unable to check your past stays. Please try again.") }
+            .addOnFailureListener {
+                onError("Unable to check your past stays. Please try again.")
+            }
     }
 
     /**
@@ -74,7 +152,8 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             val reservation = readReservation(transaction.get(reservationRef))
             val accountDocument = transaction.get(accountRef)
             check(campsiteDocument.exists()) { "Campsite no longer available." }
-            check(accountDocument.getString("userType") == "entrant") { "Only entrants can rate a campsite." }
+            val roles = accountDocument.get("userType") as? List<*>
+            check(roles?.contains("entrant") == true) { "Only entrants can rate a campsite." }
             check(reservation != null && RatingValidator.hasStayed(
                 reservation, accountId, campsiteId, System.currentTimeMillis()
             )) { "You can only rate a campsite after a non-cancelled stay has ended." }
@@ -99,6 +178,114 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             .addOnSuccessListener { onSuccess() }
             .addOnFailureListener { onError("Unable to save your rating. Check your completed stay and try again.") }
     }
+
+    override fun observeAdminRatings(
+        campsiteId: String,
+        onRatings: (List<CampsiteRating>) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        val registration = campsites.document(campsiteId).collection("ratings")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                when {
+                    error != null ->
+                        onError("Unable to load campsite ratings.")
+
+                    snapshot != null && !snapshot.metadata.isFromCache ->
+                        onRatings(snapshot.documents.map { it.toCampsiteRating() })
+                }
+            }
+
+        return { registration.remove() }
+    }
+
+    /**
+     * Removes an individual's rating from a campsite.
+     *
+     * @param campsiteId Campsite being rated.
+     * @param selected Rating to remove.
+     * @param onResult Called after the rating is removed.
+     * @param onError Receives a readable error.
+     */
+    override fun equals(other: Any?): Boolean {
+        return super.equals(other)
+    }
+
+    override fun removeAdminRating(
+        campsiteId: String,
+        selected: CampsiteRating,
+        onResult: (Boolean) -> Unit,
+        onError: (String) -> Unit,
+    ) {
+        val accountId = selected.accountId
+        if (accountId.isNullOrBlank() || '/' in accountId) {
+            onError("This rating has no valid document ID.")
+            return
+        }
+
+        val campsiteRef = campsites.document(campsiteId)
+        val ratingRef = campsiteRef.collection("ratings").document(accountId)
+
+        firestore.runTransaction { transaction ->
+            val ratingDocument = transaction.get(ratingRef)
+            if (!ratingDocument.exists()) return@runTransaction false
+
+            check(ratingDocument.toCampsiteRating() == selected) {
+                "The rating changed after it was selected."
+            }
+
+            val campsiteDocument = transaction.get(campsiteRef)
+            check(campsiteDocument.exists()) { "Campsite no longer available." }
+
+            val scores = RatingValidator.removeRating(readCampsiteScores(campsiteDocument), selected.score)
+            val average: Any = RatingValidator.averageAfterRemoval(scores) ?: FieldValue.delete()
+
+            transaction.update(
+                campsiteRef,
+                mapOf("rating" to scores, "averageRating" to average),
+            )
+            transaction.delete(ratingRef)
+            true
+        }
+            .addOnSuccessListener { removed -> onResult(removed) }
+            .addOnFailureListener {
+                onError("Unable to remove this rating. Review the current rating and try again.")
+            }
+    }
+
+    /**
+     * Converts a Firestore document to a rating.
+     *
+     * @param document Rating snapshot to read.
+     * @param eligibleReservationId Reservation used to verify the completed stay.
+     */
+    private fun DocumentSnapshot.toCampsiteRating(
+        eligibleReservationId: String? = null,
+    ): CampsiteRating {
+        val number = get("score") as? Number
+        val score = number?.let { value ->
+            value.toInt().takeIf { it in 1..5 && value.toDouble() == it.toDouble() }
+        } ?: 0
+
+        return CampsiteRating(
+            reservationId = eligibleReservationId ?: (get("reservationId") as? String).orEmpty(),
+            score = score,
+            review = (get("review") as? String).orEmpty(),
+            accountId = if (exists()) id else null,
+            updatedAt = get("updatedAt") as? Timestamp,
+        )
+    }
+
+    /**
+     * Converts a Firestore document to a list of scores.
+     *
+     * @param document Campsite snapshot to read.x
+     */
+    private fun readCampsiteScores(document: DocumentSnapshot): List<Int> =
+        (document.get("rating") as? List<*>)?.map { value ->
+            val number = value as? Number ?: error("Invalid stored rating.")
+            check(number.toDouble() == number.toInt().toDouble()) { "Invalid stored rating." }
+            number.toInt()
+        } ?: emptyList()
 
     /**
      * Reads the reservation contract, rejecting incomplete records rather than assuming a stay occurred.

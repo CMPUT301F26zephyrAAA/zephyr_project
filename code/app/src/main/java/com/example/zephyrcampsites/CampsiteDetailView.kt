@@ -96,6 +96,7 @@ class CampsiteDetailView {
         onRemoved: () -> Unit = onBack,
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
+        adminRatingGateway: AdminRatingGateway? = null
     ) {
         var removing by remember(campsiteId) { mutableStateOf(false) }
         var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
@@ -213,6 +214,9 @@ class CampsiteDetailView {
      * @param removing Whether removal is pending.
      * @param removalError Error from the last removal request.
      * @param onRemove Requests removal after confirmation.
+     * @param showEntrantActions Whether to show the entrant-only controls.
+     * @param showAdminActions Whether to show the owner-only controls.
+     * @param adminRatingGateway Controller used to load ratings.
      */
     @Composable
     fun DetailView(
@@ -239,9 +243,68 @@ class CampsiteDetailView {
         onRemove: () -> Unit = {},
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
+        adminRatingGateway: AdminRatingGateway? = null
     ) {
 
         val canRemoveCampsite = showAdminActions && account?.userType?.contains("admin") == true
+        val moderationAccountId = account?.id?.takeIf { canRemoveCampsite && it.isNotBlank() }
+        val ratingsCampsiteId = campsite?.id?.takeIf {
+            moderationAccountId != null && it.isNotBlank() && '/' !in it
+        }
+        val moderationModel = remember(ratingsCampsiteId, moderationAccountId) {
+            if (ratingsCampsiteId != null) adminRatingGateway ?: RatingModel() else null
+        }
+
+        var ratingRows by remember(ratingsCampsiteId, moderationAccountId) {
+            mutableStateOf<List<CampsiteRating>?>(null)
+        }
+        var ratingLoadError by remember(ratingsCampsiteId, moderationAccountId) {
+            mutableStateOf<String?>(null)
+        }
+        var showingRatings by remember(ratingsCampsiteId, moderationAccountId) {
+            mutableStateOf(false)
+        }
+
+        DisposableEffect(ratingsCampsiteId, moderationModel) {
+            val stop = if (ratingsCampsiteId != null && moderationModel != null) {
+                moderationModel.observeAdminRatings(
+                    campsiteId = ratingsCampsiteId,
+                    onRatings = { rows ->
+                        ratingLoadError = null
+                        ratingRows = rows
+                    },
+                    onError = { message ->
+                        ratingRows = null
+                        ratingLoadError = message
+                    },
+                )
+            } else {
+                null
+            }
+
+            onDispose { stop?.invoke() }
+        }
+
+        if (showingRatings && campsite != null && ratingsCampsiteId != null && moderationModel != null) {
+            AdminRatingsScreen(
+                campsiteName = campsite.name,
+                ratings = ratingRows.orEmpty(),
+                loadError = ratingLoadError,
+                removeRating = { selected, onResult, onError ->
+                    moderationModel.removeAdminRating(
+                        campsiteId = ratingsCampsiteId,
+                        selected = selected,
+                        onResult = { removed ->
+                            if (removed) ratingRows = ratingRows?.filterNot { it == selected }
+                            onResult(removed)
+                        },
+                        onError = onError,
+                    )
+                },
+                onBack = { showingRatings = false },
+            )
+            return
+        }
         var showRemoveConfirmation by remember(campsite?.id) { mutableStateOf(false) }
         BackHandler(enabled = removing) {}
 
@@ -543,6 +606,30 @@ class CampsiteDetailView {
 
                         if (canRemoveCampsite) {
                             removalError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            when {
+                                ratingsCampsiteId == null || ratingLoadError != null -> Text(
+                                    ratingLoadError ?: "Unable to load campsite ratings.",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+
+                                ratingRows == null -> Text(
+                                    "Loading ratings…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+
+                                ratingRows.orEmpty().isEmpty() -> Text(
+                                    "No ratings available for this campsite.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+
+                                else -> OutlinedButton(
+                                    onClick = { showingRatings = true },
+                                    enabled = !removing,
+                                    modifier = Modifier.fillMaxWidth().testTag("ViewCampsiteRatings"),
+                                ) {
+                                    Text("View Ratings")
+                                }
+                            }
                             Button(
                                 onClick = { showRemoveConfirmation = true },
                                 enabled = !removing,

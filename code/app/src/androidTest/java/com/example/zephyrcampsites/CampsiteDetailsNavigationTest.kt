@@ -161,7 +161,8 @@ class CampsiteDetailsNavigationTest {
                             searchHandler = { listOf(campsite) },
                             filterPage = {},
                             imageLoader = { "" },
-                            locationClient = locationClient
+                            locationClient = locationClient,
+                            onViewChanged = {},
                         )
                     }
                     composable(
