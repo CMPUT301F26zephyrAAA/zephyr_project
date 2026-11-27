@@ -6,12 +6,59 @@ import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.DocumentSnapshot
 
 /**
  * Model in charge of retrieving reservation records from Firestore
  */
 class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.firestore) {
     private val reservations = firestore.collection("reservation")
+
+    /**
+     * Converts a Firestore reservation document into a
+     * ReservedUser using consistent field and date validation
+     * for both entrant and owner reservation features.
+     *
+     * @param document Firestore reservation document.
+     * @return Valid reservation or null if required fields
+     * are missing or invalid.
+     */
+    private fun parseReservation(
+        document: DocumentSnapshot
+    ): ReservedUser? {
+
+        val accountId = document.get("accountId") as? String
+            ?: return null
+
+        val campsiteId = document.get("campsiteId") as? String
+            ?: return null
+
+        if (accountId.isBlank() || campsiteId.isBlank()) {
+            return null
+        }
+
+        val start = document.get("bookedPeriodStart") as? Timestamp
+            ?: return null
+
+        val end = document.get("bookedPeriodEnd") as? Timestamp
+            ?: return null
+
+        if (!start.toDate().before(end.toDate())) {
+            return null
+        }
+
+        val cancelled = document.get("cancelled") as? Boolean
+            ?: return null
+
+        return ReservedUser(
+            id = document.id,
+            accountId = accountId,
+            campsiteId = campsiteId,
+            bookedPeriodStart = start.toDate(),
+            bookedPeriodEnd = end.toDate(),
+            cancelled = cancelled
+        )
+    }
 
     /**
      * Retrieve reservations belonging to specified entrant
@@ -39,7 +86,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                 try {
 
                     val results = snapshot.documents.mapNotNull { document ->
-
+                        parseReservation(document)
 
 
                         // Skip reservations with missing or invalid dates.
@@ -117,6 +164,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
 
                 try {
                     val results = snapshot.documents.mapNotNull { document ->
+                        parseReservation(document)
 
                         val start = document.get("bookedPeriodStart") as? Timestamp
                             ?: return@mapNotNull null

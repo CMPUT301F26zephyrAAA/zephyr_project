@@ -25,6 +25,7 @@ fun OwnerActiveReservationsView(
     accountForId: (String) -> Account?,
     isLoading: Boolean,
     errorMessage: String?,
+    onRetry: () -> Unit,
     onViewDetails: (ReservedUser) -> Unit,
     onBack: () -> Unit
 ) {
@@ -60,10 +61,19 @@ fun OwnerActiveReservationsView(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = errorMessage,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = errorMessage,
+                            color = MaterialTheme.colorScheme.error
+                        )
+
+                        Button(onClick = onRetry) {
+                            Text("Retry")
+                        }
+                    }
                 }
             }
 

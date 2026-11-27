@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
 import java.util.Date
+import androidx.activity.compose.BackHandler
 
 /**
  * Connects the owner's reservation screens to Firebase
@@ -34,6 +35,10 @@ fun OwnerReservationsScreen(
         mutableStateOf<String?>(null)
     }
 
+    var retryCount by remember(owner.id) {
+        mutableIntStateOf(0)
+    }
+
     var selectedReservationId by remember(owner.id) {
         mutableStateOf<String?>(null)
     }
@@ -59,7 +64,8 @@ fun OwnerReservationsScreen(
         owner.id,
         ownerCampsiteIds,
         campsiteModel.isLoading,
-        campsiteModel.error
+        campsiteModel.error,
+        retryCount
     ) {
         var disposed = false
 
@@ -159,6 +165,12 @@ fun OwnerReservationsScreen(
             it.id == selectedReservationId
         }
 
+    // Return to the reservation list when the Android
+    // back button is pressed from the details screen.
+    BackHandler(enabled = selectedReservation != null) {
+        selectedReservationId = null
+    }
+
     // Return to the list if the selected reservation
     // is cancelled, completed or no longer accessible.
     LaunchedEffect(selectedReservation) {
@@ -193,6 +205,7 @@ fun OwnerReservationsScreen(
             },
             isLoading = isLoading,
             errorMessage = errorMessage,
+            onRetry = { retryCount++ },
             onViewDetails = { reservation ->
                 selectedReservationId = reservation.id
             },

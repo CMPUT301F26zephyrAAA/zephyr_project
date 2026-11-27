@@ -12,7 +12,7 @@ import java.util.Date
  *
  * These tests do not require Firebase.
  */
-class ReservationsControllerTest {
+class OwnerReservationsControllerTest {
 
     private val controller = ReservationsController()
 
