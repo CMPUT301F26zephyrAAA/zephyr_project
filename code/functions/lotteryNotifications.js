@@ -1,8 +1,8 @@
-// Lottery notification callables. An admin provisions account links and grants.
+// Lottery notification callables for verified accounts and campsite owners.
 // AI Citation [AI-39]
 // OpenAI, Codex, US 02.10.01 waitlist notifications, 2026-11-27.
 // Generated the delivery and authorization code.
-// See the Bhav Saluja entry prepared for the GitHub Wiki in README.md.
+// See the team's AI documentation.
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {FieldValue} = require("firebase-admin/firestore");
 const {createHash} = require("node:crypto");
@@ -19,7 +19,7 @@ function lotteryNotifications(db) {
   const notifications = db.collection("lotteryNotifications");
 
   /**
-   * Verifies the caller's Firebase UID against the approved app account.
+   * Verifies the caller against their Firebase Auth profile.
    * @param {Object} request Callable request.
    * @param {Object} reader Firestore or its current transaction.
    * @return {Promise<Object>} Verified account snapshot.
@@ -32,12 +32,8 @@ function lotteryNotifications(db) {
     if (!validId(accountId)) {
       throw new HttpsError("invalid-argument", "Invalid account.");
     }
-    const link = db.collection("notificationAccountLinks").doc(accountId);
-    if ((await reader.getAll(link))[0].get("uid") !== request.auth.uid) {
-      throw new HttpsError(
-          "permission-denied", "Notification account setup required.",
-          {linkRequired: true},
-      );
+    if (accountId !== "auth_" + request.auth.uid) {
+      throw new HttpsError("permission-denied", "This profile is not yours.");
     }
     const account = (await reader.getAll(accounts.doc(accountId)))[0];
     if (!account.exists || account.get("deletionPending") === true) {
@@ -47,7 +43,7 @@ function lotteryNotifications(db) {
   }
 
   /**
-   * Checks both the administrator grant and current lottery/campsite ownership.
+   * Checks current ownership on the write-protected lottery and campsite.
    * @param {Object} reader Firestore or its current transaction.
    * @param {string} lotteryId Lottery selected by the owner.
    * @param {string} ownerId Verified caller account ID.
@@ -57,13 +53,11 @@ function lotteryNotifications(db) {
     if (!validId(lotteryId)) {
       throw new HttpsError("invalid-argument", "Invalid lottery.");
     }
-    const [lottery, grant] = await reader.getAll(
+    const [lottery] = await reader.getAll(
         db.collection("lottery").doc(lotteryId),
-        db.collection("notificationLotteryOwners").doc(lotteryId),
     );
     const campsiteId = lottery.get("campsiteId");
-    if (!validId(campsiteId) || grant.get("campsiteId") !== campsiteId ||
-        grant.get("ownerAccountId") !== ownerId) {
+    if (!validId(campsiteId)) {
       throw new HttpsError(
           "permission-denied", "This lottery is unavailable for notifications.",
       );
@@ -94,7 +88,8 @@ function lotteryNotifications(db) {
       const status = document.get("drawStatus");
       const stillWaiting = status === undefined || status === null ||
         status === "WAITING" || status === "BACKUP";
-      if (!validId(accountId) || document.id !== `${lottery.id}_${accountId}` ||
+      if (!validId(accountId) || !accountId.startsWith("auth_") ||
+          document.id !== `${lottery.id}_${accountId}` ||
           !stillWaiting) {
         return [];
       }
@@ -180,6 +175,7 @@ function lotteryNotifications(db) {
             "The waitlist changed. Reload and try again.",
         );
       }
+      const enabled = intended.filter(notificationsEnabled);
       const lotteryName = lottery.get("lotteryName");
       const record = {
         lotteryId: lottery.id,
@@ -190,8 +186,7 @@ function lotteryNotifications(db) {
         message,
         allEntrants: data.allEntrants,
         intendedRecipientIds: intended.map((profile) => profile.id),
-        deliveredRecipientIds: intended.filter(notificationsEnabled)
-            .map((profile) => profile.id),
+        deliveredRecipientIds: enabled.map((profile) => profile.id),
         sentAt: FieldValue.serverTimestamp(),
       };
       transaction.create(notification, record);
@@ -250,7 +245,7 @@ function sameRecipients(saved, selected) {
 }
 
 /**
- * Reads the preference, defaulting to enabled for legacy accounts.
+ * Reads the preference, defaulting to enabled when unset.
  * @param {Object} account Recipient account snapshot.
  * @return {boolean} Whether the account accepts notifications.
  */

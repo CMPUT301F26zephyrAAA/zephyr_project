@@ -1,3 +1,4 @@
+// Renders the landing role menu and the navigation for each role.
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.Image
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -122,15 +124,17 @@ internal fun RolePage(
                     }
 
                     if (statusMessage != null) {
-                        Text(
-                            text = statusMessage,
-                            color = if (isLandingPage) {
-                                Color.White
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                            textAlign = TextAlign.Center
-                        )
+                        SelectionContainer {
+                            Text(
+                                text = statusMessage,
+                                color = if (isLandingPage) {
+                                    Color.White
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
 
                     if (onRetry != null) {

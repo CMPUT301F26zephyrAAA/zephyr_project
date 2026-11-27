@@ -110,7 +110,6 @@ internal fun AccountProfilePage(
                 imageError = ""
 
                 accountsController.removeOwnProfileImage(
-                    context = activityContext,
                     account = displayedAccount,
                     onSuccess = { updatedAccount ->
                         val latestAccount = currentAccount.value
@@ -183,7 +182,6 @@ internal fun AccountProfilePage(
                     deletionError = null
 
                     accountsController.deleteOwnProfile(
-                        context = activityContext,
                         account = profileAccount,
                         onSuccess = {
                             showDeleteDialog = false

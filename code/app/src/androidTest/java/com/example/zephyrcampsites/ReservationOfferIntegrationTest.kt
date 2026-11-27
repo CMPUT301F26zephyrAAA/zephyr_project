@@ -11,7 +11,8 @@ import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
 import com.google.android.gms.tasks.Tasks
 import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
@@ -29,28 +30,26 @@ import org.junit.runner.RunWith
 /**
  * Integration tests for lottery backup promotion.
  *
- * Tests the actual ReservationOfferModel transactions
- * against the local Firestore emulator.
+ * Tests ReservationOfferModel and the callable transaction using the local demo emulators.
  *
  * Requires reservationFirestoreEmulator=true and
- * adb reverse tcp:8080 tcp:8080.
+ * reversed TCP ports 8082, 9099, and 5001.
  *
  * Does not use the production Firebase database.
  */
 @RunWith(AndroidJUnit4::class)
 class ReservationOfferIntegrationTest {
 
-    private lateinit var app: FirebaseApp
     private lateinit var firestore: FirebaseFirestore
-    private lateinit var model: ReservationOfferModel
+    private val entrantModels = mutableMapOf<String, ReservationOfferModel>()
 
     private val suffix = UUID.randomUUID().toString()
 
     private val lotteryId = "offer-test-$suffix"
     private val campsiteId = "campsite-$suffix"
 
-    private val winner1 = "winner1-$suffix"
-    private val winner2 = "winner2-$suffix"
+    private lateinit var winner1: String
+    private lateinit var winner2: String
 
     private val backup1 = "backup1-$suffix"
     private val backup2 = "backup2-$suffix"
@@ -60,8 +59,7 @@ class ReservationOfferIntegrationTest {
         mutableListOf<DocumentReference>()
 
     /**
-     * Creates a separate Firebase instance connected
-     * exclusively to the local emulator.
+     * Creates two fresh Auth identities in the local demo project.
      */
     @Before
     fun connectToLocalEmulator() {
@@ -71,28 +69,20 @@ class ReservationOfferIntegrationTest {
                 .getString("reservationFirestoreEmulator") == "true"
         )
 
-        val options = FirebaseOptions.Builder()
-            .setProjectId("demo-zephyr")
-            .setApplicationId(
-                "1:123456789:android:reservation-test"
-            )
-            .setApiKey("local-emulator-only")
-            .build()
-
-        app = FirebaseApp.initializeApp(
-            InstrumentationRegistry.getInstrumentation()
-                .targetContext,
-            options,
-            "reservation-$suffix"
-        )
-
-        firestore = FirebaseFirestore.getInstance(app)
-
-        firestore.useEmulator("127.0.0.1", 8080)
-
-        model = ReservationOfferModel(firestore)
+        firestore = FirebaseWorkflowFixtures.firestore
+        winner1 = signIn(FirebaseWorkflowFixtures.primary)
+        winner2 = signIn(FirebaseWorkflowFixtures.secondary)
 
         createLotteryFixtures()
+    }
+
+    private fun signIn(session: FirebaseApp): String {
+        val auth = FirebaseAuth.getInstance(session)
+        auth.signOut()
+        val id = "auth_${checkNotNull(await(auth.signInAnonymously()).user).uid}"
+        val functions = FirebaseFunctions.getInstance(session)
+        entrantModels[id] = ReservationOfferModel(firestore, functions)
+        return id
     }
 
     /**
@@ -219,7 +209,7 @@ class ReservationOfferIntegrationTest {
         )
 
         assertEquals(
-            listOf(backup3),
+            listOf(backup1, backup3),
             getIds(result, "backupIds")
         )
 
@@ -276,7 +266,7 @@ class ReservationOfferIntegrationTest {
         )
 
         assertEquals(
-            listOf(backup3),
+            listOf(backup1, backup3),
             getIds(result, "backupIds")
         )
 
@@ -304,14 +294,15 @@ class ReservationOfferIntegrationTest {
             getIds(result, "winnerIds")
         )
 
-        assertTrue(
-            getIds(result, "backupIds").isEmpty()
+        assertEquals(
+            listOf(backup1, backup2, backup3),
+            getIds(result, "backupIds")
         )
 
         assertEquals("DECLINED", loadStatus(winner1))
 
         assertEquals(1L, result.getLong("winnerCount"))
-        assertEquals(0L, result.getLong("backupCount"))
+        assertEquals(3L, result.getLong("backupCount"))
     }
 
     // TEST 6: Duplicate decline prevention.
@@ -577,7 +568,7 @@ class ReservationOfferIntegrationTest {
 
         val result = TaskCompletionSource<Boolean>()
 
-        model.declineReservationOffer(
+        (entrantModels[accountId] ?: entrantModels.getValue(winner1)).declineReservationOffer(
             lotteryId = lotteryId,
             accountId = accountId,
             onSuccess = {
@@ -614,19 +605,8 @@ class ReservationOfferIntegrationTest {
     @After
     fun removeLocalFixtures() {
 
-        if (this::firestore.isInitialized) {
-
-            try {
-                for (document in createdDocuments.reversed()) {
-                    await(document.delete())
-                }
-            } finally {
-                await(firestore.terminate())
-            }
-        }
-
-        if (this::app.isInitialized) {
-            app.delete()
+        for (document in createdDocuments.reversed()) {
+            await(document.delete())
         }
     }
 }
