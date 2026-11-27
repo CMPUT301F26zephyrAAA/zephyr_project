@@ -103,7 +103,7 @@ function patch(user, path, data, merge = false) {
   return fetch(`${firestore}/${path}?${query}`, {
     method: "PATCH",
     headers: {
-      "Authorization": `Bearer ${user.idToken}`,
+      ...(user.idToken ? {"Authorization": `Bearer ${user.idToken}`} : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({fields: fields(data)}),
@@ -116,9 +116,10 @@ function patch(user, path, data, merge = false) {
  * @param {number} count Expected next count.
  * @param {boolean} join Whether to create the registration.
  * @param {string} id Lottery to change.
+ * @param {boolean} withMarker Whether the client includes an account marker.
  * @return {Promise<Response>} Firestore REST response.
  */
-function registration(user, count, join, id = lotteryId) {
+function registration(user, count, join, id = lotteryId, withMarker = true) {
   const path = `${documents}/waitingList/${id}_${user.accountId}`;
   const entryWrite = join ? {
     update: {
@@ -132,10 +133,11 @@ function registration(user, count, join, id = lotteryId) {
     },
     currentDocument: {exists: false},
   } : {delete: path, currentDocument: {exists: true}};
-  return commit(user, [entryWrite, update(`lottery/${id}`, {
-    entrantCount: count,
-    waitlistChangeAccountId: user.accountId,
-  })]);
+  const counter = {entrantCount: count};
+  if (withMarker) {
+    counter.waitlistChangeAccountId = user.accountId;
+  }
+  return commit(user, [entryWrite, update(`lottery/${id}`, counter)]);
 }
 
 /**
@@ -148,7 +150,7 @@ function commit(user, writes) {
   return fetch(`${firestore}:commit`, {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${user.idToken}`,
+      ...(user.idToken ? {"Authorization": `Bearer ${user.idToken}`} : {}),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({writes}),
@@ -245,7 +247,7 @@ test("requires a verified owner and denies direct client writes", async () => {
   }
 });
 
-test("protects preferences and waitlist writes for all profiles", async () => {
+test("keeps legacy writes and protects managed records", async () => {
   const {owner, allowed, outsider} = accounts;
   assert.equal((await patch(outsider, `accounts/${allowed.accountId}`, {
     notificationsEnabled: false,
@@ -257,12 +259,38 @@ test("protects preferences and waitlist writes for all profiles", async () => {
   const legacyId = `legacy-${suffix}`;
   const legacy = db.doc(`accounts/${legacyId}`);
   await legacy.set({id: legacyId, name: "Legacy Camper", userType: "entrant"});
-  assert.equal((await patch(outsider, legacy.path, {
+  const unlinked = {accountId: legacyId};
+  assert.equal((await patch(unlinked, legacy.path, {
     notificationsEnabled: false,
-  }, true)).status, 403);
-  assert.equal((await patch(outsider, legacy.path, {
-    name: "Legacy Camper",
   }, true)).status, 200);
+  assert.equal((await legacy.get()).get("notificationsEnabled"), false);
+  assert.equal((await patch(unlinked, legacy.path, {
+    notificationsEnabled: "false",
+  }, true)).status, 403);
+  const legacyCampsite = `legacy-camp-${suffix}`;
+  const legacyLottery = `legacy-lottery-${suffix}`;
+  assert.equal((await patch(unlinked, `campsite/${legacyCampsite}`, {
+    ownerID: legacyId,
+  })).status, 200);
+  assert.equal((await patch(unlinked, `lottery/${legacyLottery}`, {
+    campsiteId: legacyCampsite,
+    registrationStart: Date.now() - 60000,
+    registrationEnd: Date.now() + 600000,
+    entrantCount: 0,
+  })).status, 200);
+  // Installed clients omit the account marker.
+  const joined = await registration(unlinked, 1, true, legacyLottery, false);
+  assert.equal(joined.status, 200);
+  assert.equal((await db.doc(`lottery/${legacyLottery}`).get())
+      .get("entrantCount"), 1);
+  const left = await registration(unlinked, 0, false, legacyLottery, false);
+  assert.equal(left.status, 200);
+  const managedJoin = await registration(unlinked, 1, true, emptyLotteryId);
+  assert.equal(managedJoin.status, 403);
+  const unlinkedSend = await send(
+      {...outsider, accountId: legacyId}, {lotteryId: legacyLottery},
+  );
+  assert.equal(unlinkedSend.error.status, "PERMISSION_DENIED");
 
   assert.equal((await registration(outsider, 3, true)).status, 403);
   assert.equal((await patch(owner, `lottery/${lotteryId}`, {
@@ -337,40 +365,71 @@ test("validates sends and delivers only to the chosen entrant", async () => {
   assert.equal(response.status, 403);
 });
 
-test("a winner can decline and promote a backup in one commit", async () => {
+test("a decline preserves the remaining eligible backup queue", async () => {
   const id = `finished-${suffix}`;
   const winner = accounts.winner;
-  const backupId = accounts.late.accountId;
+  const backupIds = [accounts.late, accounts.optedOut, accounts.outsider]
+      .map((backup) => backup.accountId);
+  const [promotedId, ...remaining] = backupIds;
   const winnerPath = `waitingList/${id}_${winner.accountId}`;
-  const backupPath = `waitingList/${id}_${backupId}`;
+  const backupPath = (accountId) => `waitingList/${id}_${accountId}`;
   const resultPath = `lotteryDrawResults/${id}`;
   const batch = db.batch();
   batch.create(db.doc(`lottery/${id}`), {
-    campsiteId, drawCompleted: true, drawStatus: "COMPLETED", entrantCount: 2,
+    campsiteId, drawCompleted: true, drawStatus: "COMPLETED", entrantCount: 4,
   });
   batch.create(db.doc(winnerPath), {
     lotteryId: id, accountId: winner.accountId,
     drawStatus: "WINNER", backupPosition: 0,
   });
-  batch.create(db.doc(backupPath), {
-    lotteryId: id, accountId: backupId,
-    drawStatus: "BACKUP", backupPosition: 1,
+  backupIds.forEach((accountId, index) => {
+    batch.create(db.doc(backupPath(accountId)), {
+      lotteryId: id, accountId, drawStatus: "BACKUP",
+      backupPosition: index + 1,
+    });
   });
   batch.create(db.doc(resultPath), {
-    winnerIds: [winner.accountId], backupIds: [backupId],
-    declinedIds: [], winnerCount: 1, backupCount: 1,
+    winnerIds: [winner.accountId], backupIds,
+    declinedIds: [], winnerCount: 1, backupCount: 3,
   });
   await batch.commit();
+  const decline = update(winnerPath, {
+    drawStatus: "DECLINED", backupPosition: 0,
+  });
+  const promotion = update(backupPath(promotedId), {
+    drawStatus: "WINNER", backupPosition: 0,
+  });
+  const resultsForQueue = (queue) => update(resultPath, {
+    lastDeclinedAccountId: winner.accountId,
+    winnerIds: [promotedId], backupIds: queue, declinedIds: [winner.accountId],
+    winnerCount: 1, backupCount: queue.length,
+  });
+  for (const queue of [remaining.slice(0, 1), [...remaining].reverse()]) {
+    const result = await commit(winner, [
+      decline, promotion, resultsForQueue(queue),
+    ]);
+    assert.equal(result.status, 403);
+  }
+  assert.equal((await commit(winner, [
+    decline, resultsForQueue(remaining),
+  ])).status, 403);
+  const original = await db.doc(resultPath).get();
+  assert.deepEqual(original.get("backupIds"), backupIds);
   const result = await commit(winner, [
-    update(winnerPath, {drawStatus: "DECLINED", backupPosition: 0}),
-    update(backupPath, {drawStatus: "WINNER", backupPosition: 0}),
-    update(resultPath, {
-      lastDeclinedAccountId: winner.accountId,
-      winnerIds: [backupId], backupIds: [], declinedIds: [winner.accountId],
-      winnerCount: 1, backupCount: 0,
-    }),
+    decline, promotion, resultsForQueue(remaining),
+    ...remaining.map((accountId, index) => update(backupPath(accountId), {
+      backupPosition: index + 1,
+    })),
   ]);
   assert.equal(result.status, 200, await result.text());
+  const saved = await db.doc(resultPath).get();
+  assert.deepEqual(saved.get("backupIds"), remaining);
+  assert.equal(saved.get("backupCount"), 2);
+  for (const [index, accountId] of remaining.entries()) {
+    const registration = await db.doc(backupPath(accountId)).get();
+    assert.equal(registration.get("drawStatus"), "BACKUP");
+    assert.equal(registration.get("backupPosition"), index + 1);
+  }
 });
 
 test("everyone uses current membership and honors opt-outs", async () => {

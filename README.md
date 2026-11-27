@@ -13,16 +13,17 @@ The app signs in anonymously at startup. New profiles use `accounts/auth_<uid>`,
 waitlist and preference writes work immediately. The installed app continues to use an existing
 device-ID profile and its booking references when it finds one.
 
-For protected writes on an existing device-ID profile, an authorized administrator verifies the
-profile and links its Firebase Auth UID in `notificationAccountLinks/{accountId}`. The notification
-flow shows both IDs when the link is required. Reinstallation of a legacy profile requires separate
-identity verification before its link is changed. The notification functions verify lottery ownership
-from the campsite and lottery records.
+Existing unlinked profiles can change their notification preference and join or leave lotteries
+owned by unlinked profiles during the deployed legacy access window. This includes installed
+clients that omit the account marker. Managed lotteries and profiles use verified identity and
+paired registration and count updates.
 
-`code/firestore.rules` starts from the deployed November 27 rules and applies the waitlist and
-preference write protections. It keeps the deployed reservation and reservation-chat rules.
-Coordinate an approved rules rollout with the updated Android build. Older builds use device IDs
-for new profiles and omit the account marker required by protected waitlist transactions.
+Legacy participants use the notification flow once an administrator verifies the profile and
+sets its Firebase Auth UID in `notificationAccountLinks/{accountId}`. The app shows both IDs if a
+link is required. The notification functions verify ownership against the campsite and lottery
+records. The rules keep the deployed reservation and chat behavior. Roll out the updated Android
+build with the decline rules so the client identifies the declining account and preserves every
+unpromoted backup in queue order.
 
 ### Verification
 
@@ -48,7 +49,7 @@ the Compose screens, Kotlin MVC code, Firebase Functions, authorization, and rou
 Codex also brought the deployed notification source into the branch and generated the startup Auth,
 Firestore rule changes, and fresh-account verification for the follow-up on November 27, 2026.
 
-Entry for the team [AI Documentation wiki](https://github.com/CMPUT301F26zephyrAAA/zephyr_project/wiki/AI-Documentation)
+Entry for the team [AI Documentation](https://docs.google.com/document/d/1tokZ9zH_kofR3yHP1pHCsvjfKh9LKhI2hS_QRGLvjXE/edit?tab=t.0)
 under Bhav Saluja, **AI-39**. Provider and tool are OpenAI, Codex. Subject is owner-to-waitlist
 notifications (US 02.10.01). Date is 2026-11-27. Original prompt:
 
@@ -57,3 +58,7 @@ notifications (US 02.10.01). Date is 2026-11-27. Original prompt:
 Follow-up prompt:
 
 > Continue with one follow-up commit that brings the branch in sync with the deployed Firebase rules and functions, establishes Firebase Auth identity at startup for new profiles, and protects waitlist and preference writes. Preserve existing profiles and bookings. Verify the owner-to-entrant flow and opt-out using fresh accounts
+
+Codex also generated the legacy rollout corrections and backup queue rule and tests on November 27,
+2026. The request was to keep the live preference and waitlist behavior for unlinked profiles,
+retain verified notification ownership, and preserve the eligible backup queue after a decline.

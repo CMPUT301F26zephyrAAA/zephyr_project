@@ -80,8 +80,9 @@ service cloud.firestore {
         request.resource.data.notificationsEnabled is bool &&
         request.resource.data.userType == ['entrant', 'owner'];
       allow update: if (!managedAccount(accountId) && legacyAccess() &&
+          request.resource.data.get('notificationsEnabled', true) is bool &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'name', 'email', 'phoneNumber', 'imagePath', 'compressedImage'
+            'name', 'email', 'phoneNumber', 'imagePath', 'compressedImage', 'notificationsEnabled'
           ])) ||
         (validManagedProfile(accountId) &&
           ((verifiedAccount(accountId) &&
@@ -102,17 +103,20 @@ service cloud.firestore {
 
     match /campsite/{campsiteId} {
       allow create: if request.resource.data.get('ownerID', '') is string &&
-        verifiedAccount(request.resource.data.ownerID) &&
-        accountActive(request.resource.data.ownerID);
+        ((verifiedAccount(request.resource.data.ownerID) && accountActive(request.resource.data.ownerID)) ||
+          (!managedAccount(request.resource.data.get('ownerID', '')) && legacyAccess()));
       allow update: if
-        request.resource.data.get('ownerID', '') == resource.data.get('ownerID', '') &&
-        (verifiedAccount(resource.data.get('ownerID', '')) ||
-          (notificationAdmin() &&
+        (!managedAccount(resource.data.get('ownerID', '')) &&
+          !managedAccount(request.resource.data.get('ownerID', '')) && legacyAccess()) ||
+        (request.resource.data.get('ownerID', '') == resource.data.get('ownerID', '') &&
+          (verifiedAccount(resource.data.get('ownerID', '')) ||
+            (notificationAdmin() &&
+              request.resource.data.diff(resource.data).affectedKeys()
+                .hasOnly(['imagePaths', 'compressedImages'])) ||
             request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['imagePaths', 'compressedImages'])) ||
-          request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['rating', 'averageRating']));
-      allow delete: if notificationAdmin();
+              .hasOnly(['rating', 'averageRating'])));
+      allow delete: if (!managedAccount(resource.data.get('ownerID', '')) && legacyAccess()) ||
+        notificationAdmin();
     }
 
     function lotteryRecord(lotteryId) {
@@ -165,11 +169,14 @@ service cloud.firestore {
 
     match /lottery/{lotteryId} {
       allow create: if
-        validId(request.resource.data.campsiteId) &&
-        request.resource.data.entrantCount == 0 && drawOpen(request.resource.data) &&
-        verifiedAccount(lotteryOwner(request.resource.data));
+        (!managedAccount(lotteryOwner(request.resource.data)) && legacyAccess()) ||
+        (validId(request.resource.data.campsiteId) &&
+          request.resource.data.entrantCount == 0 && drawOpen(request.resource.data) &&
+          verifiedAccount(lotteryOwner(request.resource.data)));
       allow update: if
-        request.resource.data.campsiteId == resource.data.campsiteId &&
+        (!managedAccount(lotteryOwner(resource.data)) &&
+          !managedAccount(lotteryOwner(request.resource.data)) && legacyAccess()) ||
+        (request.resource.data.campsiteId == resource.data.campsiteId &&
           (validCountUpdate(lotteryId) ||
             (verifiedAccount(lotteryOwner(resource.data)) &&
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -178,8 +185,16 @@ service cloud.firestore {
               ])) ||
             (notificationAdmin() &&
               request.resource.data.diff(resource.data).affectedKeys()
-                .hasOnly(['registrationEnd'])));
-      allow delete: if notificationAdmin();
+                .hasOnly(['registrationEnd']))));
+      allow delete: if (!managedAccount(lotteryOwner(resource.data)) && legacyAccess()) ||
+        notificationAdmin();
+    }
+
+    // The deployed compatibility lane covers unlinked entrants and unlinked lotteries before the cutoff.
+    function legacyRegistration(entry) {
+      let path = lotteryRecord(entry.lotteryId);
+      return legacyAccess() && !managedAccount(entry.accountId) &&
+        (!exists(path) || !managedAccount(lotteryOwner(get(path).data)));
     }
 
     function validRegistration(entry, registrationId) {
@@ -217,6 +232,15 @@ service cloud.firestore {
       return /databases/$(database)/documents/lotteryDrawResults/$(lotteryId);
     }
 
+    function validBackupPromotion(lotteryId, winnerIds, promoted) {
+      let lastWinner = winnerIds[winnerIds.size() - 1];
+      let entry = registrationRecord(lotteryId, lastWinner);
+      return lastWinner in promoted && accountActive(lastWinner) &&
+        get(entry).data.drawStatus == 'BACKUP' &&
+        getAfter(entry).data.drawStatus == 'WINNER' &&
+        getAfter(entry).data.backupPosition == 0;
+    }
+
     function validDecline(lotteryId, result) {
       let actor = result.get('lastDeclinedAccountId', '');
       let previous = get(drawResult(lotteryId)).data;
@@ -225,10 +249,14 @@ service cloud.firestore {
       let previousWinners = previous.winnerIds.toSet();
       let promoted = winners.difference(previousWinners);
       let backups = result.backupIds.toSet();
-      return verifiedAccount(actor) && get(registration).data.drawStatus == 'WINNER' &&
+      let entry = get(registration).data;
+      return entry.accountId == actor && entry.lotteryId == lotteryId &&
+        (verifiedAccount(actor) || legacyRegistration(entry)) && entry.drawStatus == 'WINNER' &&
         getAfter(registration).data.drawStatus == 'DECLINED' &&
         previousWinners.difference(winners) == [actor].toSet() &&
         promoted.size() <= 1 && previous.backupIds.toSet().hasAll(promoted.union(backups)) &&
+        result.backupIds == previous.backupIds.removeAll(result.winnerIds.removeAll(previous.winnerIds)) &&
+        (promoted.size() == 0 || validBackupPromotion(lotteryId, result.winnerIds, promoted)) &&
         !winners.hasAny(backups) &&
         result.declinedIds.toSet() == previous.get('declinedIds', []).toSet().union([actor].toSet()) &&
         winners.size() == result.winnerIds.size() && result.winnerCount == winners.size() &&
@@ -240,6 +268,7 @@ service cloud.firestore {
       let result = getAfter(drawResult(entry.lotteryId)).data;
       let next = request.resource.data;
       return changed.hasOnly(['drawStatus', 'backupPosition']) &&
+        (verifiedAccount(result.lastDeclinedAccountId) || legacyRegistration(entry)) &&
         validDecline(entry.lotteryId, result) &&
         ((entry.drawStatus == 'WINNER' && next.drawStatus == 'DECLINED' &&
           entry.accountId == result.lastDeclinedAccountId && next.backupPosition == 0) ||
@@ -247,16 +276,19 @@ service cloud.firestore {
             ((next.drawStatus == 'WINNER' && entry.accountId in result.winnerIds &&
               next.backupPosition == 0) ||
               (next.drawStatus == 'BACKUP' && entry.accountId in result.backupIds &&
-                next.backupPosition is int && next.backupPosition > 0))));
+                next.backupPosition is int && next.backupPosition > 0 &&
+                next.backupPosition <= result.backupIds.size() &&
+                result.backupIds[next.backupPosition - 1] == entry.accountId))));
     }
 
     match /waitingList/{registrationId} {
       allow create: if validRegistration(request.resource.data, registrationId) &&
-        verifiedJoin(request.resource.data);
+        (legacyRegistration(request.resource.data) || verifiedJoin(request.resource.data));
       allow update: if validRegistration(request.resource.data, registrationId) &&
         validRegistrationTransition(resource.data);
       allow delete: if validRegistration(resource.data, registrationId) &&
-        ((notificationAdmin() && !existsAfter(lotteryRecord(resource.data.lotteryId))) ||
+        (legacyRegistration(resource.data) ||
+          (notificationAdmin() && !existsAfter(lotteryRecord(resource.data.lotteryId))) ||
           verifiedLeave(resource.data));
     }
 

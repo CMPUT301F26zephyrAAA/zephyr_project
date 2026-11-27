@@ -219,7 +219,7 @@ class ReservationOfferIntegrationTest {
         )
 
         assertEquals(
-            listOf(backup3),
+            listOf(backup1, backup3),
             getIds(result, "backupIds")
         )
 
@@ -276,7 +276,7 @@ class ReservationOfferIntegrationTest {
         )
 
         assertEquals(
-            listOf(backup3),
+            listOf(backup1, backup3),
             getIds(result, "backupIds")
         )
 
@@ -304,14 +304,15 @@ class ReservationOfferIntegrationTest {
             getIds(result, "winnerIds")
         )
 
-        assertTrue(
-            getIds(result, "backupIds").isEmpty()
+        assertEquals(
+            listOf(backup1, backup2, backup3),
+            getIds(result, "backupIds")
         )
 
         assertEquals("DECLINED", loadStatus(winner1))
 
         assertEquals(1L, result.getLong("winnerCount"))
-        assertEquals(0L, result.getLong("backupCount"))
+        assertEquals(3L, result.getLong("backupCount"))
     }
 
     // TEST 6: Duplicate decline prevention.

@@ -133,8 +133,8 @@ class ReservationOfferModel(
      * backup without exceeding the configured winner limit.
      *
      * Validates lottery completion, entrant eligibility, and draw results.
-     * Removes invalid entries from the backup list and skips accounts
-     * pending deletion while preserving their relative backup order.
+     * Skips unavailable backups for promotion and preserves the order of every
+     * backup who remains in the queue.
      *
      * Updates entrant statuses, backup positions, result lists and
      * counts within one Firestore transaction.
@@ -241,6 +241,7 @@ class ReservationOfferModel(
                     )
 
             if (backupIds.size != backupIds.distinct().size ||
+                backupIds.any { it in winnerIds } ||
                 backupIds.any {
                     it.isBlank() ||
                             it.contains("/") ||
@@ -305,62 +306,34 @@ class ReservationOfferModel(
             winnerIds.remove(accountId)
             declinedIds.add(accountId)
 
-            // Remove permanently invalid backup registrations.
-            // Preserve temporarily unavailable accounts in their
-            // original order so they can be rechecked later.
-            val remainingBackupIds = backupIds.filter { backupId ->
+            // AI Citation [AI-39] (Bhav Saluja)
+            // OpenAI, Codex, backup queue preservation, 2026-11-27. See README.md.
+            val remainingBackupIds = backupIds.toMutableList()
+            val matchingBackups = backupIds.filter { backupId ->
+                val entry = backupDocs.getValue(backupId)
+                entry.getString("lotteryId") == lotteryId &&
+                    entry.getString("accountId") == backupId &&
+                    backupId !in winnerIds && backupId !in declinedIds
+            }.toSet()
 
-                val backupDoc = backupDocs.getValue(backupId)
-                val backupAccount =
-                    backupAccountDocs.getValue(backupId)
-
-                backupDoc.exists() &&
-                        backupDoc.getString("lotteryId") == lotteryId &&
-                        backupDoc.getString("accountId") == backupId &&
-                        backupDoc.getString("drawStatus") == "BACKUP" &&
-                        backupAccount.exists() &&
-                        backupId !in winnerIds &&
-                        backupId !in declinedIds
-
-            }.toMutableList()
-
-            // Select the first eligible backup in the original order.
-            var nextBackupId: String? = null
-
-            if (ReservationOfferValidator.canIssueReplacementOffer(
+            val nextBackupId = if (ReservationOfferValidator.canIssueReplacementOffer(
                     currentWinnerCount = winnerIds.size,
                     numberOfWinners = numberOfWinners
                 )
             ) {
-                nextBackupId =
-                    remainingBackupIds.firstOrNull { backupId ->
-
-                        val backupDoc =
-                            backupDocs.getValue(backupId)
-
-                        val backupAccount =
-                            backupAccountDocs.getValue(backupId)
-
-                        ReservationOfferValidator.canPromote(
-                            registrationExists = backupDoc.exists(),
-
-                            registrationMatches =
-                                backupDoc.getString("lotteryId") ==
-                                        lotteryId &&
-                                        backupDoc.getString("accountId") ==
-                                        backupId,
-
-                            entrantStatus =
-                                backupDoc.getString("drawStatus"),
-
-                            accountExists = backupAccount.exists(),
-
-                            deletionPending =
-                                backupAccount.getBoolean(
-                                    "deletionPending"
-                                ) == true
-                        )
-                    }
+                backupIds.firstOrNull { backupId ->
+                    val entry = backupDocs.getValue(backupId)
+                    val account = backupAccountDocs.getValue(backupId)
+                    ReservationOfferValidator.canPromote(
+                        registrationExists = entry.exists(),
+                        registrationMatches = backupId in matchingBackups,
+                        entrantStatus = entry.getString("drawStatus"),
+                        accountExists = account.exists(),
+                        deletionPending = account.getBoolean("deletionPending") == true
+                    )
+                }
+            } else {
+                null
             }
 
             // All Firestore reads are complete.
@@ -393,16 +366,13 @@ class ReservationOfferModel(
                 winnerIds.add(nextBackupId)
             }
 
-            // Update the remaining backup positions.
             remainingBackupIds.forEachIndexed { index, backupId ->
-
-                val backupRef = backupRefs.getValue(backupId)
-
-                transaction.update(
-                    backupRef,
-                    "backupPosition",
-                    index + 1
-                )
+                val entry = backupDocs.getValue(backupId)
+                if (backupId in matchingBackups && entry.getString("drawStatus") == "BACKUP" &&
+                    entry.getLong("backupPosition") != index + 1L
+                ) {
+                    transaction.update(backupRefs.getValue(backupId), "backupPosition", index + 1)
+                }
             }
 
             // Persist the updated lists and counts together.
