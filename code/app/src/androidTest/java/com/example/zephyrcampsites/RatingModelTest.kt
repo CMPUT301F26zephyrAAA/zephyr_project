@@ -20,6 +20,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
+// Hiral - [AI-06] OpenAI, ChatGPT, Fixing Testcases.
 /**
  * Verifies rating reads and transactions against a local Firestore emulator on port 8082.
  * Requires ratingFirestoreEmulator=true and adb reverse tcp:8082 tcp:8082. Uses a named demo project;
@@ -190,7 +191,7 @@ class RatingModelTest {
     }
 
     @Test
-    fun ownerCannotSubmitByCallingTheModelDirectly() {
+    fun accountWithoutEntrantGrantCannotSubmitByCallingTheModelDirectly() {
         await(firestore.document("accounts/$accountId").update("userType", listOf("owner")))
         assertRejected(CampsiteRating(reservationId, 4))
     }

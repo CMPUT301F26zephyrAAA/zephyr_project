@@ -31,12 +31,14 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+// Hiral - [AI-06] OpenAI, ChatGPT, Fixing Testcases.
 /** Tests entrant rating controls and navigation with local account, stay, and campsite fixtures. */
 @RunWith(AndroidJUnit4::class)
 class RatingViewTest {
     @get:Rule
     val composeTestRule = createComposeRule()
     private val account = mutableStateOf(Account("entrant-1"))
+    private val role = mutableStateOf(ENTRANT)
     private val campsites = mutableStateListOf(campsite(listOf(4, 5)))
     private val model = FakeRatingModel()
 
@@ -86,13 +88,20 @@ class RatingViewTest {
     }
 
     @Test
-    fun ownerAndAdminAreNotOfferedTheEntrantRatingEntry() {
-        account.value = Account("owner-1", userType = listOf("owner"))
+    fun ownerAndAdminModesHideRatingEvenWhenTheAccountHasTheEntrantGrant() {
+        account.value = Account(
+            "multi-role-test",
+            userType = listOf("entrant", "owner", "admin"),
+        )
+        role.value = OWNER
         showNavigation()
+
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
-        composeTestRule.runOnIdle { account.value = account.value.copy(userType = listOf("admin")) }
+
+        composeTestRule.runOnIdle { role.value = ADMIN }
+        composeTestRule.onNodeWithTag("RemoveCampsite").performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
-        assertEquals(0, model.loadCalls)
+        composeTestRule.runOnIdle { assertEquals(0, model.loadCalls) }
     }
 
     @Test
@@ -208,7 +217,9 @@ class RatingViewTest {
                     composable(CampsiteScreens.DetailView.route, arguments = listOf(navArgument("id") { type = NavType.IntType })) {
                         CampsiteDetailView().DetailView(
                             campsite = campsite, account = account.value, codeGenerator = { _, _ -> ImageBitmap(2, 2) },
-                            onBack = { nav.popBackStack() }, ratingController = controller, showEntrantActions = true,
+                            onBack = { nav.popBackStack() },
+                            ratingController = controller,
+                            showEntrantActions = role.value == ENTRANT, showOwnerView = role.value == OWNER, showAdminActions = role.value == ADMIN,
                             onRateCampsite = { nav.navigate(CampsiteScreens.RateCampsite.createRoute(it)) }
                         )
                     }

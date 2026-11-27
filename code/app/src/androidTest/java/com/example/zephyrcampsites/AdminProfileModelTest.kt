@@ -8,6 +8,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
+// Hiral - [AI-06] OpenAI, ChatGPT, Fixing Testcases.
 /** Checks profile cleanup and stored reservation history using only the local emulator. */
 @RunWith(AndroidJUnit4::class)
 class AdminProfileModelTest : AdminEmulatorTest() {
@@ -135,7 +136,7 @@ class AdminProfileModelTest : AdminEmulatorTest() {
     }
 
     @Test
-    fun observerReadsSavedRolePreferenceAndProfileImage() {
+    fun observerNormalizesLegacyRoleAndReadsPreferenceAndProfileImage() {
         val id = "entrant-$suffix"
         put(
             "accounts/$id",
@@ -156,7 +157,7 @@ class AdminProfileModelTest : AdminEmulatorTest() {
                 )
         try {
             val profile = await(result.task)
-            assertEquals(listOf("owner"), profile.userType)
+            assertEquals(listOf("entrant", "owner"), profile.userType)
             assertFalse(profile.notificationsEnabled)
             assertEquals("profiles/$id.jpg", profile.imagePath)
         } finally {

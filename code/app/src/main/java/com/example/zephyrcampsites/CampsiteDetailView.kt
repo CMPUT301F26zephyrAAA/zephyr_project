@@ -67,7 +67,7 @@ import androidx.compose.runtime.mutableIntStateOf
  * Outstanding issue: availability uses the stored booking period until the
  * reservation feature provides a reservation-aware availability schedule.
  */
-class CampsiteDetailView {
+class CampsiteDetailView(private val reservationsModel: ReservationsModel? = null) {
     /**
      * Loads the selected campsite's image and owner for the details screen.
      *
@@ -289,7 +289,6 @@ class CampsiteDetailView {
         var checkingReservations by remember(lottery?.id, accountId) { mutableStateOf(true) }
         var hasExistingReservation by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var reservationCheckError by remember(lottery?.id, accountId) { mutableStateOf("") }
-        val reservationsModel = remember { ReservationsModel() }
 
         LaunchedEffect(showEntrantActions, lottery?.id, accountId, waitingListController) {
             joinError = ""
@@ -346,7 +345,7 @@ class CampsiteDetailView {
                         entrantDrawStatus = status
                         checkingDrawStatus = false
                         if (status == "WINNER") {
-                            reservationsModel.getEntrantReservations(
+                            (reservationsModel ?: ReservationsModel()).getEntrantReservations(
                                 accountId = accountId,
                                 onSuccess = { existing ->
                                     hasExistingReservation = existing.any {

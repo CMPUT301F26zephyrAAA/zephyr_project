@@ -28,6 +28,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+// Hiral - [AI-06] OpenAI, ChatGPT, Fixing Testcases.
 /**
  * Verifies campsite navigation and filter preservation with an in-memory campsite list.
  * Uses the actual summary/detail views and navigation routes without accessing Firebase.
@@ -146,30 +147,35 @@ class CampsiteDetailsNavigationTest {
             }
             val detail = remember { CampsiteDetailView() }
             val navController = rememberNavController()
+            val summaryRoute = roleRoute(ENTRANT, CampsiteScreens.SummaryView.route)
+            val detailsRoute = roleRoute(ENTRANT, CampsiteScreens.DetailView.route)
 
             ZephyrCampsitesTheme {
                 NavHost(
                     navController = navController,
-                    startDestination = CampsiteScreens.SummaryView.route
+                    startDestination = summaryRoute
                 ) {
-                    composable(CampsiteScreens.SummaryView.route) {
+                    composable(summaryRoute) {
                         summary.SummaryView(
-                            onClick = {},
+                            onClick = null,
                             openDetail = { id ->
-                                navController.navigate(CampsiteScreens.DetailView.createRoute(id))
+                                navController.navigate(roleRoute(ENTRANT, CampsiteScreens.DetailView.createRoute(id)))
                             },
                             searchHandler = { listOf(campsite) },
                             filterPage = {},
                             imageLoader = { "" },
-                            locationClient = locationClient
+                            locationClient = locationClient,
+                            onViewChanged = null,
                         )
                     }
                     composable(
-                        route = CampsiteScreens.DetailView.route,
+                        route = detailsRoute,
                         arguments = listOf(navArgument("id") { type = NavType.IntType })
                     ) { entry ->
                         detail.DetailView(
                             campsite = if (entry.arguments?.getInt("id") == 1) campsite else null,
+                            account = Account("details-test-device"),
+                            showEntrantActions = true,
                             codeGenerator = { _, _ -> ImageBitmap(1, 1) },
                             onBack = { navController.popBackStack() }
                         )
