@@ -59,6 +59,10 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.firestore)
+    implementation("com.google.firebase:firebase-auth") {
+        version { strictly("24.2.0") } // Firebase Auth 25 requires newer Kotlin metadata.
+    }
+    implementation("com.google.firebase:firebase-functions")
     implementation("io.github.g0dkar:qrcode-kotlin:4.5.0")
     implementation("io.github.kalinjul.easyqrscan:scanner:0.7.2")
     implementation("androidx.compose.material:material-icons-extended")
