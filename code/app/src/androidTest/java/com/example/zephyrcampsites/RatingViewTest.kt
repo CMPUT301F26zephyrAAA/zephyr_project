@@ -28,6 +28,7 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.firestore.ListenerRegistration
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -63,6 +64,20 @@ class RatingViewTest {
         model.eligible = false
         showNavigation()
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Write Review").assertDoesNotExist()
+    }
+
+    @Test
+    fun writeReviewRequiresTextAndShowsTheSavedReview() {
+        showNavigation()
+        composeTestRule.onNodeWithText("Write Review").performScrollTo().performClick()
+        val submit = composeTestRule.onNodeWithText("Submit Review")
+        submit.assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("CampsiteReviewText").performScrollTo().performTextInput("Quiet lakeside stay.")
+        Espresso.closeSoftKeyboard()
+        submit.performScrollTo().assertIsEnabled().performClick()
+        composeTestRule.onNodeWithText("Review submitted.").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Quiet lakeside stay.").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -80,9 +95,7 @@ class RatingViewTest {
         showNavigation()
 
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
-        composeTestRule.runOnIdle {
-            account.value = account.value.copy(userType = listOf("admin"))
-        }
+        composeTestRule.runOnIdle { account.value = account.value.copy(userType = listOf("admin")) }
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
         composeTestRule.runOnIdle { assertEquals(0, model.loadCalls) }
     }
@@ -214,7 +227,7 @@ class RatingViewTest {
                             filterPage = {},
                             imageLoader = { "" },
                             locationClient = locationClient,
-                            onViewChanged = {},
+                            onViewChanged = null
                         )
                     }
                     composable(CampsiteScreens.DetailView.route, arguments = listOf(navArgument("id") { type = NavType.IntType })) {
@@ -251,6 +264,7 @@ class RatingViewTest {
         var failSave = false
         var delaySave = false
         var pendingSave: (() -> Unit)? = null
+        private var onReviews: ((List<String>) -> Unit)? = null
 
         override fun loadRating(campsiteId: String, accountId: String, onResult: (CampsiteRating?) -> Unit, onError: (String) -> Unit) {
             loadCalls++
@@ -290,6 +304,23 @@ class RatingViewTest {
                 }
                 if (delaySave) { pendingSave = save } else { save() }
             }
+        }
+
+        override fun observeReviews(
+            campsiteId: String, onResult: (List<String>) -> Unit, onError: (String) -> Unit
+        ): ListenerRegistration {
+            onReviews = onResult
+            onResult(listOfNotNull(rating.review.takeIf { it.isNotBlank() }))
+            return ListenerRegistration { onReviews = null }
+        }
+
+        override fun submitReview(
+            campsiteId: String, accountId: String, reservationId: String, review: String,
+            onSuccess: () -> Unit, onError: (String) -> Unit
+        ) {
+            rating = rating.copy(review = review)
+            onReviews?.invoke(listOf(review))
+            onSuccess()
         }
     }
 }

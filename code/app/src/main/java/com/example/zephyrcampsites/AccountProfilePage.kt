@@ -31,16 +31,34 @@ internal fun AccountProfilePage(
         mutableStateOf(false)
     }
     val isDeleting = profileDeletionInProgress.value
+    var isImageUpdating by remember(profileAccount.id) {
+        mutableStateOf(false)
+    }
+
+    var imageError by remember(profileAccount.id) {
+        mutableStateOf("")
+    }
+
+    val displayedAccount = currentAccount.value
+        ?.takeIf { it.id == profileAccount.id }
+        ?: profileAccount
+
+    val canManageImage =
+        role == "entrant" &&
+                "entrant" in displayedAccount.userType &&
+                currentAccount.value?.id == profileAccount.id
 
     AccountsView().ProfileOverviewView(
-        account = profileAccount,
+        account = displayedAccount,
         onEdit = {
             navHostController.navigate(
                 roleRoute(role, GeneralScreen.PersonalInformation.route)
             )
         },
         onPolicy = {
-            navHostController.navigate(roleRoute(role, GeneralScreen.Policy.route))
+            navHostController.navigate(
+                roleRoute(role, GeneralScreen.Policy.route)
+            )
         },
         onSettings = {
             navHostController.navigate(
@@ -49,9 +67,75 @@ internal fun AccountProfilePage(
         },
         onBack = onBack,
         onDelete = {
-            deleteError = false
-            showDeleteDialog = true
-        }
+            if (!isImageUpdating) {
+                deleteError = false
+                showDeleteDialog = true
+            }
+        },
+        onImageSelected = { imageUri ->
+            if (canManageImage && !isImageUpdating && !isDeleting) {
+
+                isImageUpdating = true
+                imageError = ""
+
+                accountsController.updateOwnProfileImage(
+                    context = activityContext,
+                    account = displayedAccount,
+                    imageUri = imageUri,
+                    onSuccess = { updatedAccount ->
+                        val latestAccount = currentAccount.value
+
+                        if (latestAccount != null &&
+                            latestAccount.id == updatedAccount.id
+                        ) {
+                            currentAccount.value = latestAccount.copy(
+                                compressedImage = updatedAccount.compressedImage,
+                                imagePath = updatedAccount.imagePath
+                            )
+                        }
+
+                        isImageUpdating = false
+                    },
+                    onError = { message ->
+                        imageError = message
+                        isImageUpdating = false
+                    }
+                )
+            }
+        },
+        onRemoveImage = {
+            if (canManageImage && !isImageUpdating && !isDeleting) {
+
+                isImageUpdating = true
+                imageError = ""
+
+                accountsController.removeOwnProfileImage(
+                    context = activityContext,
+                    account = displayedAccount,
+                    onSuccess = { updatedAccount ->
+                        val latestAccount = currentAccount.value
+
+                        if (latestAccount != null &&
+                            latestAccount.id == updatedAccount.id
+                        ) {
+                            currentAccount.value = latestAccount.copy(
+                                compressedImage = updatedAccount.compressedImage,
+                                imagePath = updatedAccount.imagePath
+                            )
+                        }
+
+                        isImageUpdating = false
+                    },
+                    onError = { message ->
+                        imageError = message
+                        isImageUpdating = false
+                    }
+                )
+            }
+        },
+        isImageUpdating = isImageUpdating,
+        imageError = imageError,
+        canManageImage = canManageImage && !isDeleting && !showDeleteDialog
     )
 
     if (showDeleteDialog) {

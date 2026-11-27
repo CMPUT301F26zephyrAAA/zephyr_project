@@ -15,6 +15,7 @@ import java.util.TimeZone
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.graphics.Color
@@ -25,7 +26,8 @@ import java.util.Date
  * Displays the lottery settings for a campsite.
  */
 class LotteryView (
-    private val lotteryController: LotteryController
+    private val lotteryController: LotteryController,
+    private val reservationOfferController: ReservationOfferController
 ) {
     /**
      * Displays the lottery settings for the selected campsite.
@@ -327,6 +329,37 @@ class LotteryView (
         onBackClick: () -> Unit
     ) {
         val lottery = lotteryController.getLotteryById(lotteryId)
+        var declinedEntrants by remember(lotteryId) {
+            mutableStateOf<List<String>>(emptyList())
+        }
+
+        var loadingDeclines by remember(lotteryId) {
+            mutableStateOf(true)
+        }
+
+        var declineError by remember(lotteryId) {
+            mutableStateOf("")
+        }
+
+        LaunchedEffect(lotteryId) {
+            loadingDeclines = true
+            declineError = ""
+            // AI Citation [AI-28]
+            // OpenAI, ChatGPT assisted with owner-facing
+            // declined entrant retrieval and progress display.
+            // AI usage and citation documented in the GitHub Wiki.
+            reservationOfferController.getDeclinedEntrants(
+                lotteryId = lotteryId,
+                onSuccess = { entrants ->
+                    declinedEntrants = entrants
+                    loadingDeclines = false
+                },
+                onError = { error ->
+                    declineError = error
+                    loadingDeclines = false
+                }
+            )
+        }
 
         if (lottery == null) {
             Text("Lottery not found.")
@@ -425,7 +458,29 @@ class LotteryView (
             Text("Reserved: N/A")
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text("Declined: N/A")
+            when {
+                loadingDeclines -> {
+                    Text("Declined: Loading...")
+                }
+
+                declineError.isNotEmpty() -> {
+                    Text(
+                        text = "Declined: Unable to load",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                else -> {
+                    Text("Declined: ${declinedEntrants.size}")
+
+                    declinedEntrants.forEach { entrantId ->
+                        Text(
+                            text = "Declined entrant: $entrantId",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 

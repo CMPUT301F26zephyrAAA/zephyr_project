@@ -28,4 +28,7 @@ data class Lottery(
     // Tracks whether the lottery draw is waiting, running, or finished.
     var drawStatus: String = "PENDING"
 
+    // Time when the current lottery draw started.
+    var drawStartedAt: Long = 0L
+
 }

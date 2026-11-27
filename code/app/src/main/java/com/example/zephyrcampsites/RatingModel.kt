@@ -5,6 +5,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Source
@@ -167,13 +168,14 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             check(reservation != null && RatingValidator.hasStayed(
                 reservation, accountId, campsiteId, System.currentTimeMillis()
             )) { "You can only rate a campsite after a non-cancelled stay has ended." }
+            checkCompletedStay(campsiteDocument, transaction.get(reservationRef), transaction.get(accountRef))
 
             val scores = (campsiteDocument.get("rating") as? List<*>)?.map { value ->
                 val number = value as? Number ?: error("Invalid stored rating.")
                 check(number.toDouble() == number.toInt().toDouble()) { "Invalid stored rating." }
                 number.toInt()
             } ?: emptyList()
-            val previousScore = if (previousRating.exists()) {
+            val previousScore = if (previousRating.contains("score")) {
                 previousRating.getLong("score")?.toInt() ?: error("Invalid previous rating.")
             } else {
                 null
@@ -329,6 +331,60 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
             check(number.toDouble() == number.toInt().toDouble()) { "Invalid stored rating." }
             number.toInt()
         } ?: emptyList()
+
+    override fun observeReviews(
+        campsiteId: String, onResult: (List<String>) -> Unit, onError: (String) -> Unit
+    ): ListenerRegistration {
+        return campsites.document(campsiteId).collection("ratings")
+            .whereGreaterThan("review", "")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    onError("Unable to load campsite reviews.")
+                } else if (snapshot != null) {
+                    val reviews = snapshot.documents.sortedByDescending { it.get("updatedAt") as? Timestamp }
+                        .mapNotNull { (it.get("review") as? String)?.takeIf { text -> text.isNotBlank() } }
+                    onResult(reviews)
+                }
+            }
+    }
+
+    override fun submitReview(
+        campsiteId: String, accountId: String, reservationId: String, review: String,
+        onSuccess: () -> Unit, onError: (String) -> Unit
+    ) {
+        val text = review.trim()
+        if (text.isEmpty()) {
+            onError("Enter a review before submitting.")
+            return
+        }
+
+        val campsiteRef = campsites.document(campsiteId)
+        val ratingRef = campsiteRef.collection("ratings").document(accountId)
+        val reservationRef = reservations.document(reservationId)
+        val accountRef = firestore.collection("accounts").document(accountId)
+
+        firestore.runTransaction { transaction ->
+            checkCompletedStay(transaction.get(campsiteRef), transaction.get(reservationRef), transaction.get(accountRef))
+            transaction.set(ratingRef, mapOf(
+                "accountId" to accountId, "campsiteId" to campsiteId, "reservationId" to reservationId,
+                "review" to text, "updatedAt" to FieldValue.serverTimestamp()
+            ), SetOptions.merge())
+        }
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { onError("Unable to save your review. Check your completed stay and try again.") }
+    }
+
+    /** Verifies the campsite, entrant, and completed reservation from the transaction snapshots. */
+    private fun checkCompletedStay(campsite: DocumentSnapshot, stay: DocumentSnapshot, account: DocumentSnapshot) {
+        check(campsite.exists()) { "Campsite no longer available." }
+        val role = account.get("userType")
+        check(role == "entrant" || (role is List<*> && "entrant" in role)) { "Only entrants can rate or review a campsite." }
+        check(account.getBoolean("deletionPending") != true) { "Your profile is being deleted." }
+        val reservation = readReservation(stay)
+        check(reservation != null && RatingValidator.hasStayed(
+            reservation, account.id, campsite.id, System.currentTimeMillis()
+        )) { "A non-cancelled stay must have ended." }
+    }
 
     /**
      * Reads the reservation contract, rejecting incomplete records rather than assuming a stay occurred.

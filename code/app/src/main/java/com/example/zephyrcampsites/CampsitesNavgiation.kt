@@ -28,9 +28,14 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import android.content.Context
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import com.google.android.gms.location.FusedLocationProviderClient
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import kotlin.coroutines.resume
 
 @Composable
 internal fun CampsitesNavigation(
@@ -62,13 +67,23 @@ internal fun CampsitesNavigation(
     val lotteryController = remember(lotteryModel) {
         LotteryController(lotteryModel)
     }
-    val lotteryView = remember(lotteryController) {
-        LotteryView(lotteryController)
-    }
 
     val waitingListModel = remember { WaitingListModel() }
     val waitingListController = remember(waitingListModel) {
         WaitingListController(waitingListModel)
+    }
+    val reservationOfferModel = remember { ReservationOfferModel() }
+    val reservationOfferController = remember(reservationOfferModel) {
+        ReservationOfferController(reservationOfferModel)
+    }
+    val lotteryView = remember(
+        lotteryController,
+        reservationOfferController
+    ) {
+        LotteryView(
+            lotteryController,
+            reservationOfferController
+        )
     }
     val reservationsController = remember {
         ReservationsController()
@@ -200,31 +215,109 @@ internal fun CampsitesNavigation(
         }
     }
 
+    // AI Citation [AI-27]
+    // OpenAI, ChatGPT assisted with lottery draw status
+    // lookups, sorting, and navigation integration.
+    // AI usage and citation documented in the GitHub Wiki.
     @Composable
     fun CampsiteDetails(
         role: String,
         campsiteId: Int,
-        onSelectedLottery: Lottery? = null,
-        onDetailsBack: () -> Unit = onBack
     ) {
         val canManage = role == OWNER && ownsCampsite(campsiteId.toString())
         val now = System.currentTimeMillis()
+        var winningLotteryId by remember(account?.id, campsiteId) {
+            mutableStateOf<String?>(null)
+        }
+        var offerLookupError by remember(account?.id, campsiteId) {
+            mutableStateOf(false)
+        }
         val entrantLotteries = if (role == ENTRANT) {
             lotteryModel.lotteries.filter { lottery ->
-                lottery.campsiteId == campsiteId.toString() && now < lottery.bookingStart
+                lottery.campsiteId == campsiteId.toString()
             }
         } else {
             emptyList()
         }
 
-        val campsiteLottery = entrantLotteries
-            .filter { now >= it.registrationStart && now < it.registrationEnd }
-            .maxByOrNull { it.registrationStart }
-            ?: entrantLotteries
+        val activeWinningLottery = entrantLotteries.firstOrNull {
+            it.id == winningLotteryId
+        }
+
+        val availableLotteries = entrantLotteries.filter {
+            now < it.bookingStart
+        }
+
+        val campsiteLottery = activeWinningLottery
+            ?: availableLotteries
+                .filter { now >= it.registrationStart && now < it.registrationEnd }
+                .maxByOrNull { it.registrationStart }
+            ?: availableLotteries
                 .filter { now >= it.registrationStart }
                 .maxByOrNull { it.registrationStart }
-            ?: entrantLotteries.minByOrNull { it.registrationStart }
+            ?: availableLotteries.minByOrNull { it.registrationStart }
 
+        LaunchedEffect(account?.id, campsiteId, entrantLotteries.toList()) {
+            winningLotteryId = null
+            offerLookupError = false
+
+            val accountId = account?.id
+
+            if (role != ENTRANT || accountId.isNullOrBlank()) {
+                return@LaunchedEffect
+            }
+
+            // Check newer lotteries first.
+            val orderedLotteries = entrantLotteries.sortedWith(
+                compareByDescending<Lottery> { it.registrationStart }
+                    .thenBy { it.id }
+            )
+
+            var declinedLotteryId: String? = null
+            for (lottery in orderedLotteries) {
+                val status = kotlinx.coroutines.suspendCancellableCoroutine<String?> {
+                        continuation ->
+                    reservationOfferController.getEntrantDrawStatus(
+                        lotteryId = lottery.id,
+                        accountId = accountId,
+                        onResult = { result ->
+                            if (continuation.isActive) {
+                                continuation.resume(result)
+                            }
+                        },
+                        onError = { error ->
+                            android.util.Log.e(
+                                "ReservationOffer",
+                                "Could not check lottery ${lottery.id}: $error"
+                            )
+                            offerLookupError = true
+
+                            if (continuation.isActive) {
+                                continuation.resume(null)
+                            }
+                        }
+                    )
+                }
+
+                if (status == "WINNER") {
+                    winningLotteryId = lottery.id
+                    break
+                }
+
+                if (status == "DECLINED" && declinedLotteryId == null) {
+                    declinedLotteryId = lottery.id
+                }
+            }
+            if (winningLotteryId == null) {
+                winningLotteryId = declinedLotteryId
+            }
+        }
+        if (offerLookupError) {
+            android.util.Log.w(
+                "ReservationOffer",
+                "Some lottery results could not be loaded for campsite $campsiteId"
+            )
+        }
         campsiteDetailView.DetailScreen(
             campsiteId = campsiteId,
             controller = campsiteController,
@@ -253,6 +346,7 @@ internal fun CampsitesNavigation(
             },
             lottery = campsiteLottery,
             waitingListController = waitingListController,
+            reservationOfferController = reservationOfferController,
             ratingController = ratingController,
             onRateCampsite = if (role == ENTRANT) {
                 { id ->
@@ -377,25 +471,32 @@ internal fun CampsitesNavigation(
                             val campsiteId = lotteryController
                                 .getLotteryById(lotteryId)?.campsiteId
 
-                            lotteryView.LotteryDetailsView(
-                                lotteryId = lotteryId,
-                                onEditClick = if (
-                                    isOwnerGraph && ownsCampsite(campsiteId)
-                                ) {
-                                    {
-                                        navHostController.navigate(
-                                            "$OWNER/editLottery/${
-                                                Uri.encode(
-                                                    lotteryId
-                                                )
-                                            }"
-                                        )
-                                    }
-                                } else {
-                                    null
-                                },
-                                onBackClick = onBack
-                            )
+                            if (!isOwnerGraph || !ownsCampsite(campsiteId)) {
+                                FeaturePage(
+                                    "Only the campsite owner can view lottery details.",
+                                    onBack
+                                )
+                            } else {
+                                lotteryView.LotteryDetailsView(
+                                    lotteryId = lotteryId,
+                                    onEditClick = if (
+                                        isOwnerGraph && ownsCampsite(campsiteId)
+                                    ) {
+                                        {
+                                            navHostController.navigate(
+                                                "$OWNER/editLottery/${
+                                                    Uri.encode(
+                                                        lotteryId
+                                                    )
+                                                }"
+                                            )
+                                        }
+                                    } else {
+                                        null
+                                    },
+                                    onBackClick = onBack
+                                )
+                            }
                         }
                     }
 

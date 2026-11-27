@@ -56,20 +56,20 @@ class RatingView {
      */
     @Composable
     fun RatingEntry(campsiteId: String, account: Account, controller: RatingController, onRate: (String) -> Unit) {
-        var eligible by remember(campsiteId, account.id) { mutableStateOf(false) }
+        var rating by remember(campsiteId, account.id) { mutableStateOf<CampsiteRating?>(null) }
         var error by remember(campsiteId, account.id) { mutableStateOf<String?>(null) }
         var retry by remember { mutableStateOf(0) }
         DisposableEffect(campsiteId, account.id, retry) {
             var active = true
-            eligible = false
+            rating = null
             error = null
             controller.loadRating(campsiteId, account,
-                onResult = { if (active) { eligible = it != null } },
+                onResult = { if (active) { rating = it } },
                 onError = { if (active) { error = it } }
             )
             onDispose { active = false }
         }
-        if (eligible) {
+        if (rating != null) {
             Button(onClick = { onRate(campsiteId) }, shape = RoundedCornerShape(2.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = ProfileMenuGreen, contentColor = Color.White),
                 modifier = Modifier.testTag("RateCampsiteEntry")) {
@@ -81,6 +81,7 @@ class RatingView {
             Text(loadError, color = MaterialTheme.colorScheme.error)
             Button(onClick = { retry++ }) { Text(stringResource(R.string.rating_retry)) }
         }
+        CampsiteReviews(campsiteId, account, rating, controller)
     }
 
     /**
