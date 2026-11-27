@@ -78,26 +78,6 @@ class RatingController(private val model: RatingGateway = RatingModel()) {
         model.submitReview(campsiteId, account.id, reservationId, review, onSuccess, onError)
     }
 
-    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
-    fun observeRating(
-        campsiteId: String,
-        account: Account?,
-        onResult: (CampsiteRating?) -> Unit,
-        onError: (String) -> Unit,
-    ): () -> Unit {
-        if (
-            account == null ||
-            "entrant" !in account.userType ||
-            !validId(campsiteId) ||
-            !validId(account.id)
-        ) {
-            onResult(null)
-            return {}
-        }
-
-        return model.observeRating(campsiteId, account.id, onResult, onError)
-    }
-
     /** Checks that an ID identifies one Firestore document. */
     private fun validId(id: String): Boolean = id.isNotBlank() && !id.contains("/")
 }

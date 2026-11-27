@@ -64,14 +64,14 @@ class RatingModelTest {
         var campsite = await(firestore.document("campsite/$campsiteId").get(Source.SERVER)).toObject(Campsite::class.java)!!
         assertEquals(listOf(4, 5, 2), campsite.rating)
         assertEquals(11.0 / 3, campsite.averageRating!!, 0.0001)
-        assertEquals(CampsiteRating(reservationId, 2, "Quiet lakeside stay."), load()?.copy(accountId = null, updatedAt = null))
+        assertEquals(CampsiteRating(reservationId, 2, "Quiet lakeside stay."), load())
 
         await(submit(CampsiteRating(reservationId, 5, "Would stay again.")))
         campsite = await(firestore.document("campsite/$campsiteId").get(Source.SERVER)).toObject(Campsite::class.java)!!
         assertEquals(listOf(4, 5, 5), campsite.rating)
         assertEquals(14.0 / 3, campsite.averageRating!!, 0.0001)
         assertEquals(1, await(firestore.collection("campsite/$campsiteId/ratings").get(Source.SERVER)).size())
-        assertEquals(CampsiteRating(reservationId, 5, "Would stay again."), load()?.copy(accountId = null, updatedAt = null))
+        assertEquals(CampsiteRating(reservationId, 5, "Would stay again."), load())
     }
 
     @Test

@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 class AdminCampsiteModelTest : AdminEmulatorTest() {
     private lateinit var model: CampsiteModel
     private val campsiteId = "site-$suffix"
-    private val admin = Account("admin-$suffix", userType = listOf("admin"))
+    private val admin = Account("admin-$suffix", userType = "admin")
 
     @After
     fun stopListener() {
@@ -72,7 +72,7 @@ class AdminCampsiteModelTest : AdminEmulatorTest() {
             val result = TaskCompletionSource<Boolean>()
             CampsiteController(model)
                 .removeCampsite(
-                    Account("account-$suffix", userType = listOf(role)),
+                    Account("account-$suffix", userType = role),
                     Campsite(campsiteId),
                     onSuccess = { result.setResult(true) },
                     onFailure = { result.setResult(false) },
