@@ -319,6 +319,67 @@ test("keeps legacy writes and protects managed records", async () => {
   assert.equal((await legacy.get()).get("name"), "Legacy Camper");
 });
 
+test("an unlinked profile can complete deletion and cleanup", async () => {
+  const accountId = `legacy-delete-${suffix}`;
+  const user = {accountId};
+  const profilePath = `accounts/${accountId}`;
+  const site = `legacy-delete-site-${suffix}`;
+  const id = `legacy-delete-lottery-${suffix}`;
+  const waitingPath = `waitingList/${id}_${accountId}`;
+  const reservationPath = `reservation/legacy-delete-${suffix}`;
+  const bookingStart = Timestamp.fromMillis(Date.now() + 86400000);
+  const bookingEnd = Timestamp.fromMillis(Date.now() + 172800000);
+  const batch = db.batch();
+  batch.create(db.doc(profilePath), {
+    id: accountId, userType: "entrant", notificationsEnabled: false,
+  });
+  batch.create(db.doc(`campsite/${site}`), {
+    ownerID: `legacy-owner-${suffix}`,
+  });
+  batch.create(db.doc(`lottery/${id}`), {
+    campsiteId: site, entrantCount: 1, drawStatus: "COMPLETED",
+  });
+  batch.create(db.doc(waitingPath), {
+    lotteryId: id, accountId, drawStatus: "WINNER", backupPosition: 0,
+  });
+  batch.create(db.doc(reservationPath), {
+    accountId, campsiteId: site, bookedPeriodStart: bookingStart,
+    bookedPeriodEnd: bookingEnd, cancelled: false,
+  });
+  await batch.commit();
+
+  const managedPath = `accounts/${accounts.allowed.accountId}`;
+  assert.equal((await patch(user, managedPath, {deletionPending: true},
+      true)).status, 403);
+  assert.equal((await commit(user, [
+    {delete: `${documents}/${managedPath}`},
+  ])).status, 403);
+  const removeProfile = {delete: `${documents}/${profilePath}`};
+  assert.equal((await commit(user, [removeProfile])).status, 403);
+  const pending = await patch(user, profilePath, {deletionPending: true}, true);
+  assert.equal(pending.status, 200, await pending.text());
+
+  const detachBooking = update(reservationPath, {cancelled: true});
+  detachBooking.updateMask.fieldPaths.push("accountId");
+  const deleted = await commit(user, [
+    update(`lottery/${id}`, {
+      entrantCount: 0, waitlistChangeAccountId: accountId,
+    }),
+    {delete: `${documents}/${waitingPath}`},
+    detachBooking,
+    removeProfile,
+  ]);
+  assert.equal(deleted.status, 200, await deleted.text());
+  assert.equal((await db.doc(profilePath).get()).exists, false);
+  assert.equal((await db.doc(waitingPath).get()).exists, false);
+  assert.equal((await db.doc(`lottery/${id}`).get()).get("entrantCount"), 0);
+  const booking = await db.doc(reservationPath).get();
+  assert.equal(booking.get("cancelled"), true);
+  assert.equal(booking.get("accountId"), undefined);
+  assert.deepEqual(booking.get("bookedPeriodStart"), bookingStart);
+  assert.deepEqual(booking.get("bookedPeriodEnd"), bookingEnd);
+});
+
 test("validates sends and delivers only to the chosen entrant", async () => {
   const owner = accounts.owner;
   const allowed = accounts.allowed;
@@ -365,72 +426,95 @@ test("validates sends and delivers only to the chosen entrant", async () => {
   assert.equal(response.status, 403);
 });
 
-test("a decline preserves the remaining eligible backup queue", async () => {
-  const id = `finished-${suffix}`;
-  const winner = accounts.winner;
-  const backupIds = [accounts.late, accounts.optedOut, accounts.outsider]
-      .map((backup) => backup.accountId);
-  const [promotedId, ...remaining] = backupIds;
-  const winnerPath = `waitingList/${id}_${winner.accountId}`;
-  const backupPath = (accountId) => `waitingList/${id}_${accountId}`;
-  const resultPath = `lotteryDrawResults/${id}`;
-  const batch = db.batch();
-  batch.create(db.doc(`lottery/${id}`), {
-    campsiteId, drawCompleted: true, drawStatus: "COMPLETED", entrantCount: 4,
-  });
-  batch.create(db.doc(winnerPath), {
-    lotteryId: id, accountId: winner.accountId,
-    drawStatus: "WINNER", backupPosition: 0,
-  });
-  backupIds.forEach((accountId, index) => {
-    batch.create(db.doc(backupPath(accountId)), {
-      lotteryId: id, accountId, drawStatus: "BACKUP",
-      backupPosition: index + 1,
+for (const legacy of [false, true]) {
+  const actor = legacy ? "unlinked winner" : "verified winner";
+  test(`${actor} can promote a backup and preserve the queue`, async () => {
+    const id = `finished-${legacy ? "legacy" : "managed"}-${suffix}`;
+    const winner = legacy ? {accountId: `unlinked-winner-${suffix}`} :
+      accounts.winner;
+    const site = legacy ? `unlinked-site-${suffix}` : campsiteId;
+    const backupIds = [accounts.late, accounts.optedOut, accounts.outsider]
+        .map((backup) => backup.accountId);
+    const [promotedId, ...remaining] = backupIds;
+    const winnerPath = `waitingList/${id}_${winner.accountId}`;
+    const backupPath = (accountId) => `waitingList/${id}_${accountId}`;
+    const resultPath = `lotteryDrawResults/${id}`;
+    const batch = db.batch();
+    if (legacy) {
+      batch.create(db.doc(`accounts/${winner.accountId}`), {
+        name: "Old Camper",
+      });
+      batch.create(db.doc(`campsite/${site}`), {
+        ownerID: `legacy-owner-${suffix}`,
+      });
+    }
+    batch.create(db.doc(`lottery/${id}`), {
+      campsiteId: site, drawCompleted: true, drawStatus: "COMPLETED",
+      entrantCount: 4,
     });
+    batch.create(db.doc(winnerPath), {
+      lotteryId: id, accountId: winner.accountId,
+      drawStatus: "WINNER", backupPosition: 0,
+    });
+    backupIds.forEach((accountId, index) => {
+      batch.create(db.doc(backupPath(accountId)), {
+        lotteryId: id, accountId, drawStatus: "BACKUP",
+        backupPosition: index + 1,
+      });
+    });
+    batch.create(db.doc(resultPath), {
+      winnerIds: [winner.accountId], backupIds,
+      declinedIds: [], winnerCount: 1, backupCount: 3,
+    });
+    await batch.commit();
+    const decline = update(winnerPath, {
+      drawStatus: "DECLINED", backupPosition: 0,
+    });
+    const promotion = update(backupPath(promotedId), {
+      drawStatus: "WINNER", backupPosition: 0,
+    });
+    const resultsForQueue = (queue) => update(resultPath, {
+      lastDeclinedAccountId: winner.accountId,
+      winnerIds: [promotedId], backupIds: queue,
+      declinedIds: [winner.accountId],
+      winnerCount: 1, backupCount: queue.length,
+    });
+    for (const queue of [remaining.slice(0, 1), [...remaining].reverse()]) {
+      const result = await commit(winner, [
+        decline, promotion, resultsForQueue(queue),
+      ]);
+      assert.equal(result.status, 403);
+    }
+    assert.equal((await commit(winner, [
+      decline, resultsForQueue(remaining),
+    ])).status, 403);
+    const original = await db.doc(resultPath).get();
+    assert.deepEqual(original.get("backupIds"), backupIds);
+    assert.equal((await commit(winner, [promotion])).status, 403);
+    const writes = [
+      decline, promotion, resultsForQueue(remaining),
+      ...remaining.map((accountId, index) => update(backupPath(accountId), {
+        backupPosition: index + 1,
+      })),
+    ];
+    if (legacy) {
+      const owner = db.doc(`campsite/${site}`);
+      await owner.update({ownerID: accounts.owner.accountId});
+      assert.equal((await commit(winner, writes)).status, 403);
+      await owner.update({ownerID: `legacy-owner-${suffix}`});
+    }
+    const result = await commit(winner, writes);
+    assert.equal(result.status, 200, await result.text());
+    const saved = await db.doc(resultPath).get();
+    assert.deepEqual(saved.get("backupIds"), remaining);
+    assert.equal(saved.get("backupCount"), 2);
+    for (const [index, accountId] of remaining.entries()) {
+      const registration = await db.doc(backupPath(accountId)).get();
+      assert.equal(registration.get("drawStatus"), "BACKUP");
+      assert.equal(registration.get("backupPosition"), index + 1);
+    }
   });
-  batch.create(db.doc(resultPath), {
-    winnerIds: [winner.accountId], backupIds,
-    declinedIds: [], winnerCount: 1, backupCount: 3,
-  });
-  await batch.commit();
-  const decline = update(winnerPath, {
-    drawStatus: "DECLINED", backupPosition: 0,
-  });
-  const promotion = update(backupPath(promotedId), {
-    drawStatus: "WINNER", backupPosition: 0,
-  });
-  const resultsForQueue = (queue) => update(resultPath, {
-    lastDeclinedAccountId: winner.accountId,
-    winnerIds: [promotedId], backupIds: queue, declinedIds: [winner.accountId],
-    winnerCount: 1, backupCount: queue.length,
-  });
-  for (const queue of [remaining.slice(0, 1), [...remaining].reverse()]) {
-    const result = await commit(winner, [
-      decline, promotion, resultsForQueue(queue),
-    ]);
-    assert.equal(result.status, 403);
-  }
-  assert.equal((await commit(winner, [
-    decline, resultsForQueue(remaining),
-  ])).status, 403);
-  const original = await db.doc(resultPath).get();
-  assert.deepEqual(original.get("backupIds"), backupIds);
-  const result = await commit(winner, [
-    decline, promotion, resultsForQueue(remaining),
-    ...remaining.map((accountId, index) => update(backupPath(accountId), {
-      backupPosition: index + 1,
-    })),
-  ]);
-  assert.equal(result.status, 200, await result.text());
-  const saved = await db.doc(resultPath).get();
-  assert.deepEqual(saved.get("backupIds"), remaining);
-  assert.equal(saved.get("backupCount"), 2);
-  for (const [index, accountId] of remaining.entries()) {
-    const registration = await db.doc(backupPath(accountId)).get();
-    assert.equal(registration.get("drawStatus"), "BACKUP");
-    assert.equal(registration.get("backupPosition"), index + 1);
-  }
-});
+}
 
 test("everyone uses current membership and honors opt-outs", async () => {
   const owner = accounts.owner;

@@ -18,6 +18,10 @@ owned by unlinked profiles during the deployed legacy access window. This includ
 clients that omit the account marker. Managed lotteries and profiles use verified identity and
 paired registration and count updates.
 
+The legacy window also allows existing unlinked profiles to use the app's profile deletion and
+cleanup flow. In legacy lotteries, a valid winner decline can promote a backup whose profile uses
+Firebase Auth. The promotion, queue changes, and decline must commit together.
+
 Legacy participants use the notification flow once an administrator verifies the profile and
 sets its Firebase Auth UID in `notificationAccountLinks/{accountId}`. The app shows both IDs if a
 link is required. The notification functions verify ownership against the campsite and lottery
@@ -62,3 +66,8 @@ Follow-up prompt:
 Codex also generated the legacy rollout corrections and backup queue rule and tests on November 27,
 2026. The request was to keep the live preference and waitlist behavior for unlinked profiles,
 retain verified notification ownership, and preserve the eligible backup queue after a decline.
+
+On November 27, 2026, OpenAI Codex reproduced and fixed two emulator regressions under **AI-39**.
+It restored the legacy profile deletion flow and allowed atomic backup promotion in a legacy
+lottery when the winner is unlinked and the backup uses Firebase Auth. It added regression tests
+for both flows. See the team AI Documentation entry above.

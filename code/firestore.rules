@@ -81,8 +81,10 @@ service cloud.firestore {
         request.resource.data.userType == ['entrant', 'owner'];
       allow update: if (!managedAccount(accountId) && legacyAccess() &&
           request.resource.data.get('notificationsEnabled', true) is bool &&
+          request.resource.data.get('deletionPending', false) is bool &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'name', 'email', 'phoneNumber', 'imagePath', 'compressedImage', 'notificationsEnabled'
+            'name', 'email', 'phoneNumber', 'imagePath', 'compressedImage',
+            'notificationsEnabled', 'deletionPending'
           ])) ||
         (validManagedProfile(accountId) &&
           ((verifiedAccount(accountId) &&
@@ -94,7 +96,10 @@ service cloud.firestore {
               request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                 'imagePath', 'compressedImage', 'deletionPending'
               ]))));
-      allow delete: if verifiedAccount(accountId) || notificationAdmin();
+      // Legacy clients mark the profile before committing deletion and related cleanup.
+      allow delete: if (!managedAccount(accountId) && legacyAccess() &&
+          resource.data.get('deletionPending', false) == true) ||
+        verifiedAccount(accountId) || notificationAdmin();
     }
 
     function campsiteRecord(campsiteId) {
@@ -267,8 +272,8 @@ service cloud.firestore {
       let changed = request.resource.data.diff(entry).affectedKeys();
       let result = getAfter(drawResult(entry.lotteryId)).data;
       let next = request.resource.data;
+      // The declining winner authorizes the paired changes to their lottery's backups.
       return changed.hasOnly(['drawStatus', 'backupPosition']) &&
-        (verifiedAccount(result.lastDeclinedAccountId) || legacyRegistration(entry)) &&
         validDecline(entry.lotteryId, result) &&
         ((entry.drawStatus == 'WINNER' && next.drawStatus == 'DECLINED' &&
           entry.accountId == result.lastDeclinedAccountId && next.backupPosition == 0) ||
