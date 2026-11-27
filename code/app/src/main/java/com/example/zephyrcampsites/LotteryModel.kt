@@ -94,6 +94,9 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.drawCompletedAt = 0L
         lottery.drawStatus = "PENDING"
 
+        // No draw has started for this lottery yet.
+        lottery.drawStartedAt = 0L
+
         // Save the lottery and confirm the result.
         connector.addWithCallback(
             value = lottery,

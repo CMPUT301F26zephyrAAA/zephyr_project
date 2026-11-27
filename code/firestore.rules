@@ -1,0 +1,289 @@
+// Firestore rules for reservation chat, verified accounts, and lottery notifications.
+// AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, write protection, 2026-11-27.
+// accounts/{accountId}: auth_<Firebase UID>. Preferences are booleans.
+// lottery/{lotteryId}: campsiteId, registration millis, entrantCount and waitlistChangeAccountId.
+// waitingList/{lotteryId}_{accountId}: paired entry for the lottery's counter transaction.
+// Admin-managed reservationChatAccess/{reservationId}: entrantAccountId, ownerAccountId, campsiteId.
+// reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
+// reservationChat/{reservationId}: same participant fields, immutable after creation.
+// messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
+// readReceipts/{accountId}: readAt (newest incoming message timestamp seen).
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function verifiedAccount(accountId) {
+      return request.auth != null && validId(accountId) &&
+        accountId == 'auth_' + request.auth.uid;
+    }
+
+    function accountRecord(accountId) {
+      return /databases/$(database)/documents/accounts/$(accountId);
+    }
+
+    function notificationAdmin() {
+      return request.auth != null && request.auth.token.get('admin', false) == true;
+    }
+
+    function validManagedProfile(accountId) {
+      let data = request.resource.data;
+      return data.get('id', accountId) == accountId &&
+        data.get('notificationsEnabled', true) is bool;
+    }
+
+    match /accounts/{accountId} {
+      allow create: if verifiedAccount(accountId) &&
+        validManagedProfile(accountId) &&
+        request.resource.data.keys().hasOnly(['id', 'userType', 'notificationsEnabled']) &&
+        request.resource.data.id == accountId &&
+        request.resource.data.notificationsEnabled is bool &&
+        request.resource.data.userType == ['entrant', 'owner'];
+      allow get: if verifiedAccount(accountId) || notificationAdmin();
+      allow list: if notificationAdmin();
+      allow update: if validManagedProfile(accountId) &&
+        ((verifiedAccount(accountId) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'name', 'email', 'phoneNumber', 'notificationsEnabled',
+              'imagePath', 'compressedImage'
+            ])) ||
+          (notificationAdmin() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'imagePath', 'compressedImage'
+            ])));
+      // Profile deletion and dependant writes are performed by deleteProfile.
+    }
+
+    function campsiteRecord(campsiteId) {
+      return /databases/$(database)/documents/campsite/$(campsiteId);
+    }
+
+    match /campsite/{campsiteId} {
+      allow read: if true;
+      allow create: if verifiedAccount(request.resource.data.get('ownerID', '')) &&
+        accountActive(request.resource.data.ownerID) &&
+        request.resource.data.get('rating', []) == [] &&
+        request.resource.data.get('averageRating', null) == null;
+      allow update: if request.resource.data.get('ownerID', '') == resource.data.get('ownerID', '') &&
+        ((verifiedAccount(resource.data.get('ownerID', '')) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating', 'averageRating'])) ||
+          (notificationAdmin() &&
+            request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['imagePath', 'promoImagePaths', 'compressedImages'])));
+      allow delete: if notificationAdmin();
+
+      match /ratings/{accountId} {
+        allow read: if request.auth != null;
+      }
+    }
+
+    function lotteryRecord(lotteryId) {
+      return /databases/$(database)/documents/lottery/$(lotteryId);
+    }
+
+    function lotteryOwner(lottery) {
+      let campsiteId = lottery.get('campsiteId', '');
+      return validId(campsiteId) && exists(campsiteRecord(campsiteId)) ?
+        get(campsiteRecord(campsiteId)).data.get('ownerID', '') : '';
+    }
+
+    function registrationRecord(lotteryId, accountId) {
+      return /databases/$(database)/documents/waitingList/$(lotteryId + '_' + accountId);
+    }
+
+    function drawOpen(lottery) {
+      return lottery.get('drawCompleted', false) == false &&
+        lottery.get('drawStatus', 'PENDING') == 'PENDING';
+    }
+
+    function joiningAllowed(lottery) {
+      let time = request.time.toMillis();
+      let capacity = lottery.get('waitlistCapacity', null);
+      return drawOpen(lottery) && lottery.registrationStart <= time &&
+        time < lottery.registrationEnd && lottery.entrantCount is int &&
+        (capacity == null || lottery.entrantCount < capacity);
+    }
+
+    function accountActive(accountId) {
+      return exists(accountRecord(accountId)) &&
+        get(accountRecord(accountId)).data.get('deletionPending', false) == false;
+    }
+
+    function countMatchesChange(lotteryId, accountId, before, after) {
+      let entry = registrationRecord(lotteryId, accountId);
+      return before is int && before >= 0 && after is int &&
+        ((after == before + 1 && !exists(entry) && existsAfter(entry)) ||
+          (after == (before > 0 ? before - 1 : 0) && exists(entry) && !existsAfter(entry)));
+    }
+
+    function validCountUpdate(lotteryId) {
+      let next = request.resource.data;
+      let accountId = next.get('waitlistChangeAccountId', '');
+      return next.diff(resource.data).affectedKeys()
+        .hasOnly(['entrantCount', 'waitlistChangeAccountId']) &&
+        validId(accountId) && (verifiedAccount(accountId) || notificationAdmin()) &&
+        countMatchesChange(lotteryId, accountId, resource.data.entrantCount, next.entrantCount);
+    }
+
+    match /lottery/{lotteryId} {
+      allow read: if true;
+      allow create: if validId(request.resource.data.campsiteId) &&
+        request.resource.data.entrantCount == 0 && drawOpen(request.resource.data) &&
+        verifiedAccount(lotteryOwner(request.resource.data));
+      allow update: if request.resource.data.campsiteId == resource.data.campsiteId &&
+        (validCountUpdate(lotteryId) ||
+          (verifiedAccount(lotteryOwner(resource.data)) && drawOpen(resource.data) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'lotteryName', 'registrationStart', 'registrationEnd',
+              'bookingStart', 'bookingEnd', 'numberOfWinners', 'waitlistCapacity'
+            ])) ||
+          (notificationAdmin() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registrationEnd'])));
+      allow delete: if notificationAdmin();
+    }
+
+    function validRegistration(entry, registrationId) {
+      return validId(entry.accountId) && validId(entry.lotteryId) &&
+        registrationId == entry.lotteryId + '_' + entry.accountId;
+    }
+
+    function verifiedJoin(entry) {
+      let path = lotteryRecord(entry.lotteryId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return verifiedAccount(entry.accountId) && accountActive(entry.accountId) &&
+        entry.keys().hasOnly(['id', 'name', 'accountId', 'lotteryId', 'joinedAt', 'drawStatus', 'backupPosition']) &&
+        entry.get('id', entry.lotteryId + '_' + entry.accountId) == entry.lotteryId + '_' + entry.accountId &&
+        entry.get('name', '') == '' &&
+        entry.get('drawStatus', 'WAITING') == 'WAITING' &&
+        entry.get('backupPosition', 0) == 0 && entry.joinedAt is int &&
+        joiningAllowed(before) && after.waitlistChangeAccountId == entry.accountId &&
+        after.entrantCount == before.entrantCount + 1;
+    }
+
+    function verifiedLeave(entry) {
+      let path = lotteryRecord(entry.lotteryId);
+      let before = get(path).data;
+      let after = getAfter(path).data;
+      return (notificationAdmin() || (verifiedAccount(entry.accountId) && drawOpen(before))) &&
+        after.waitlistChangeAccountId == entry.accountId &&
+        after.entrantCount == (before.entrantCount > 0 ? before.entrantCount - 1 : 0);
+    }
+
+    match /waitingList/{registrationId} {
+      allow read: if request.auth != null;
+      allow create: if validRegistration(request.resource.data, registrationId) &&
+        verifiedJoin(request.resource.data);
+      allow delete: if validRegistration(resource.data, registrationId) &&
+        ((notificationAdmin() && !existsAfter(lotteryRecord(resource.data.lotteryId))) ||
+          verifiedLeave(resource.data));
+    }
+
+    match /lotteryDrawResults/{lotteryId} {
+      allow read: if request.auth != null;
+      // Declines, promotions, and queue changes are server-managed.
+    }
+
+    // AI Citation [AI-39] (Bhav Saluja). Owner cancellation uses the server write time.
+    match /reservation/{reservationId} {
+      function ownsReservedCampsite() {
+        let campsiteId = resource.data.get('campsiteId', '');
+        return validId(campsiteId) &&
+          verifiedAccount(get(campsiteRecord(campsiteId)).data.get('ownerID', ''));
+      }
+
+      function validCancellation() {
+        let next = request.resource.data;
+        return resource.data.get('cancelled', true) == false &&
+          resource.data.get('bookedPeriodStart', null) is timestamp &&
+          request.time < resource.data.bookedPeriodStart &&
+          next.cancelled == true && next.status == 'cancelled' &&
+          next.cancelledBy == 'auth_' + request.auth.uid &&
+          next.cancelledAt == request.time &&
+          next.diff(resource.data).affectedKeys().hasOnly([
+            'cancelled', 'status', 'cancelledAt', 'cancelledBy', 'cancellationReason'
+          ]);
+      }
+
+      allow get: if verifiedAccount(resource.data.get('accountId', '')) ||
+        notificationAdmin() || ownsReservedCampsite();
+      allow list: if verifiedAccount(resource.data.get('accountId', '')) || notificationAdmin();
+      allow update: if (verifiedAccount(resource.data.get('accountId', '')) ||
+        ownsReservedCampsite()) && validCancellation();
+    }
+
+    function validId(value) {
+      return value is string && value.size() > 0 && value.size() <= 128 &&
+        value.matches('[^/]+') && !(value in ['.', '..']);
+    }
+
+    function approvedReservation(reservationId) {
+      return get(/databases/$(database)/documents/reservationChatAccess/$(reservationId)).data;
+    }
+
+    function isParticipant(booking) {
+      return verifiedAccount(booking.entrantAccountId) || verifiedAccount(booking.ownerAccountId);
+    }
+
+    function canOpenChat(reservationId, booking) {
+      let reservation = get(/databases/$(database)/documents/reservation/$(reservationId)).data;
+      return isParticipant(booking) &&
+        reservation.accountId == booking.entrantAccountId && reservation.campsiteId == booking.campsiteId &&
+        reservation.cancelled == false &&
+        reservation.bookedPeriodStart is timestamp && reservation.bookedPeriodEnd is timestamp &&
+        reservation.bookedPeriodStart < reservation.bookedPeriodEnd;
+    }
+
+    function sameBooking(data, booking) {
+      return data.entrantAccountId == booking.entrantAccountId &&
+        data.ownerAccountId == booking.ownerAccountId && data.campsiteId == booking.campsiteId;
+    }
+
+    function isValidConversation(data, booking) {
+      return data.keys().hasOnly(['entrantAccountId', 'ownerAccountId', 'campsiteId']) &&
+        validId(data.entrantAccountId) && validId(data.ownerAccountId) && validId(data.campsiteId) &&
+        sameBooking(data, booking) &&
+        exists(accountRecord(booking.entrantAccountId)) && exists(accountRecord(booking.ownerAccountId));
+    }
+
+    function isValidMessage(data, booking) {
+      return data.keys().hasOnly(['senderUid', 'senderAccountId', 'text', 'sentAt']) &&
+        data.senderUid == request.auth.uid && data.senderAccountId in [booking.entrantAccountId, booking.ownerAccountId] &&
+        verifiedAccount(data.senderAccountId) &&
+        data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
+        data.text.matches('(?s).*\\S.*') &&
+        data.sentAt == request.time;
+    }
+
+    match /reservationChat/{reservationId} {
+      allow get: if canOpenChat(reservationId, approvedReservation(reservationId));
+      allow create: if canOpenChat(reservationId, approvedReservation(reservationId)) &&
+        isValidConversation(request.resource.data, approvedReservation(reservationId));
+
+      function canAccessChat(booking) {
+        let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId)).data;
+        return canOpenChat(reservationId, booking) && sameBooking(conversation, booking);
+      }
+
+      match /messages/{messageId} {
+        allow read: if canAccessChat(approvedReservation(reservationId));
+        allow create: if canAccessChat(approvedReservation(reservationId)) &&
+          isValidMessage(request.resource.data, approvedReservation(reservationId));
+      }
+
+      match /readReceipts/{accountId} {
+        function ownsReceipt(booking) {
+          return accountId in [booking.entrantAccountId, booking.ownerAccountId] &&
+            verifiedAccount(accountId) && canAccessChat(booking);
+        }
+
+        function validReceipt(data) {
+          return data.keys().hasOnly(['readAt']) && data.readAt is timestamp && data.readAt <= request.time;
+        }
+
+        allow get: if ownsReceipt(approvedReservation(reservationId));
+        allow create: if ownsReceipt(approvedReservation(reservationId)) && validReceipt(request.resource.data);
+        allow update: if ownsReceipt(approvedReservation(reservationId)) &&
+          validReceipt(request.resource.data) && request.resource.data.readAt >= resource.data.readAt;
+      }
+    }
+  }
+}

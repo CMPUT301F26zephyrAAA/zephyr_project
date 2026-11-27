@@ -1,3 +1,4 @@
+// Loads reservations and submits authenticated owner cancellations.
 package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
@@ -5,14 +6,67 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.google.firebase.Timestamp
-import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.functions.FirebaseFunctions
+
+internal data class OwnerReservation(
+    val id: String,
+    val campsiteName: String,
+    val entrantName: String,
+    val startMillis: Long,
+    val endMillis: Long,
+    val cancelled: Boolean
+)
+
+internal data class OwnerReservationList(val serverMillis: Long, val reservations: List<OwnerReservation>)
 
 /**
  * Model in charge of retrieving reservation records from Firestore
  */
 class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.firestore) {
     private val reservations = firestore.collection("reservation")
+
+    // AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, owner reservations and server-time cancellation.
+    /** Loads the current owner's bookings and the server time used by the owner screen. */
+    internal fun getOwnerReservations(onSuccess: (OwnerReservationList) -> Unit, onError: (Exception) -> Unit) {
+        FirebaseFunctions.getInstance().getHttpsCallable("listOwnerReservations").call()
+            .addOnSuccessListener { response ->
+                try {
+                    val data = response.data as Map<*, *>
+                    val rows = (data["reservations"] as List<*>).map { value ->
+                        val row = value as Map<*, *>
+                        OwnerReservation(
+                            row["id"] as String,
+                            row["campsiteName"] as? String ?: "",
+                            row["entrantName"] as? String ?: "",
+                            (row["startMillis"] as Number).toLong(),
+                            (row["endMillis"] as Number).toLong(),
+                            row["cancelled"] as Boolean
+                        )
+                    }
+                    onSuccess(OwnerReservationList((data["serverMillis"] as Number).toLong(), rows))
+                } catch (exception: Exception) {
+                    onError(exception)
+                }
+            }
+            .addOnFailureListener(onError)
+    }
+
+    /** Cancels a booking when Firestore verifies the owner and server-side check-in cutoff. */
+    internal fun cancelOwnerReservation(
+        reservationId: String, ownerId: String, onSuccess: () -> Unit, onError: (Exception) -> Unit
+    ) {
+        reservations.document(reservationId).update(mapOf(
+            "cancelled" to true,
+            "status" to "cancelled",
+            "cancelledBy" to ownerId,
+            "cancelledAt" to FieldValue.serverTimestamp()
+        ))
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener(onError)
+    }
 
     /**
      * Converts a Firestore reservation document into a
@@ -62,7 +116,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
 
     /**
      * Retrieve reservations belonging to specified entrant
-     * @param accountId Current entrant's device linked accountID
+     * @param accountId Current entrant's Firebase Auth profile ID.
      * @param onSuccess called with the entrants reservations
      * @param onError called if retrieval or data validation fails
      */
@@ -129,7 +183,6 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                 onError(exception)
             }
     }
-
     /**
      * Listens for real-time reservation changes for a campsite.
      *

@@ -103,5 +103,13 @@ class RatingControllerTest {
                 onSuccess()
             }
         }
+
+        override fun observeReviews(campsiteId: String, onResult: (List<String>) -> Unit, onError: (String) -> Unit):
+            com.google.firebase.firestore.ListenerRegistration = error("Unexpected review lookup")
+
+        override fun submitReview(
+            campsiteId: String, accountId: String, reservationId: String, review: String,
+            onSuccess: () -> Unit, onError: (String) -> Unit
+        ) = error("Unexpected review submission")
     }
 }

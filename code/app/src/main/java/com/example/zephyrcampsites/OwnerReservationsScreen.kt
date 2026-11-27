@@ -1,215 +1,148 @@
+// Displays an owner's bookings and requests confirmation before cancellation.
 package com.example.zephyrcampsites
 
-import androidx.compose.runtime.*
-import kotlinx.coroutines.delay
+import android.os.SystemClock
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import java.text.DateFormat
 import java.util.Date
-import androidx.activity.compose.BackHandler
 
-/**
- * Connects the owner's reservation screens to Firebase
- * and manages reservation state and listener lifecycle.
- */
+// AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, owner cancellation, 2026-11-27.
+// See the team AI Documentation Google Doc.
 @Composable
-fun OwnerReservationsScreen(
+internal fun OwnerReservationsScreen(
     owner: Account,
-    campsiteModel: CampsiteModel,
+    controller: ReservationsController,
     onBack: () -> Unit
 ) {
-    val controller = remember {
-        ReservationsController()
+    var bookings by remember(owner.id) { mutableStateOf<OwnerReservationList?>(null) }
+    var loadedAt by remember(owner.id) { mutableStateOf(0L) }
+    var error by remember(owner.id) { mutableStateOf<String?>(null) }
+    var selected by remember(owner.id) { mutableStateOf<OwnerReservation?>(null) }
+    var busy by remember(owner.id) { mutableStateOf(false) }
+    val format = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
+
+    fun reload() {
+        busy = true
+        error = null
+        controller.loadOwnerReservations(
+            onSuccess = {
+                bookings = it
+                loadedAt = SystemClock.elapsedRealtime()
+                busy = false
+            },
+            onError = {
+                error = "Unable to load your reservations."
+                busy = false
+            }
+        )
     }
 
-    val accountsModel = remember {
-        AccountsModel()
-    }
+    fun serverNow(): Long =
+        (bookings?.serverMillis ?: 0L) + SystemClock.elapsedRealtime() - loadedAt
 
-    var reservations by remember(owner.id) {
-        mutableStateOf<List<ReservedUser>>(emptyList())
-    }
-
-    var isLoading by remember(owner.id) {
-        mutableStateOf(true)
-    }
-
-    var errorMessage by remember(owner.id) {
-        mutableStateOf<String?>(null)
-    }
-
-    var retryCount by remember(owner.id) {
-        mutableIntStateOf(0)
-    }
-
-    var selectedReservationId by remember(owner.id) {
-        mutableStateOf<String?>(null)
-    }
-
-    var currentTime by remember {
-        mutableStateOf(Date())
-    }
-
-    val entrantAccounts = remember(owner.id) {
-        mutableStateMapOf<String, Account>()
-    }
-
-    val ownerCampsites = campsiteModel.campsites.filter {
-        it.ownerID == owner.id
-    }
-
-    val ownerCampsiteIds = ownerCampsites.map {
-        it.id
-    }.toSet()
-
-    // Listen for reservation changes.
-    DisposableEffect(
-        owner.id,
-        ownerCampsiteIds,
-        campsiteModel.isLoading,
-        campsiteModel.error,
-        retryCount
+    LaunchedEffect(owner.id) { reload() }
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        var disposed = false
-
-        reservations = emptyList()
-        isLoading = true
-        errorMessage = null
-
-        val listeners = when {
-            campsiteModel.error != null -> {
-                errorMessage = "Unable to load campsites."
-                isLoading = false
-                emptyList()
-            }
-
-            campsiteModel.isLoading -> {
-                emptyList()
-            }
-
-            else -> {
-                controller.listenToOwnerActiveReservations(
-                    ownerId = owner.id,
-                    campsites = ownerCampsites,
-                    onSuccess = { results ->
-                        if (!disposed) {
-                            reservations = results
-                            isLoading = false
-                            errorMessage = null
-                        }
-                    },
-                    onError = {
-                        if (!disposed) {
-                            reservations = emptyList()
-                            errorMessage =
-                                "Unable to load reservations."
-                            isLoading = false
-                        }
-                    }
-                )
-            }
+        TextButton(onClick = onBack) { Text("Back") }
+        Text("Reservations", style = MaterialTheme.typography.headlineMedium)
+        TextButton(onClick = ::reload, enabled = !busy) { Text("Refresh") }
+        if (busy) {
+            CircularProgressIndicator()
         }
-
-        onDispose {
-            disposed = true
-            controller.stopReservationListeners(listeners)
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        val rows = bookings?.reservations.orEmpty().sortedBy { it.startMillis }
+        if (bookings != null && rows.isEmpty()) {
+            Text("No reservations for your campsites.")
         }
-    }
-
-    // Refresh the current time so expired reservations
-    // disappear even without a Firebase document update.
-    LaunchedEffect(Unit) {
-        while (true) {
-            currentTime = Date()
-            delay(1000L)
-        }
-    }
-
-    val activeReservations =
-        controller.filterOwnerActiveReservations(
-            reservations = reservations,
-            campsites = ownerCampsites,
-            ownerId = owner.id,
-            currentTime = currentTime
-        )
-
-    val entrantIds = activeReservations.map {
-        it.accountId
-    }.toSet()
-
-    // Retrieve entrant information.
-    DisposableEffect(owner.id, entrantIds) {
-        var disposed = false
-
-        entrantIds.forEach { accountId ->
-            if (!entrantAccounts.containsKey(accountId)) {
-                accountsModel.getAccount(
-                    accountId,
-                    onResult = { account ->
-                        if (!disposed && account != null) {
-                            entrantAccounts[accountId] = account
-                        }
-                    },
-                    onError = {
-                        // The UI displays Unknown entrant
-                        // if account information is unavailable.
-                    }
-                )
-            }
-        }
-
-        onDispose {
-            disposed = true
-        }
-    }
-
-    val selectedReservation =
-        activeReservations.firstOrNull {
-            it.id == selectedReservationId
-        }
-
-    // Return to the reservation list when the Android
-    // back button is pressed from the details screen.
-    BackHandler(enabled = selectedReservation != null) {
-        selectedReservationId = null
-    }
-
-    // Return to the list if the selected reservation
-    // is cancelled, completed or no longer accessible.
-    LaunchedEffect(selectedReservation) {
-        if (selectedReservation == null) {
-            selectedReservationId = null
-        }
-    }
-
-    if (selectedReservation != null) {
-        OwnerReservationDetailsView(
-            reservation = selectedReservation,
-            campsite = ownerCampsites.firstOrNull {
-                it.id == selectedReservation.campsiteId
-            },
-            entrant = entrantAccounts[
-                selectedReservation.accountId
-            ],
-            onBack = {
-                selectedReservationId = null
-            }
-        )
-    } else {
-        OwnerActiveReservationsView(
-            reservations = activeReservations,
-            campsiteForId = { id ->
-                ownerCampsites.firstOrNull {
-                    it.id == id
+        val now = serverNow()
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(rows, key = { it.id }) { reservation ->
+                val status = when {
+                    reservation.cancelled -> "Cancelled"
+                    reservation.endMillis <= now -> "Completed"
+                    reservation.startMillis <= now -> "Checked in"
+                    else -> "Upcoming"
                 }
+                Column {
+                    Text(
+                        reservation.campsiteName.ifBlank { "Campsite" },
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(reservation.entrantName.ifBlank { "Entrant name unavailable" })
+                    Text(
+                        "${format.format(Date(reservation.startMillis))} – " +
+                            format.format(Date(reservation.endMillis))
+                    )
+                    Text(status)
+                    if (!reservation.cancelled && reservation.startMillis > now) {
+                        TextButton(
+                            onClick = { selected = reservation },
+                            enabled = !busy
+                        ) {
+                            Text("Cancel reservation")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    selected?.let { reservation ->
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            title = { Text("Cancel this reservation?") },
+            text = {
+                Text("The booking will stay in the reservation history as cancelled.")
             },
-            accountForId = { id ->
-                entrantAccounts[id]
+            dismissButton = {
+                TextButton(onClick = { selected = null }) { Text("Keep reservation") }
             },
-            isLoading = isLoading,
-            errorMessage = errorMessage,
-            onRetry = { retryCount++ },
-            onViewDetails = { reservation ->
-                selectedReservationId = reservation.id
-            },
-            onBack = onBack
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        selected = null
+                        if (reservation.startMillis <= serverNow()) {
+                            error = "This booking has reached check-in and can no longer be cancelled."
+                        } else {
+                            busy = true
+                            error = null
+                            controller.cancelOwnerReservation(
+                                reservation = reservation,
+                                owner = owner,
+                                onSuccess = { reload() },
+                                onError = {
+                                    busy = false
+                                    error = "Unable to cancel. Refresh to check the booking's current status."
+                                }
+                            )
+                        }
+                    }
+                ) {
+                    Text("Confirm cancellation")
+                }
+            }
         )
     }
 }

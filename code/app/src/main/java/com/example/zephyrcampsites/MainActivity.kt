@@ -44,7 +44,6 @@ class MainActivity : ComponentActivity() {
         accountLoading.value = true
 
         accountsController.initializeAccount(
-            context = this,
             onSuccess = { account ->
                 currentAccount.value = account
                 accountLoading.value = false

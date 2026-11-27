@@ -56,20 +56,20 @@ class RatingView {
      */
     @Composable
     fun RatingEntry(campsiteId: String, account: Account, controller: RatingController, onRate: (String) -> Unit) {
-        var eligible by remember(campsiteId, account.id) { mutableStateOf(false) }
+        var rating by remember(campsiteId, account.id) { mutableStateOf<CampsiteRating?>(null) }
         var error by remember(campsiteId, account.id) { mutableStateOf<String?>(null) }
         var retry by remember { mutableStateOf(0) }
         DisposableEffect(campsiteId, account.id, retry) {
             var active = true
-            eligible = false
+            rating = null
             error = null
             controller.loadRating(campsiteId, account,
-                onResult = { if (active) { eligible = it != null } },
+                onResult = { if (active) { rating = it } },
                 onError = { if (active) { error = it } }
             )
             onDispose { active = false }
         }
-        if (eligible) {
+        if (rating != null) {
             Button(onClick = { onRate(campsiteId) }, shape = RoundedCornerShape(2.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = ProfileMenuGreen, contentColor = Color.White),
                 modifier = Modifier.testTag("RateCampsiteEntry")) {
@@ -81,6 +81,7 @@ class RatingView {
             Text(loadError, color = MaterialTheme.colorScheme.error)
             Button(onClick = { retry++ }) { Text(stringResource(R.string.rating_retry)) }
         }
+        CampsiteReviews(campsiteId, account, rating, controller)
     }
 
     /**
@@ -103,25 +104,35 @@ class RatingView {
         var error by remember(campsite?.id, account?.id) { mutableStateOf<String?>(null) }
         var retry by remember { mutableStateOf(0) }
         var active by remember(campsite?.id, account?.id) { mutableStateOf(true) }
-        DisposableEffect(campsite?.id, account?.id, retry) {
+        DisposableEffect(campsite?.id, account?.id, retry, controller) {
+            var observing = true
             active = true
             loading = true
             error = null
-            controller.loadRating(campsite?.id.orEmpty(), account,
+
+            val stop = controller.observeRating(
+                campsite?.id.orEmpty(),
+                account,
                 onResult = { result ->
-                    if (active) {
+                    if (observing) {
                         rating = result
+                        error = null
                         loading = false
                     }
                 },
                 onError = { message ->
-                    if (active) {
+                    if (observing) {
+                        rating = null
                         error = message
                         loading = false
                     }
-                }
+                },
             )
-            onDispose { active = false }
+            onDispose {
+                observing = false
+                active = false
+                stop()
+            }
         }
         RatingForm(
             campsiteName = campsite?.name.orEmpty(), rating = rating, loading = loading, saving = saving,
@@ -209,6 +220,9 @@ class RatingView {
                     }
                 } else {
                     Text(stringResource(R.string.rating_your_rating), color = Color(0xFF237B67), fontSize = 16.sp)
+                    if (rating.score == 0) {
+                        Text("N/A", style = MaterialTheme.typography.bodySmall)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         for (value in 1..5) {
                             IconToggleButton(

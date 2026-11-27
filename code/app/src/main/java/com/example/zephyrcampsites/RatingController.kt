@@ -53,6 +53,51 @@ class RatingController(private val model: RatingGateway = RatingModel()) {
         model.submitRating(campsiteId, account.id, rating.copy(review = rating.review.trim()), onSuccess, onError)
     }
 
+    /** Receives the campsite's current reviews and subsequent Firestore updates. */
+    internal fun observeReviews(campsiteId: String, onResult: (List<String>) -> Unit, onError: (String) -> Unit) =
+        model.observeReviews(campsiteId, onResult, onError)
+
+    /**
+     * Saves a written review for an identified entrant.
+     *
+     * @param campsiteId Campsite being reviewed.
+     * @param account Entrant submitting the review.
+     * @param reservationId Completed stay to verify.
+     * @param review Required review text.
+     * @param onSuccess Called when the review is saved.
+     * @param onError Receives a validation or save error.
+     */
+    internal fun submitReview(
+        campsiteId: String, account: Account, reservationId: String, review: String,
+        onSuccess: () -> Unit, onError: (String) -> Unit
+    ) {
+        if ("entrant" !in account.userType || !validId(campsiteId) || !validId(account.id) || !validId(reservationId)) {
+            onError("A completed reservation is required to write a review.")
+            return
+        }
+        model.submitReview(campsiteId, account.id, reservationId, review, onSuccess, onError)
+    }
+
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    fun observeRating(
+        campsiteId: String,
+        account: Account?,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        if (
+            account == null ||
+            "entrant" !in account.userType ||
+            !validId(campsiteId) ||
+            !validId(account.id)
+        ) {
+            onResult(null)
+            return {}
+        }
+
+        return model.observeRating(campsiteId, account.id, onResult, onError)
+    }
+
     /** Checks that an ID identifies one Firestore document. */
     private fun validId(id: String): Boolean = id.isNotBlank() && !id.contains("/")
 }

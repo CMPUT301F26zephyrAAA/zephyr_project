@@ -5,11 +5,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -25,17 +28,19 @@ import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.android.gms.location.LocationServices
+import com.google.firebase.firestore.ListenerRegistration
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+// Hiral - [AI-05] OpenAI, ChatGPT, Testing Admin Rating Deletion.
 /** Tests entrant rating controls and navigation with local account, stay, and campsite fixtures. */
 @RunWith(AndroidJUnit4::class)
 class RatingViewTest {
     @get:Rule
     val composeTestRule = createComposeRule()
-    private val account = mutableStateOf(Account("entrant-1"))
+    private val account = mutableStateOf(Account("entrant-1", userType = listOf("entrant")))
     private val campsites = mutableStateListOf(campsite(listOf(4, 5)))
     private val model = FakeRatingModel()
 
@@ -59,6 +64,20 @@ class RatingViewTest {
         model.eligible = false
         showNavigation()
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Write Review").assertDoesNotExist()
+    }
+
+    @Test
+    fun writeReviewRequiresTextAndShowsTheSavedReview() {
+        showNavigation()
+        composeTestRule.onNodeWithText("Write Review").performScrollTo().performClick()
+        val submit = composeTestRule.onNodeWithText("Submit Review")
+        submit.assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("CampsiteReviewText").performScrollTo().performTextInput("Quiet lakeside stay.")
+        Espresso.closeSoftKeyboard()
+        submit.performScrollTo().assertIsEnabled().performClick()
+        composeTestRule.onNodeWithText("Review submitted.").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Quiet lakeside stay.").performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -72,12 +91,13 @@ class RatingViewTest {
 
     @Test
     fun ownerAndAdminAreNotOfferedTheEntrantRatingEntry() {
-        account.value = Account("owner-1", userType = "owner")
+        account.value = Account("owner-1", userType = listOf("owner"))
         showNavigation()
+
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
-        composeTestRule.runOnIdle { account.value = account.value.copy(userType = "admin") }
+        composeTestRule.runOnIdle { account.value = account.value.copy(userType = listOf("admin")) }
         composeTestRule.onNodeWithTag("RateCampsiteEntry").assertDoesNotExist()
-        assertEquals(0, model.loadCalls)
+        composeTestRule.runOnIdle { assertEquals(0, model.loadCalls) }
     }
 
     @Test
@@ -163,6 +183,23 @@ class RatingViewTest {
         assertEquals(0, model.saveCalls)
     }
 
+    @Test
+    fun deletingTheSavedRatingClearsTheOpenEntrantForm() {
+        model.rating = CampsiteRating("stay-1", 4, "My saved review")
+        showNavigation(startOnRating = true)
+
+        composeTestRule.onNodeWithTag("RatingStar4").assertIsOn()
+        composeTestRule.onNodeWithTag("RatingReview").assertTextContains("My saved review")
+
+        composeTestRule.runOnIdle { model.emitDeletion() }
+
+        composeTestRule.onNodeWithText("N/A").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("RatingStar1").assertIsOff()
+        composeTestRule.onNodeWithTag("RatingReview")
+            .assert(!hasText("My saved review", substring = true))
+        composeTestRule.onNodeWithTag("SubmitRating").assertIsNotEnabled()
+    }
+
     private fun openRating() {
         composeTestRule.onNodeWithTag("RateCampsiteEntry").performScrollTo().performClick()
     }
@@ -187,14 +224,18 @@ class RatingViewTest {
                             onClick = {},
                             openDetail = { nav.navigate(CampsiteScreens.DetailView.createRoute(it)) },
                             searchHandler = { campsites.filter { item -> item.name.contains(it.searchString, ignoreCase = true) } },
-                            filterPage = {}, imageLoader = { "" }, locationClient = locationClient
+                            filterPage = {},
+                            imageLoader = { "" },
+                            locationClient = locationClient,
+                            onViewChanged = null
                         )
                     }
                     composable(CampsiteScreens.DetailView.route, arguments = listOf(navArgument("id") { type = NavType.IntType })) {
                         CampsiteDetailView().DetailView(
                             campsite = campsite, account = account.value, codeGenerator = { _, _ -> ImageBitmap(2, 2) },
                             onBack = { nav.popBackStack() }, ratingController = controller,
-                            onRateCampsite = { nav.navigate(CampsiteScreens.RateCampsite.createRoute(it)) }
+                            onRateCampsite = { nav.navigate(CampsiteScreens.RateCampsite.createRoute(it)) },
+                            showEntrantActions = true,
                         )
                     }
                     composable(CampsiteScreens.RateCampsite.route, arguments = listOf(navArgument("id") { type = NavType.IntType })) {
@@ -223,10 +264,29 @@ class RatingViewTest {
         var failSave = false
         var delaySave = false
         var pendingSave: (() -> Unit)? = null
+        private var onReviews: ((List<String>) -> Unit)? = null
 
         override fun loadRating(campsiteId: String, accountId: String, onResult: (CampsiteRating?) -> Unit, onError: (String) -> Unit) {
             loadCalls++
             if (failLoad) { onError("Unable to load rating.") } else { onResult(if (eligible) rating else null) }
+        }
+
+        private var ratingObserver: ((CampsiteRating?) -> Unit)? = null
+
+        override fun observeRating(
+            campsiteId: String,
+            accountId: String,
+            onResult: (CampsiteRating?) -> Unit,
+            onError: (String) -> Unit,
+        ): () -> Unit {
+            ratingObserver = onResult
+            loadRating(campsiteId, accountId, onResult, onError)
+            return { ratingObserver = null }
+        }
+
+        fun emitDeletion() {
+            rating = CampsiteRating(rating.reservationId)
+            checkNotNull(ratingObserver).invoke(rating)
         }
 
         override fun submitRating(campsiteId: String, accountId: String, rating: CampsiteRating, onSuccess: () -> Unit, onError: (String) -> Unit) {
@@ -244,6 +304,23 @@ class RatingViewTest {
                 }
                 if (delaySave) { pendingSave = save } else { save() }
             }
+        }
+
+        override fun observeReviews(
+            campsiteId: String, onResult: (List<String>) -> Unit, onError: (String) -> Unit
+        ): ListenerRegistration {
+            onReviews = onResult
+            onResult(listOfNotNull(rating.review.takeIf { it.isNotBlank() }))
+            return ListenerRegistration { onReviews = null }
+        }
+
+        override fun submitReview(
+            campsiteId: String, accountId: String, reservationId: String, review: String,
+            onSuccess: () -> Unit, onError: (String) -> Unit
+        ) {
+            rating = rating.copy(review = review)
+            onReviews?.invoke(listOf(review))
+            onSuccess()
         }
     }
 }

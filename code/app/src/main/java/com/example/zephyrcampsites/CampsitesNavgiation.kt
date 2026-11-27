@@ -1,3 +1,4 @@
+// Connects the entrant, owner, and admin screens to their navigation routes.
 package com.example.zephyrcampsites
 
 import android.net.Uri
@@ -88,6 +89,7 @@ internal fun CampsitesNavigation(
     val reservationsController = remember {
         ReservationsController()
     }
+    val notificationController = remember { LotteryNotificationController() }
 
     val account = currentAccount.value
     val isLoading = accountLoading.value
@@ -494,7 +496,12 @@ internal fun CampsitesNavigation(
                                     } else {
                                         null
                                     },
-                                    onBackClick = onBack
+                                    onBackClick = onBack,
+                                    onNotifyClick = {
+                                        navHostController.navigate(
+                                            "$OWNER/notifyEntrants/${Uri.encode(lotteryId)}"
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -503,8 +510,16 @@ internal fun CampsitesNavigation(
                     if (isOwnerGraph) {
                         composable("$OWNER/allLotteries") {
                             AccountContent {
-                                LotteryListScreen("All Lotteries", onBack) {
-                                    items(lotteryModel.lotteries) { lottery ->
+                                val ownedLotteries = lotteryModel.lotteries.filter {
+                                    ownsCampsite(it.campsiteId)
+                                }
+                                LotteryListScreen("My Lotteries", onBack) {
+                                    if (ownedLotteries.isEmpty()) {
+                                        item {
+                                            Text("No lotteries to show.", modifier = Modifier.padding(12.dp))
+                                        }
+                                    }
+                                    items(ownedLotteries) { lottery ->
                                         LotteryListItem(lottery.lotteryName) {
                                             openLottery(OWNER, lottery.id)
                                         }
@@ -513,11 +528,36 @@ internal fun CampsitesNavigation(
                             }
                         }
 
+                        // AI Citation [AI-39]
+                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See the team AI Documentation Google Doc.
+                        composable(
+                            route = "$OWNER/notifyEntrants/{lotteryId}",
+                            arguments = listOf(navArgument("lotteryId") { type = NavType.StringType })
+                        ) { entry ->
+                            val lotteryId = entry.arguments?.getString("lotteryId")
+                                ?: return@composable
+                            AccountContent { owner ->
+                                val lottery = lotteryController.getLotteryById(lotteryId)
+                                if (lottery != null && OWNER in owner.userType &&
+                                    ownsCampsite(lottery.campsiteId)
+                                ) {
+                                    NotifyLotteryEntrantsScreen(
+                                        accountId = owner.id,
+                                        lottery = lottery,
+                                        controller = notificationController,
+                                        onBack = onBack
+                                    )
+                                } else {
+                                    FeaturePage("Only the campsite owner can notify entrants.", onBack)
+                                }
+                            }
+                        }
+
                         composable(GeneralScreen.ViewReservations.route) {
                             AccountContent { owner ->
                                 OwnerReservationsScreen(
                                     owner = owner,
-                                    campsiteModel = campsiteModel,
+                                    controller = reservationsController,
                                     onBack = onBack
                                 )
                             }
@@ -628,6 +668,14 @@ internal fun CampsitesNavigation(
                             }
                         }
                     } else {
+                        // AI Citation [AI-39]
+                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See the team AI Documentation Google Doc.
+                        composable(GeneralScreen.LotteryNotifications.route) {
+                            AccountContent { entrant ->
+                                LotteryNotificationsScreen(entrant, notificationController, onBack)
+                            }
+                        }
+
                         composable(GeneralScreen.Trips.route) {
                             AccountContent { entrant ->
                                 MyTripsNavigation(
