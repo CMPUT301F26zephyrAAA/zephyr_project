@@ -16,8 +16,8 @@ class AdminProfileModelTest : AdminEmulatorTest() {
         val accountId = "entrant-$suffix"
         val lotteryId = "lottery-$suffix"
         val now = System.currentTimeMillis()
-        put("accounts/$accountId", mapOf("userType" to "entrant", "notificationsEnabled" to false))
-        put("accounts/other-$suffix", mapOf("userType" to "entrant"))
+        put("accounts/$accountId", mapOf("userType" to listOf("entrant"), "notificationsEnabled" to false))
+        put("accounts/other-$suffix", mapOf("userType" to listOf("entrant")))
         put("lottery/$lotteryId", mapOf("entrantCount" to 2L))
         put("waitingList/entry-$suffix", mapOf("accountId" to accountId, "lotteryId" to lotteryId))
         put(
@@ -71,7 +71,7 @@ class AdminProfileModelTest : AdminEmulatorTest() {
     @Test
     fun profileWithoutRelatedRecordsCanBeRemoved() {
         val id = "entrant-$suffix"
-        put("accounts/$id", mapOf("userType" to "entrant"))
+        put("accounts/$id", mapOf("userType" to listOf("entrant")))
         val result = TaskCompletionSource<Boolean>()
         AccountsModel(firestore)
             .deleteAccount(
@@ -89,7 +89,7 @@ class AdminProfileModelTest : AdminEmulatorTest() {
         val id = "entrant-$suffix"
         val lotteryId = "lottery-$suffix"
         val now = System.currentTimeMillis()
-        put("accounts/$id", mapOf("userType" to "entrant", "deletionPending" to true))
+        put("accounts/$id", mapOf("userType" to listOf("entrant"), "deletionPending" to true))
         put(
             "lottery/$lotteryId",
             mapOf(
@@ -117,7 +117,7 @@ class AdminProfileModelTest : AdminEmulatorTest() {
     @Test
     fun offlineRemovalReportsFailureWithoutDeletingTheProfile() {
         val id = "entrant-$suffix"
-        put("accounts/$id", mapOf("userType" to "entrant"))
+        put("accounts/$id", mapOf("userType" to listOf("entrant")))
         await(firestore.disableNetwork())
         val result = TaskCompletionSource<Boolean>()
         AccountsModel(firestore)
@@ -140,7 +140,7 @@ class AdminProfileModelTest : AdminEmulatorTest() {
         put(
             "accounts/$id",
             mapOf(
-                "userType" to "owner",
+                "userType" to listOf("owner"),
                 "notificationsEnabled" to false,
                 "imagePath" to "profiles/$id.jpg",
             ),
@@ -156,7 +156,7 @@ class AdminProfileModelTest : AdminEmulatorTest() {
                 )
         try {
             val profile = await(result.task)
-            assertEquals("owner", profile.userType)
+            assertEquals(listOf("owner"), profile.userType)
             assertFalse(profile.notificationsEnabled)
             assertEquals("profiles/$id.jpg", profile.imagePath)
         } finally {

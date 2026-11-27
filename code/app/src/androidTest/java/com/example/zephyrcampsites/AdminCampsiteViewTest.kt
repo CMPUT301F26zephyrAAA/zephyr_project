@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AdminCampsiteViewTest {
     @get:Rule val compose = createComposeRule()
-    private val admin = Account("admin", userType = "admin")
+    private val admin = Account("admin", userType = listOf("entrant", "owner", "admin"))
     private val campsite =
         Campsite("1").apply {
             name = "Pine Lake"
@@ -92,6 +92,7 @@ class AdminCampsiteViewTest {
                     { _, _ -> ImageBitmap(1, 1) },
                     {},
                     account = admin,
+                    showAdminActions = true,
                     onRemove = { requests++ },
                 )
         }
@@ -113,24 +114,39 @@ class AdminCampsiteViewTest {
                     { _, _ -> ImageBitmap(1, 1) },
                     {},
                     account = admin,
-                    showOwnerView = true,
+                    showAdminActions = true,
                 )
         }
+        compose.onNodeWithTag("RemoveCampsite").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Manage Lottery").assertDoesNotExist()
         compose.onNodeWithText("Generate/Hide QR").assertDoesNotExist()
         compose.onNodeWithText("Join Lottery").assertDoesNotExist()
     }
 
     @Test
-    fun entrantDoesNotSeeRemoveButton() {
+    fun entrantModeHidesRemoveButtonEvenForAnAdminAccount() {
         compose.setContent {
-            CampsiteDetailView()
-                .DetailView(
-                    campsite,
-                    { _, _ -> ImageBitmap(1, 1) },
-                    {},
-                    account = Account("entrant"),
-                )
+            CampsiteDetailView().DetailView(
+                campsite = campsite,
+                codeGenerator = { _, _ -> ImageBitmap(1, 1) },
+                onBack = {},
+                account = admin,
+                showEntrantActions = true,
+            )
+        }
+        compose.onNodeWithTag("RemoveCampsite").assertDoesNotExist()
+    }
+
+    @Test
+    fun adminModeRequiresAnAdminGrantToShowRemoveButton() {
+        compose.setContent {
+            CampsiteDetailView().DetailView(
+                campsite = campsite,
+                codeGenerator = { _, _ -> ImageBitmap(1, 1) },
+                onBack = {},
+                account = Account("standard-account"),
+                showAdminActions = true,
+            )
         }
         compose.onNodeWithTag("RemoveCampsite").assertDoesNotExist()
     }
@@ -145,6 +161,7 @@ class AdminCampsiteViewTest {
                     { _, _ -> ImageBitmap(1, 1) },
                     {},
                     account = admin,
+                    showAdminActions = true,
                     removalError = error.value,
                     onRemove = { error.value = "Removal failed." },
                 )

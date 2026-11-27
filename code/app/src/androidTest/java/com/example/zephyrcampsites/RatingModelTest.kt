@@ -45,7 +45,7 @@ class RatingModelTest {
         firestore = FirebaseFirestore.getInstance(app)
         firestore.useEmulator("127.0.0.1", 8082)
         model = RatingModel(firestore)
-        createDocument("accounts/$accountId", mapOf("userType" to "entrant"))
+        createDocument("accounts/$accountId", mapOf("userType" to listOf("entrant")))
         createDocument("campsite/$campsiteId", mapOf("id" to campsiteId, "name" to "Pine Lake Campground", "rating" to listOf(4, 5)))
         createDocument("reservation/$reservationId", stayData(accountId))
     }
@@ -137,7 +137,7 @@ class RatingModelTest {
     fun concurrentEntrantsDoNotOverwriteEachOthersRatings() {
         val otherAccount = "other-$suffix"
         val otherStay = "other-stay-$suffix"
-        createDocument("accounts/$otherAccount", mapOf("userType" to "entrant"))
+        createDocument("accounts/$otherAccount", mapOf("userType" to listOf("entrant")))
         createDocument("reservation/$otherStay", stayData(otherAccount))
         val otherRating = firestore.document("campsite/$campsiteId/ratings/$otherAccount")
         createdDocuments.add(otherRating)
@@ -191,7 +191,7 @@ class RatingModelTest {
 
     @Test
     fun ownerCannotSubmitByCallingTheModelDirectly() {
-        await(firestore.document("accounts/$accountId").update("userType", "owner"))
+        await(firestore.document("accounts/$accountId").update("userType", listOf("owner")))
         assertRejected(CampsiteRating(reservationId, 4))
     }
 

@@ -40,7 +40,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.test.platform.app.InstrumentationRegistry
 
+// Hiral - [AI-06] OpenAI, ChatGPT, Fixing Testcases.
 /**
  * Tests the profile overview and editor using local account fixtures.
  * Account updates use an in-memory model without accessing Firebase.
@@ -55,82 +57,66 @@ class AccountsViewTest {
 
     @Before
     fun showProfileNavigation() {
-        val account = Account("profile-test-device").apply {
-            name = "Taylor Morgan"
-            email = "taylor@example.com"
-            phoneNumber = "7805550100"
-        }
+        val account = Account(
+            id = "profile-test-device",
+            name = "Taylor Morgan",
+            email = "taylor@example.com",
+            phoneNumber = "7805550100",
+        )
         currentAccount = mutableStateOf(account)
         accountsModel = TestAccountsModel(account)
         val accountsController = AccountsController(accountsModel)
-        val campsite = Campsite("1").apply {
-            name = "Fixture campsite"
-            maxOccupancy = 4
-        }
+        val accountsView = AccountsView()
+
+        val profile = roleRoute(ENTRANT, GeneralScreen.Profile.route)
+        val personalInformation = roleRoute(ENTRANT, GeneralScreen.PersonalInformation.route)
+        val policy = roleRoute(ENTRANT, GeneralScreen.Policy.route)
+        val settings = roleRoute(ENTRANT, GeneralScreen.Settings.route)
 
         composeTestRule.setContent {
-            val displayedAccount = currentAccount.value
-            val context = LocalContext.current
-            val locationClient = remember {
-                LocationServices.getFusedLocationProviderClient(context)
-            }
-            val accountsView = remember { AccountsView() }
-            val summaryView = remember { CampsiteSummaryView() }
-            val navController = rememberNavController()
-            val currentEntry by navController.currentBackStackEntryAsState()
+            val nav = rememberNavController()
+            val back: () -> Unit = { nav.popBackStack() }
 
             ZephyrCampsitesTheme {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    if (currentEntry?.destination?.route == CampsiteScreens.SummaryView.route) {
-                        Button(onClick = { navController.navigate(GeneralScreen.Profile.route) }) {
-                            Text("My Profile")
-                        }
+                NavHost(navController = nav, startDestination = GeneralScreen.EntrantMenu.route) {
+                    composable(GeneralScreen.EntrantMenu.route) {
+                        RoleHomeMenu(
+                            role = ENTRANT,
+                            isAdmin = false,
+                            onNavigate = { nav.navigate(it) },
+                            onBack = back,
+                            onSwitchRole = {},
+                        )
                     }
-                    NavHost(
-                        navController = navController,
-                        startDestination = CampsiteScreens.SummaryView.route,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        composable(CampsiteScreens.SummaryView.route) {
-                            summaryView.SummaryView(
-                                onClick = {},
-                                openDetail = {},
-                                searchHandler = { listOf(campsite) },
-                                filterPage = {},
-                                imageLoader = { "" },
-                                locationClient = locationClient
-                            )
-                        }
-                        composable(GeneralScreen.Profile.route) {
-                            accountsView.ProfileOverviewView(
-                                account = displayedAccount,
-                                onEdit = {
-                                    navController.navigate(GeneralScreen.PersonalInformation.route)
-                                },
-                                onPolicy = { navController.navigate(GeneralScreen.Policy.route) },
-                                onSettings = { navController.navigate(GeneralScreen.Settings.route) },
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-                        composable(GeneralScreen.Policy.route) {
-                            PolicyView().PolicyAndGuidelinesView(onBack = { navController.popBackStack() })
-                        }
-                        composable(GeneralScreen.PersonalInformation.route) {
-                            accountsView.ProfileView(
-                                account = displayedAccount,
-                                accountsController = accountsController,
-                                onSaved = { currentAccount.value = it },
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
-                        composable(GeneralScreen.Settings.route) {
-                            SettingsView().SettingsScreen(
-                                account = displayedAccount,
-                                accountsController = accountsController,
-                                onSaved = { currentAccount.value = it },
-                                onBack = { navController.popBackStack() }
-                            )
-                        }
+                    composable(profile) {
+                        accountsView.ProfileOverviewView(
+                            account = currentAccount.value,
+                            onEdit = { nav.navigate(personalInformation) },
+                            onPolicy = { nav.navigate(policy) },
+                            onSettings = { nav.navigate(settings) },
+                            onBack = back,
+                            onDelete = {},
+                            canManageImage = true,
+                        )
+                    }
+                    composable(personalInformation) {
+                        accountsView.ProfileView(
+                            account = currentAccount.value,
+                            accountsController = accountsController,
+                            onSaved = { currentAccount.value = it },
+                            onBack = back,
+                        )
+                    }
+                    composable(policy) {
+                        PolicyView().PolicyAndGuidelinesView(onBack = back)
+                    }
+                    composable(settings) {
+                        SettingsView().SettingsScreen(
+                            account = currentAccount.value,
+                            accountsController = accountsController,
+                            onSaved = { currentAccount.value = it },
+                            onBack = back,
+                        )
                     }
                 }
             }
@@ -143,7 +129,7 @@ class AccountsViewTest {
      * @param openEditor Whether to open Personal Information from the overview.
      */
     private fun openProfile(openEditor: Boolean = false) {
-        composeTestRule.onNodeWithText("My Profile").performClick()
+        composeTestRule.onNodeWithText("My Profile").performScrollTo().performClick()
         if (openEditor) {
             composeTestRule.onNodeWithTag("personalInformationButton")
                 .performScrollTo()
@@ -181,10 +167,11 @@ class AccountsViewTest {
     }
 
     @Test
-    fun backButtonReturnsToCampsiteScreen() {
+    fun backButtonReturnsToEntrantMenu() {
         openProfile()
         composeTestRule.onNodeWithText("BACK").performScrollTo().performClick()
-        composeTestRule.onNodeWithTag("CampsiteDetails1").assertExists()
+        composeTestRule.onNodeWithText("Browse Campsites").assertIsDisplayed()
+        composeTestRule.onNodeWithText("My Trips").assertExists()
     }
 
     @Test
@@ -192,15 +179,14 @@ class AccountsViewTest {
         openProfile()
         composeTestRule.onNodeWithTag("PolicyAndGuidelinesEntry")
             .performScrollTo().assertIsDisplayed().assertHasClickAction()
-        composeTestRule.onNodeWithText("App Policy and Guidelines").assertIsDisplayed()
+        composeTestRule.onNodeWithText(appText(R.string.policy_entry_title)).assertIsDisplayed()
     }
 
     @Test
     fun policyGuidelinesCanBeReadByScrolling() {
         openPolicy()
-        composeTestRule.onNodeWithText("Device-based profile").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Only rate a campsite after you have stayed there.", substring = true)
-            .performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText(appText(R.string.policy_account_heading)).assertIsDisplayed()
+        composeTestRule.onNodeWithText(appText(R.string.policy_ratings_body)).performScrollTo().assertIsDisplayed()
         composeTestRule.onNodeWithTag("PolicyBack").assertIsDisplayed()
     }
 
@@ -231,13 +217,13 @@ class AccountsViewTest {
     private fun openPolicy() {
         openProfile()
         composeTestRule.onNodeWithTag("PolicyAndGuidelinesEntry").performScrollTo().performClick()
-        composeTestRule.onNodeWithText("POLICY AND GUIDELINES").assertIsDisplayed()
+        composeTestRule.onNodeWithText(appText(R.string.policy_title)).assertIsDisplayed()
     }
 
     @Test
     fun settingsEntryOpensNotificationToggle() {
         openSettings()
-        composeTestRule.onNodeWithText("App Notifications").assertIsDisplayed()
+        composeTestRule.onNodeWithText(appText(R.string.settings_notifications_title)).assertIsDisplayed()
         composeTestRule.onNodeWithTag("NotificationsToggle").assertIsOn()
     }
 
@@ -348,4 +334,7 @@ class AccountsViewTest {
             onSuccess()
         }
     }
+
+    private fun appText(id: Int): String =
+        InstrumentationRegistry.getInstrumentation().targetContext.getString(id)
 }
