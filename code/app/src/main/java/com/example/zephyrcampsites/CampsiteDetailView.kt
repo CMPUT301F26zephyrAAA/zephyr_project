@@ -101,7 +101,7 @@ class CampsiteDetailView {
         onRemoved: () -> Unit = onBack,
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
-        adminRatingGateway: AdminRatingGateway? = null
+        adminRatingGateway: AdminRatingGateway? = null,
     ) {
         var removing by remember(campsiteId) { mutableStateOf(false) }
         var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
@@ -135,11 +135,11 @@ class CampsiteDetailView {
                 )
             }
             if (ownerId.isNotBlank()) {
-                accountsController.findAccount(
-                    deviceId = ownerId,
-                    onResult = { owner ->
+                accountsController.findCampsiteOwnerName(
+                    campsiteId = campsiteId.toString(),
+                    onResult = { name ->
                         if (active) {
-                            ownerName = owner?.name
+                            ownerName = name
                         }
                     },
                     onError = {
@@ -160,6 +160,7 @@ class CampsiteDetailView {
             showOwnerView = showOwnerView,
             showEntrantActions = showEntrantActions,
             showAdminActions = showAdminActions,
+            adminRatingGateway = adminRatingGateway,
             imageUrl = imageUrl,
             ownerName = ownerName,
             isLoading = model.isLoading,
@@ -220,9 +221,6 @@ class CampsiteDetailView {
      * @param removing Whether removal is pending.
      * @param removalError Error from the last removal request.
      * @param onRemove Requests removal after confirmation.
-     * @param showEntrantActions Whether to show the entrant-only controls.
-     * @param showAdminActions Whether to show the owner-only controls.
-     * @param adminRatingGateway Controller used to load ratings.
      */
     @Composable
     fun DetailView(
@@ -250,7 +248,7 @@ class CampsiteDetailView {
         onRemove: () -> Unit = {},
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
-        adminRatingGateway: AdminRatingGateway? = null
+        adminRatingGateway: AdminRatingGateway? = null,
     ) {
 
         val canRemoveCampsite = showAdminActions && account?.userType?.contains("admin") == true
@@ -767,7 +765,6 @@ class CampsiteDetailView {
                             RatingView().RatingEntry(campsite.id, account, ratingController, onRateCampsite)
                         }
 
-                        // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
                         if (canRemoveCampsite) {
                             removalError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                             when {

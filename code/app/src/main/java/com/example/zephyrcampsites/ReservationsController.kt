@@ -31,6 +31,14 @@ class ReservationsController(
         reservationsModel ?: ReservationsModel()
     }
 
+    internal fun loadOwnerReservations(
+        onSuccess: (OwnerReservationList) -> Unit, onError: (Exception) -> Unit
+    ) = model.getOwnerReservations(onSuccess, onError)
+
+    internal fun cancelOwnerReservation(
+        reservation: OwnerReservation, owner: Account, onSuccess: () -> Unit, onError: (Exception) -> Unit
+    ) = model.cancelOwnerReservation(reservation.id, owner.id, onSuccess, onError)
+
     /**
      * Retrieves all reservations for an entrant in a single request.
      * The caller can then classify active and past reservations

@@ -8,14 +8,16 @@ import com.google.firebase.firestore.CollectionReference
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.EventListener
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SnapshotMetadata
-import com.google.firebase.firestore.Transaction
+import com.google.firebase.Timestamp
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.HttpsCallableReference
+import com.google.firebase.functions.HttpsCallableResult
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -30,158 +32,39 @@ import org.mockito.Mockito.*
  */
 class RatingModerationModelTest {
 
-    private lateinit var firestore: FirebaseFirestore
-    private lateinit var campsites: CollectionReference
-    private lateinit var reservations: CollectionReference
-    private lateinit var ratings: CollectionReference
-
-    private lateinit var campsiteRef: DocumentReference
-    private lateinit var selectedRatingRef: DocumentReference
-    private lateinit var otherRatingRef: DocumentReference
-
-    private lateinit var campsiteDocument: DocumentSnapshot
-    private lateinit var selectedRatingDocument: DocumentSnapshot
-    private lateinit var otherRatingDocument: DocumentSnapshot
-
-    private lateinit var transaction: Transaction
-    private lateinit var snapshot: QuerySnapshot
-    private lateinit var metadata: SnapshotMetadata
-    private lateinit var registration: ListenerRegistration
-
+    private val firestore = mock(FirebaseFirestore::class.java)
+    private val functions = mock(FirebaseFunctions::class.java)
+    private val ratings = mock(CollectionReference::class.java)
+    private val selectedRatingDocument = mock(DocumentSnapshot::class.java)
+    private val otherRatingDocument = mock(DocumentSnapshot::class.java)
+    private val snapshot = mock(QuerySnapshot::class.java)
+    private val metadata = mock(SnapshotMetadata::class.java)
+    private val registration = mock(ListenerRegistration::class.java)
     private lateinit var model: RatingModel
-
-    private lateinit var adminAccountDocument: DocumentSnapshot
-    private lateinit var adminAccountRef: DocumentReference
-    private lateinit var accountsCollection: CollectionReference
-
     private var snapshotListener: EventListener<QuerySnapshot>? = null
 
     private val campsiteId = "1"
-    private val adminAccountId = "123"
-
-    private val selectedRating = CampsiteRating(
-        reservationId = "stay-1",
-        score = 1,
-        review = "Policy violation",
-        accountId = "entrant-1"
-    )
-
-    private val otherRating = CampsiteRating(
-        reservationId = "stay-2",
-        score = 5,
-        review = "Lovely campsite",
-        accountId = "entrant-2"
-    )
+    private val adminAccountId = "auth_admin"
+    private val selectedRating = CampsiteRating("stay-1", 1, "Policy violation", "auth_entrant")
+    private val otherRating = CampsiteRating("stay-2", 5, "Lovely campsite", "auth_other")
 
     @Before
     fun setUp() {
-
-        firestore = mock(FirebaseFirestore::class.java)
-
-        campsites = mock(CollectionReference::class.java)
-        reservations = mock(CollectionReference::class.java)
-        ratings = mock(CollectionReference::class.java)
-
-        campsiteRef = mock(DocumentReference::class.java)
-        selectedRatingRef = mock(DocumentReference::class.java)
-        otherRatingRef = mock(DocumentReference::class.java)
-
-        campsiteDocument = mock(DocumentSnapshot::class.java)
-        selectedRatingDocument = mock(DocumentSnapshot::class.java)
-        otherRatingDocument = mock(DocumentSnapshot::class.java)
-
-        transaction = mock(Transaction::class.java)
-        snapshot = mock(QuerySnapshot::class.java)
-        metadata = mock(SnapshotMetadata::class.java)
-        registration = mock(ListenerRegistration::class.java)
-
-        adminAccountDocument = mock(DocumentSnapshot::class.java)
-        adminAccountRef = mock(DocumentReference::class.java)
-        accountsCollection = mock(CollectionReference::class.java)
-
-        `when`(firestore.collection("accounts"))
-            .thenReturn(accountsCollection)
-
-        `when`(accountsCollection.document(adminAccountId))
-            .thenReturn(adminAccountRef)
-
-        `when`(transaction.get(adminAccountRef))
-            .thenReturn(adminAccountDocument)
-
-        `when`(adminAccountDocument.exists())
-            .thenReturn(true)
-
-        `when`(adminAccountDocument.get("userType"))
-            .thenReturn(listOf("admin"))
-
-        `when`(firestore.collection("campsite"))
-            .thenReturn(campsites)
-
-        `when`(firestore.collection("reservation"))
-            .thenReturn(reservations)
-
-        `when`(campsites.document(campsiteId))
-            .thenReturn(campsiteRef)
-
-        `when`(campsiteRef.collection("ratings"))
-            .thenReturn(ratings)
-
-        `when`(ratings.document("entrant-1"))
-            .thenReturn(selectedRatingRef)
-
-        `when`(ratings.document("entrant-2"))
-            .thenReturn(otherRatingRef)
-
-        configureRatingDocument(
-            selectedRatingDocument,
-            selectedRating
-        )
-
-        configureRatingDocument(
-            otherRatingDocument,
-            otherRating
-        )
-
-        `when`(campsiteDocument.exists())
-            .thenReturn(true)
-
-        `when`(campsiteDocument.get("rating"))
-            .thenReturn(listOf(1L, 5L))
-
-        `when`(transaction.get(campsiteRef))
-            .thenReturn(campsiteDocument)
-
-        `when`(transaction.get(selectedRatingRef))
-            .thenReturn(selectedRatingDocument)
-
-        `when`(transaction.get(otherRatingRef))
-            .thenReturn(otherRatingDocument)
-
-        `when`(snapshot.metadata)
-            .thenReturn(metadata)
-
-        `when`(metadata.isFromCache)
-            .thenReturn(false)
-
-        `when`(snapshot.documents)
-            .thenReturn(
-                listOf(
-                    selectedRatingDocument,
-                    otherRatingDocument
-                )
-            )
-
-        configureTransaction()
-
+        val campsites = mock(CollectionReference::class.java)
+        val campsiteRef = mock(DocumentReference::class.java)
+        val reservations = mock(CollectionReference::class.java)
+        `when`(firestore.collection("reservation")).thenReturn(reservations)
+        `when`(firestore.collection("campsite")).thenReturn(campsites)
+        `when`(campsites.document(campsiteId)).thenReturn(campsiteRef)
+        `when`(campsiteRef.collection("ratings")).thenReturn(ratings)
+        `when`(snapshot.metadata).thenReturn(metadata)
+        `when`(snapshot.documents).thenReturn(listOf(selectedRatingDocument, otherRatingDocument))
+        configureRatingDocument(selectedRatingDocument, selectedRating)
+        configureRatingDocument(otherRatingDocument, otherRating)
         configureSnapshotListener()
-
-        model = RatingModel(firestore)
+        model = RatingModel(firestore, functions)
     }
 
-    /**
-     * AC1:
-     * All individual ratings can be loaded.
-     */
     @Test
     fun adminCanLoadAllIndividualRatings() {
 
@@ -204,249 +87,6 @@ class RatingModerationModelTest {
         )
     }
 
-    /**
-     * AC2 and AC5:
-     * Only the selected rating document is deleted.
-     */
-    @Test
-    fun adminCanRemoveSelectedRating() {
-
-        assertTrue(removeRating(selectedRating))
-
-        verify(transaction).delete(selectedRatingRef)
-
-        verify(transaction, never())
-            .delete(otherRatingRef)
-    }
-
-    /**
-     * AC6:
-     * Removing a score of 1 from [1, 5]
-     * produces an average of 5.
-     */
-    @Test
-    fun removingRatingUpdatesCampsiteAverage() {
-
-        assertTrue(removeRating(selectedRating))
-
-        verify(transaction).update(
-            campsiteRef,
-            mapOf(
-                "rating" to listOf(5),
-                "averageRating" to 5.0
-            )
-        )
-    }
-
-    /**
-     * AC6:
-     * Removing a rating recalculates a fractional average.
-     */
-    @Test
-    fun removingRatingRecalculatesFractionalAverage() {
-
-        `when`(campsiteDocument.get("rating"))
-            .thenReturn(listOf(1L, 4L, 5L))
-
-        assertTrue(removeRating(selectedRating))
-
-        verify(transaction).update(
-            campsiteRef,
-            mapOf(
-                "rating" to listOf(4, 5),
-                "averageRating" to 4.5
-            )
-        )
-    }
-
-    /**
-     * AC6:
-     * Removing the final rating clears the stored average.
-     */
-    @Test
-    fun removingFinalRatingClearsAverage() {
-
-        `when`(campsiteDocument.get("rating"))
-            .thenReturn(listOf(1L))
-
-        val deleteAverage = FieldValue.delete()
-
-        assertTrue(removeRating(selectedRating))
-
-        verify(transaction).update(
-            campsiteRef,
-            mapOf(
-                "rating" to emptyList<Int>(),
-                "averageRating" to deleteAverage
-            )
-        )
-
-        verify(transaction).delete(selectedRatingRef)
-    }
-
-    /**
-     * AC5 and AC6:
-     * Ratings with equal scores must remain independent.
-     */
-    @Test
-    fun removingRatingPreservesOtherEqualScores() {
-
-        `when`(campsiteDocument.get("rating"))
-            .thenReturn(listOf(1L, 1L, 5L))
-
-        assertTrue(removeRating(selectedRating))
-
-        verify(transaction).update(
-            campsiteRef,
-            mapOf(
-                "rating" to listOf(1, 5),
-                "averageRating" to 3.0
-            )
-        )
-
-        verify(transaction).delete(selectedRatingRef)
-
-        verify(transaction, never())
-            .delete(otherRatingRef)
-    }
-
-    /**
-     * Prevents subtracting the same rating twice.
-     */
-    @Test
-    fun alreadyDeletedRatingDoesNotChangeAverage() {
-
-        `when`(selectedRatingDocument.exists())
-            .thenReturn(false)
-
-        var result: Boolean? = null
-        var error: String? = null
-
-        model.removeAdminRating(
-            campsiteId = campsiteId,
-            adminAccountId = adminAccountId,
-            selected = selectedRating,
-            onResult = { result = it },
-            onError = { error = it }
-        )
-
-        assertEquals(false, result)
-        assertNull(error)
-
-        verify(transaction, never()).update(any(DocumentReference::class.java), anyMap<String, Any>())
-        verify(transaction, never()).delete(any(DocumentReference::class.java))
-    }
-
-    /**
-     * A rating changed after selection must not be deleted
-     * using the stale selection.
-     */
-    @Test
-    fun staleRatingSelectionIsRejected() {
-
-        `when`(selectedRatingDocument.get("review"))
-            .thenReturn("Updated review")
-
-        assertRemovalRejected(selectedRating)
-
-        verifyNoDatabaseWrites()
-    }
-
-    /**
-     * A rating without a valid document ID cannot be removed.
-     */
-    @Test
-    fun ratingWithoutAccountIdIsRejected() {
-
-        val invalidRating = selectedRating.copy(
-            accountId = null
-        )
-
-        var resultCalled = false
-        var error: String? = null
-
-        model.removeAdminRating(
-            campsiteId = campsiteId,
-            adminAccountId = adminAccountId,
-            selected = invalidRating,
-            onResult = { resultCalled = true },
-            onError = { error = it }
-        )
-
-        assertFalse(resultCalled)
-
-        assertEquals(
-            "This rating has no valid document ID.",
-            error
-        )
-
-        verifyNoInteractions(transaction)
-    }
-
-    /**
-     * Blank document IDs are rejected.
-     */
-    @Test
-    fun blankRatingAccountIdIsRejected() {
-
-        val invalidRating = selectedRating.copy(
-            accountId = ""
-        )
-
-        var error: String? = null
-
-        model.removeAdminRating(
-            campsiteId,
-            adminAccountId,
-            invalidRating,
-            onResult = {
-                fail("Invalid rating must not be removed.")
-            },
-            onError = { error = it }
-        )
-
-        assertEquals(
-            "This rating has no valid document ID.",
-            error
-        )
-
-        verifyNoInteractions(transaction)
-    }
-
-    /**
-     * A deleted campsite cannot have its aggregate updated.
-     */
-    @Test
-    fun missingCampsitePreventsRatingRemoval() {
-
-        `when`(campsiteDocument.exists())
-            .thenReturn(false)
-
-        assertRemovalRejected(selectedRating)
-
-        verifyNoDatabaseWrites()
-    }
-
-    /**
-     * A score missing from the aggregate must not be removed.
-     */
-    @Test
-    fun missingAggregateScorePreventsRemoval() {
-
-        `when`(campsiteDocument.get("rating"))
-            .thenReturn(listOf(4L, 5L))
-
-        assertRemovalRejected(selectedRating)
-
-        verifyNoDatabaseWrites()
-    }
-
-    /**
-     * AC7:
-     * Updated snapshots no longer contain a deleted rating.
-     *
-     * This verifies snapshot handling, not real persistence.
-     */
     @Test
     fun removedRatingIsExcludedFromUpdatedSnapshot() {
 
@@ -470,8 +110,6 @@ class RatingModerationModelTest {
             receivedRatings.last()
         )
 
-        assertTrue(removeRating(selectedRating))
-
         `when`(snapshot.documents)
             .thenReturn(listOf(otherRatingDocument))
 
@@ -487,9 +125,6 @@ class RatingModerationModelTest {
         )
     }
 
-    /**
-     * An empty snapshot is returned as an empty rating list.
-     */
     @Test
     fun noRatingsReturnsEmptyList() {
 
@@ -510,9 +145,6 @@ class RatingModerationModelTest {
         assertTrue(result!!.isEmpty())
     }
 
-    /**
-     * Cached snapshots must not replace server-confirmed data.
-     */
     @Test
     fun cachedRatingsAreNotReportedAsServerResults() {
 
@@ -532,55 +164,6 @@ class RatingModerationModelTest {
         assertFalse(resultCalled)
     }
 
-    /**
-     * AC8:
-     * A Firestore permission-denied response is reported
-     * as a failed removal.
-     *
-     * This does not independently verify Firestore rules.
-     */
-    @Test
-    fun permissionDeniedPreventsSuccessfulRemoval() {
-
-        val permissionError = SecurityException("Permission denied.")
-
-        val deniedTask = failedTask<Boolean>(permissionError)
-
-        `when`(
-            firestore.runTransaction(
-                any<Transaction.Function<Boolean>>()
-            )
-        ).thenReturn(deniedTask)
-
-        assertRemovalRejected(selectedRating)
-
-        verifyNoDatabaseWrites()
-    }
-
-    /**
-     * A failed Firebase transaction reports an error.
-     */
-    @Test
-    fun failedRatingRemovalReturnsError() {
-
-        val failure = failedTask<Boolean>(
-            IllegalStateException("Transaction failed.")
-        )
-
-        `when`(
-            firestore.runTransaction(
-                any<Transaction.Function<Boolean>>()
-            )
-        ).thenReturn(failure)
-
-        assertRemovalRejected(selectedRating)
-
-        verifyNoDatabaseWrites()
-    }
-
-    /**
-     * A failed ratings observation reports a readable error.
-     */
     @Test
     fun ratingObservationFailureReturnsError() {
 
@@ -600,9 +183,6 @@ class RatingModerationModelTest {
         )
     }
 
-    /**
-     * Leaving the ratings screen can remove the listener.
-     */
     @Test
     fun stoppingObservationRemovesListener() {
 
@@ -617,9 +197,35 @@ class RatingModerationModelTest {
         verify(registration).remove()
     }
 
-    // =====================================================
-    // HELPER FUNCTIONS
-    // =====================================================
+    // AI Citation [AI-39] (Bhav Saluja). Callable argument forwarding for PR #141.
+    @Test
+    fun sendsTheVersionDisplayedInTheConfirmation() {
+        val endpoint = mock(HttpsCallableReference::class.java)
+        val response = mock(HttpsCallableResult::class.java)
+        val selected = selectedRating.copy(updatedAt = Timestamp(12, 345))
+        val payload = mapOf(
+            "campsiteId" to campsiteId, "adminAccountId" to adminAccountId,
+            "accountId" to selectedRating.accountId,
+            "updatedAt" to mapOf<String, Number>("seconds" to 12L, "nanoseconds" to 345)
+        )
+        `when`(functions.getHttpsCallable("removeCampsiteFeedback")).thenReturn(endpoint)
+        val request = successfulTask(response)
+        `when`(endpoint.call(payload)).thenReturn(request)
+
+        var removed = false
+        model.removeAdminRating(campsiteId, adminAccountId, selected, { removed = it }, { fail(it) })
+
+        assertTrue(removed)
+        verify(endpoint).call(payload)
+    }
+
+    @Test
+    fun cannotConfirmARatingWithoutAServerVersion() {
+        var error: String? = null
+        model.removeAdminRating(campsiteId, adminAccountId, selectedRating, { fail() }, { error = it })
+        assertEquals("Reload the rating and try again.", error)
+        verifyNoInteractions(functions)
+    }
 
     private fun configureRatingDocument(
         document: DocumentSnapshot,
@@ -645,32 +251,6 @@ class RatingModerationModelTest {
             .thenReturn(rating.updatedAt)
     }
 
-    private fun configureTransaction() {
-
-        `when`(
-            firestore.runTransaction(
-                any<Transaction.Function<Boolean>>()
-            )
-        ).thenAnswer { invocation ->
-
-            val operation =
-                invocation.getArgument<
-                        Transaction.Function<Boolean>
-                        >(0)
-
-            try {
-
-                val result = operation.apply(transaction)
-
-                successfulTask(result)
-
-            } catch (exception: Exception) {
-
-                failedTask<Boolean>(exception)
-            }
-        }
-    }
-
     private fun configureSnapshotListener() {
 
         `when`(
@@ -687,59 +267,6 @@ class RatingModerationModelTest {
 
             registration
         }
-    }
-
-    private fun removeRating(
-        rating: CampsiteRating
-    ): Boolean {
-
-        var result: Boolean? = null
-        var error: String? = null
-
-        model.removeAdminRating(
-            campsiteId,
-            adminAccountId,
-            rating,
-            onResult = { result = it },
-            onError = { error = it }
-        )
-
-        assertNull(error)
-        assertNotNull(result)
-
-        return result == true
-    }
-
-    private fun assertRemovalRejected(
-        rating: CampsiteRating
-    ) {
-
-        var resultCalled = false
-        var error: String? = null
-
-        model.removeAdminRating(
-            campsiteId,
-            adminAccountId,
-            rating,
-            onResult = { resultCalled = true },
-            onError = { error = it }
-        )
-
-        assertFalse(resultCalled)
-        assertNotNull("An error message should be returned")
-        assertTrue("The error message should not be blank", !error.isNullOrBlank())
-    }
-
-    private fun verifyNoDatabaseWrites() {
-
-        verify(transaction, never()).update(
-            any(DocumentReference::class.java),
-            anyMap<String, Any>()
-        )
-
-        verify(transaction, never()).delete(
-            any(DocumentReference::class.java)
-        )
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -770,38 +297,6 @@ class RatingModerationModelTest {
                 any(OnFailureListener::class.java)
             )
         ).thenReturn(task)
-
-        return task
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> failedTask(
-        exception: Exception
-    ): Task<T> {
-
-        val task = mock(Task::class.java) as Task<T>
-
-        `when`(
-            task.addOnSuccessListener(
-                any<OnSuccessListener<T>>()
-            )
-        ).thenReturn(task)
-
-        `when`(
-            task.addOnFailureListener(
-                any(OnFailureListener::class.java)
-            )
-        ).thenAnswer { invocation ->
-
-            val listener =
-                invocation.getArgument<
-                        OnFailureListener
-                        >(0)
-
-            listener.onFailure(exception)
-
-            task
-        }
 
         return task
     }

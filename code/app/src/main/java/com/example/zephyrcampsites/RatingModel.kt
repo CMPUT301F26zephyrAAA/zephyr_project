@@ -1,30 +1,34 @@
+// Loads campsite feedback and submits verified changes through Cloud Functions.
 package com.example.zephyrcampsites
 
 import com.google.firebase.Firebase
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
+import com.google.firebase.functions.FirebaseFunctions
 
 /**
- * Reads completed stays from reservation and stores one rating per account in campsite/{id}/ratings.
- * Saves the rating values and average together so campsite snapshot listeners refresh the list.
+ * Reads completed stays and each entrant's feedback in the campsite's ratings subcollection.
+ * Updates feedback and the campsite aggregate together through Cloud Functions.
  * Reservation creation must provide accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, and cancelled.
  *
- * @param firestore Database used for reservations, accounts, and campsite ratings.
+ * @param firestore Database used for reservations and campsite ratings.
+ * @param functions Callable endpoints for verified feedback changes.
  */
-class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore) : RatingGateway, AdminRatingGateway {
+class RatingModel(
+    private val firestore: FirebaseFirestore = Firebase.firestore,
+    functions: FirebaseFunctions? = null
+) : RatingGateway, AdminRatingGateway {
+    private val callables by lazy { functions ?: FirebaseFunctions.getInstance() }
     private val reservations = firestore.collection("reservation")
     private val campsites = firestore.collection("campsite")
 
     /**
      * Finds a completed stay and loads this account's current score and review.
-     * Loads value only once.
      *
      * @param campsiteId Campsite being rated.
      * @param accountId Entrant whose completed reservations are checked.
@@ -152,187 +156,8 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         campsiteId: String, accountId: String, rating: CampsiteRating,
         onSuccess: () -> Unit, onError: (String) -> Unit
     ) {
-        val campsiteRef = campsites.document(campsiteId)
-        val ratingRef = campsiteRef.collection("ratings").document(accountId)
-        val reservationRef = reservations.document(rating.reservationId)
-        val accountRef = firestore.collection("accounts").document(accountId)
-
-        firestore.runTransaction { transaction ->
-            val campsiteDocument = transaction.get(campsiteRef)
-            val previousRating = transaction.get(ratingRef)
-            val reservationDocument = transaction.get(reservationRef)
-            val accountDocument = transaction.get(accountRef)
-            checkCompletedStay(
-                campsite = campsiteDocument,
-                stay = reservationDocument,
-                account = accountDocument,
-                campsiteId = campsiteId,
-                accountId = accountId,
-            )
-            val scores = readCampsiteScores(campsiteDocument)
-            val previousScore = if (previousRating.contains("score")) {
-                previousRating.getLong("score")?.toInt() ?: error("Invalid previous rating.")
-            } else {
-                null
-            }
-            val updated = RatingValidator.replaceRating(scores, previousScore, rating.score)
-            transaction.update(campsiteRef, mapOf("rating" to updated, "averageRating" to updated.average()))
-            transaction.set(ratingRef, mapOf(
-                "accountId" to accountId, "campsiteId" to campsiteId, "reservationId" to rating.reservationId,
-                "score" to rating.score, "review" to rating.review, "updatedAt" to FieldValue.serverTimestamp()
-            ))
-        }
-            .addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { onError("Unable to save your rating. Check your completed stay and try again.") }
+        saveFeedback(campsiteId, accountId, rating.reservationId, rating.review, rating.score, onSuccess, onError)
     }
-
-    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
-    /**
-     * Loads all ratings for a campsite. (Admin only feature)
-     *
-     * @param campsiteId Campsite being rated.
-     * @param onRatings Receives the list of ratings.
-     * @param onError Receives a readable load error.
-     */
-    override fun observeAdminRatings(
-        campsiteId: String,
-        onRatings: (List<CampsiteRating>) -> Unit,
-        onError: (String) -> Unit,
-    ): () -> Unit {
-        val registration = campsites.document(campsiteId).collection("ratings")
-            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-                when {
-                    error != null ->
-                        onError("Unable to load campsite ratings.")
-
-                    snapshot != null && !snapshot.metadata.isFromCache ->
-                        onRatings(snapshot.documents.map { it.toCampsiteRating() })
-                }
-            }
-
-        return { registration.remove() }
-    }
-
-    /**
-     * Removes an individual's rating from a campsite.
-     *
-     * @param campsiteId Campsite being rated.
-     * @param selected Rating to remove.
-     * @param onResult Called after the rating is removed.
-     * @param onError Receives a readable error.
-     */
-    override fun equals(other: Any?): Boolean {
-        return super.equals(other)
-    }
-
-    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
-    /**
-     * Removes an individual's rating from a campsite. (Admin only feature)
-     *
-     * @param campsiteId Campsite being rated.
-     * @param selected Rating to remove.
-     * @param onResult Called after the rating is removed.
-     * @param onError Receives a readable error.
-     */
-    override fun removeAdminRating(
-        campsiteId: String,
-        adminAccountId: String,
-        selected: CampsiteRating,
-        onResult: (Boolean) -> Unit,
-        onError: (String) -> Unit,
-    ) {
-        if (adminAccountId.isBlank() || '/' in adminAccountId) {
-            onError("Administrator access required.")
-            return
-        }
-        if (campsiteId.isBlank() || '/' in campsiteId) {
-            onError("Invalid campsite ID.")
-            return
-        }
-        val accountId = selected.accountId
-        if (accountId.isNullOrBlank() || '/' in accountId) {
-            onError("This rating has no valid document ID.")
-            return
-        }
-
-        val adminRef = firestore.collection("accounts").document(adminAccountId)
-        val campsiteRef = campsites.document(campsiteId)
-        val ratingRef = campsiteRef.collection("ratings").document(accountId)
-
-        firestore.runTransaction { transaction ->
-            val adminDocument = transaction.get(adminRef)
-            check(adminDocument.exists() && "admin" in accountRoles(adminDocument.get("userType"))) {
-                "Administrator access required."
-            }
-            val ratingDocument = transaction.get(ratingRef)
-            if (!ratingDocument.exists()) return@runTransaction false
-
-            check(ratingDocument.toCampsiteRating() == selected) {
-                "The rating changed after it was selected."
-            }
-
-            val storedScore = ratingDocument.get("score")
-            if (storedScore != null) {
-                val campsiteDocument = transaction.get(campsiteRef)
-                check(campsiteDocument.exists()) { "Campsite no longer available." }
-
-                val scores = RatingValidator.removeRating(
-                    readCampsiteScores(campsiteDocument),
-                    selected.score,
-                )
-                val average: Any =
-                    RatingValidator.averageAfterRemoval(scores) ?: FieldValue.delete()
-
-                transaction.update(
-                    campsiteRef,
-                    mapOf("rating" to scores, "averageRating" to average),
-                )
-            }
-            transaction.delete(ratingRef)
-            true
-        }
-            .addOnSuccessListener { removed -> onResult(removed) }
-            .addOnFailureListener {
-                onError("Unable to remove this rating. Verify you administrator privileges and try again.")
-            }
-    }
-
-    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
-    /**
-     * Converts a Firestore document to a rating.
-     *
-     * @param document Rating snapshot to read.
-     * @param eligibleReservationId Reservation used to verify the completed stay.
-     */
-    private fun DocumentSnapshot.toCampsiteRating(
-        eligibleReservationId: String? = null,
-    ): CampsiteRating {
-        val number = get("score") as? Number
-        val score = number?.let { value ->
-            value.toInt().takeIf { it in 1..5 && value.toDouble() == it.toDouble() }
-        } ?: 0
-
-        return CampsiteRating(
-            reservationId = eligibleReservationId ?: (get("reservationId") as? String).orEmpty(),
-            score = score,
-            review = (get("review") as? String).orEmpty(),
-            accountId = if (exists()) id else null,
-            updatedAt = get("updatedAt") as? Timestamp,
-        )
-    }
-
-    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
-    /**
-     * Converts a Firestore document to a list of scores.
-     *
-     * @param document Campsite snapshot to read.x
-     */
-    private fun readCampsiteScores(document: DocumentSnapshot): List<Int> =
-        (document.get("rating") as? List<*>)?.map { value ->
-            val number = value as? Number ?: error("Invalid stored rating.")
-            check(number.toDouble() == number.toInt().toDouble()) { "Invalid stored rating." }
-            number.toInt()
-        } ?: emptyList()
 
     override fun observeReviews(
         campsiteId: String, onResult: (List<String>) -> Unit, onError: (String) -> Unit
@@ -354,62 +179,96 @@ class RatingModel(private val firestore: FirebaseFirestore = Firebase.firestore)
         campsiteId: String, accountId: String, reservationId: String, review: String,
         onSuccess: () -> Unit, onError: (String) -> Unit
     ) {
-        val text = review.trim()
-        if (text.isEmpty()) {
-            onError("Enter a review before submitting.")
-            return
-        }
-
-        val campsiteRef = campsites.document(campsiteId)
-        val ratingRef = campsiteRef.collection("ratings").document(accountId)
-        val reservationRef = reservations.document(reservationId)
-        val accountRef = firestore.collection("accounts").document(accountId)
-
-        firestore.runTransaction { transaction ->
-            checkCompletedStay(
-                campsite = transaction.get(campsiteRef),
-                stay = transaction.get(reservationRef),
-                account = transaction.get(accountRef),
-                campsiteId = campsiteId,
-                accountId = accountId,
-            )
-            transaction.set(ratingRef, mapOf(
-                "accountId" to accountId, "campsiteId" to campsiteId, "reservationId" to reservationId,
-                "review" to text, "updatedAt" to FieldValue.serverTimestamp()
-            ), SetOptions.merge())
-        }
-            .addOnSuccessListener { onSuccess() }
-            .addOnFailureListener { onError("Unable to save your review. Check your completed stay and try again.") }
+        saveFeedback(campsiteId, accountId, reservationId, review, null, onSuccess, onError)
     }
 
-    /** Verifies the campsite, entrant role, and completed reservation. */
-    private fun checkCompletedStay(
-        campsite: DocumentSnapshot,
-        stay: DocumentSnapshot,
-        account: DocumentSnapshot,
-        campsiteId: String,
-        accountId: String,
+    // AI Citation [AI-39] (Bhav Saluja). Verified feedback transactions. See the team AI Documentation Google Doc.
+    private fun saveFeedback(
+        campsiteId: String, accountId: String, reservationId: String, review: String, score: Int?,
+        onSuccess: () -> Unit, onError: (String) -> Unit
     ) {
-        check(campsite.exists()) { "Campsite no longer available." }
-
-        val role = account.get("userType")
-        check(role == "entrant" || (role is List<*> && "entrant" in role)) {
-            "Only entrants can rate or review a campsite."
+        val data = mutableMapOf<String, Any>(
+            "campsiteId" to campsiteId, "accountId" to accountId,
+            "reservationId" to reservationId, "review" to review
+        )
+        if (score != null) {
+            data["score"] = score
         }
-        check(account.getBoolean("deletionPending") != true) {
-            "Your profile is being deleted."
-        }
+        callables.getHttpsCallable("saveCampsiteFeedback").call(data)
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { onError(it.message ?: "Unable to save campsite feedback.") }
+    }
 
-        val reservation = readReservation(stay)
-        check(
-            reservation != null &&
-                    RatingValidator.hasStayed(
-                        reservation,
-                        accountId,
-                        campsiteId,
-                        System.currentTimeMillis(),
-                    ),
-        ) { "A non-cancelled stay must have ended." }
+    /**
+     * Watches the same rating records that the PR #141 confirmation screen displays.
+     * @param campsiteId Campsite being moderated.
+     * @param onRatings Receives the feedback and its saved version.
+     * @param onError Receives a load error.
+     * @return Removes the snapshot listener when the screen closes.
+     */
+    override fun observeAdminRatings(
+        campsiteId: String,
+        onRatings: (List<CampsiteRating>) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        val registration = campsites.document(campsiteId).collection("ratings")
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+                when {
+                    error != null ->
+                        onError("Unable to load campsite ratings.")
+
+                    snapshot != null && !snapshot.metadata.isFromCache ->
+                        onRatings(snapshot.documents.map { it.toCampsiteRating() })
+                }
+            }
+
+        return { registration.remove() }
+    }
+
+    // AI Citation [AI-39] (Bhav Saluja). Connects PR #141 to version-checked server moderation.
+    /**
+     * Removes only the version displayed when the administrator confirmed the selection.
+     * @param campsiteId Campsite containing the feedback.
+     * @param adminAccountId Profile ID of the current administrator.
+     * @param selected Feedback snapshot displayed for confirmation.
+     * @param onResult Called after the server removes the selected version.
+     * @param onError Receives a stale-selection or other removal error.
+     */
+    override fun removeAdminRating(
+        campsiteId: String, adminAccountId: String, selected: CampsiteRating,
+        onResult: (Boolean) -> Unit, onError: (String) -> Unit
+    ) {
+        val version = selected.updatedAt
+        val accountId = selected.accountId
+        if (version == null || accountId == null) {
+            onError("Reload the rating and try again.")
+            return
+        }
+        callables.getHttpsCallable("removeCampsiteFeedback")
+            .call(mapOf(
+                "campsiteId" to campsiteId, "accountId" to accountId, "adminAccountId" to adminAccountId,
+                "updatedAt" to mapOf("seconds" to version.seconds, "nanoseconds" to version.nanoseconds)
+            ))
+            .addOnSuccessListener { onResult(true) }
+            .addOnFailureListener { onError(it.message ?: "Unable to remove campsite feedback.") }
+    }
+
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    private fun DocumentSnapshot.toCampsiteRating(
+        eligibleReservationId: String? = null,
+    ): CampsiteRating {
+        val number = get("score") as? Number
+        val score = number?.let { value ->
+            value.toInt().takeIf { it in 1..5 && value.toDouble() == it.toDouble() }
+        } ?: 0
+
+        return CampsiteRating(
+            reservationId = eligibleReservationId ?: (get("reservationId") as? String).orEmpty(),
+            score = score,
+            review = (get("review") as? String).orEmpty(),
+            accountId = if (exists()) id else null,
+            updatedAt = get("updatedAt") as? Timestamp,
+        )
     }
 
     /**

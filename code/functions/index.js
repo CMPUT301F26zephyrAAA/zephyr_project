@@ -15,6 +15,9 @@ const db = admin.firestore();
 // Limit how many function instances can run at once.
 setGlobalOptions({maxInstances: 1});
 
+Object.assign(exports, require("./lotteryNotifications")(db));
+Object.assign(exports, require("./accountActions")(db));
+
 /**
  * Returns canonical, unique waiting-list registrations for a lottery.
  *

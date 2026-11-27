@@ -123,7 +123,7 @@ class AccountsView {
             )
 
             Text(
-                text = "Device ID Number",
+                text = "Account ID",
                 style = MaterialTheme.typography.bodySmall
             )
             Text(
