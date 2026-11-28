@@ -145,6 +145,47 @@ test("only a winner can check a participating campsite within the lottery period
   assert.equal(Object.keys(f.rows).some((key) => key.startsWith("reservation/")), false);
 });
 
+test("availability returns only active booked ranges within the owner-approved period", async () => {
+  const f = fixture();
+  await draw(f);
+  f.rows["campsite/2"].bookingPeriodStart = timestamp(35);
+  f.rows["campsite/2"].bookingPeriodEnd = timestamp(55);
+  f.rows["reservation/active"] = {
+    campsiteId: "2",
+    bookedPeriodStart: timestamp(40),
+    bookedPeriodEnd: timestamp(45),
+    cancelled: false,
+  };
+  f.rows["reservation/cancelled"] = {
+    campsiteId: "2",
+    bookedPeriodStart: timestamp(46),
+    bookedPeriodEnd: timestamp(50),
+    cancelled: true,
+  };
+  f.rows["reservation/other-site"] = {
+    campsiteId: "1",
+    bookedPeriodStart: timestamp(35),
+    bookedPeriodEnd: timestamp(55),
+    cancelled: false,
+  };
+
+  const availability = await f.listLotteryBookingAvailability(
+      request("a", {lotteryId: "shared", campsiteId: "2"}),
+  );
+
+  assert.deepEqual(availability, {
+    bookingStart: 35,
+    bookingEnd: 55,
+    bookedPeriods: [{start: 40, end: 45}],
+  });
+  await assert.rejects(
+      f.listLotteryBookingAvailability(
+          request("backup", {lotteryId: "shared", campsiteId: "2"}),
+      ),
+      {code: "permission-denied"},
+  );
+});
+
 test("one confirmed reservation per offer and no overlaps on the same campsite", async () => {
   const f = fixture();
   await draw(f);
@@ -154,6 +195,7 @@ test("one confirmed reservation per offer and no overlaps on the same campsite",
   assert.equal(saved.lotteryId, "shared");
   assert.equal(saved.status, "confirmed");
   assert.equal(saved.bookedPeriodStart.toMillis(), 30);
+  assert.equal(f.rows["lottery/shared"].availabilityUpdatedAt, 1);
   assert.deepEqual(await f.confirmLotteryBooking(request("a", stay)), {reservationId});
   await assert.rejects(f.confirmLotteryBooking(request("a", {...stay, campsiteId: "1"})),
       {code: "already-exists"});

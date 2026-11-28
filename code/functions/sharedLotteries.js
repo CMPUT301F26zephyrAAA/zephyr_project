@@ -167,11 +167,12 @@ function sharedLotteryHandlers(db, {
     }
     return db.runTransaction(async (transaction) => {
       const accountId = await verifyAccount(transaction, request);
+      const lotteryRef = lotteries.doc(lotteryId);
       const reservationId = createHash("sha256")
           .update(JSON.stringify([lotteryId, accountId])).digest("hex");
       const reservation = reservations.doc(reservationId);
       const [lotteryDoc, entry, result, existing, site] = await transaction.getAll(
-          lotteries.doc(lotteryId),
+          lotteryRef,
           db.collection("waitingList").doc(lotteryId + "_" + accountId),
           db.collection("lotteryDrawResults").doc(lotteryId),
           reservation, campsites.doc(campsiteId),
@@ -221,6 +222,9 @@ function sharedLotteryHandlers(db, {
         return {available: true};
       }
       touchLocks(transaction, locks);
+      // Entrants watch this public lottery document and immediately reload
+      // the private date ranges through listLotteryBookingAvailability.
+      transaction.update(lotteryRef, {availabilityUpdatedAt: FieldValue.serverTimestamp()});
       transaction.create(reservation, {
         id: reservationId, lotteryId, accountId, campsiteId,
         bookedPeriodStart: Timestamp.fromMillis(start),
@@ -231,7 +235,61 @@ function sharedLotteryHandlers(db, {
     });
   }
 
-  return {saveLotterySettings, confirmLotteryBooking};
+  /**
+   * Returns the dates a winning entrant can still reserve at one campsite.
+   *
+   * This deliberately returns only occupied date ranges, not account or
+   * reservation details. A later confirmation still runs in a transaction,
+   * so an availability response can never reserve a date by itself.
+   *
+   * @param {Object} request Callable request from the Android app.
+   * @return {Promise<Object>} The usable period and confirmed booked ranges.
+   */
+  async function listLotteryBookingAvailability(request) {
+    const {lotteryId, campsiteId} = request.data || {};
+    if (!validId(lotteryId) || !validId(campsiteId)) {
+      fail("invalid-argument", "Select a valid lottery and campsite.");
+    }
+
+    return db.runTransaction(async (transaction) => {
+      const accountId = await verifyAccount(transaction, request);
+      const [lotteryDoc, entry, result, site] = await transaction.getAll(
+          lotteries.doc(lotteryId),
+          db.collection("waitingList").doc(lotteryId + "_" + accountId),
+          db.collection("lotteryDrawResults").doc(lotteryId),
+          campsites.doc(campsiteId),
+      );
+      const lottery = lotteryDoc.data();
+      if (!lottery?.drawCompleted || entry.get("drawStatus") !== "WINNER" ||
+          entry.get("accountId") !== accountId || entry.get("lotteryId") !== lotteryId ||
+          !result.get("winnerIds")?.includes(accountId) ||
+          result.get("declinedIds")?.includes(accountId)) {
+        fail("permission-denied", "There is no winning offer to view.");
+      }
+      if (!site.exists || !sitesFor(lottery).includes(campsiteId)) {
+        fail("invalid-argument", "Choose a participating campsite.");
+      }
+
+      const siteStart = site.get("bookingPeriodStart")?.toMillis?.();
+      const siteEnd = site.get("bookingPeriodEnd")?.toMillis?.();
+      const bookingStart = siteStart > 1 && siteEnd > siteStart ?
+        Math.max(lottery.bookingStart, siteStart) : lottery.bookingStart;
+      const bookingEnd = siteStart > 1 && siteEnd > siteStart ?
+        Math.min(lottery.bookingEnd, siteEnd) : lottery.bookingEnd;
+      const bookings = await transaction.get(
+          reservations.where("campsiteId", "==", campsiteId),
+      );
+      const bookedPeriods = bookings.docs.flatMap((booking) => {
+        const start = booking.get("bookedPeriodStart")?.toMillis?.();
+        const end = booking.get("bookedPeriodEnd")?.toMillis?.();
+        return booking.get("cancelled") !== true && Number.isSafeInteger(start) &&
+          Number.isSafeInteger(end) && start < end ? [{start, end}] : [];
+      });
+      return {bookingStart, bookingEnd, bookedPeriods};
+    });
+  }
+
+  return {saveLotterySettings, confirmLotteryBooking, listLotteryBookingAvailability};
 }
 
 module.exports = (db) => {
@@ -240,6 +298,7 @@ module.exports = (db) => {
   return {
     saveLotterySettings: onCall(handlers.saveLotterySettings),
     confirmLotteryBooking: onCall(handlers.confirmLotteryBooking),
+    listLotteryBookingAvailability: onCall(handlers.listLotteryBookingAvailability),
   };
 };
 module.exports.sharedLotteryHandlers = sharedLotteryHandlers;
