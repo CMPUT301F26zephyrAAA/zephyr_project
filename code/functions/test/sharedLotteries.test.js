@@ -236,3 +236,43 @@ test("the decline callable rejects a confirmed booking on a secondary campsite",
   assert.equal(f.rows["lotteryDrawResults/shared"].declinedIds, undefined);
 });
 
+test("the create callable rejects overlap with a secondary campsite", async () => {
+  const f = fixture();
+  const {createLottery} = require("../lotteryActions")(f.db);
+  const base = Date.now() + 100000;
+  const dates = {
+    ...settings, registrationStart: base + 10, registrationEnd: base + 20,
+    bookingStart: base + 30, bookingEnd: base + 60,
+  };
+  f.rows["lottery/shared"] = {...dates, campsiteId: "1", campsiteIds: ["1", "2"]};
+  await assert.rejects(createLottery.run(request("owner", {
+    ...dates, lotteryId: "legacy", campsiteId: "2",
+  })), {code: "failed-precondition"});
+  assert.equal(f.rows["lottery/legacy"], undefined);
+
+  await createLottery.run(request("owner", {
+    ...dates, lotteryId: "unrelated", campsiteId: "4",
+  }));
+  assert.ok(f.rows["lotteryBookingLocks/4"]);
+});
+
+test("the edit callable checks a shared lottery's secondary campsite", async () => {
+  const f = fixture();
+  const {updateLottery} = require("../lotteryActions")(f.db);
+  const base = Date.now() + 100000;
+  const dates = {
+    ...settings, registrationStart: base + 10, registrationEnd: base + 20,
+    bookingStart: base + 30, bookingEnd: base + 60,
+  };
+  f.rows["lottery/shared"] = {...dates, campsiteId: "1", campsiteIds: ["1", "2"]};
+  f.rows["lottery/legacy"] = {campsiteId: "2", bookingStart: base + 70, bookingEnd: base + 80};
+  await assert.rejects(updateLottery.run(request("owner", {
+    ...dates, bookingEnd: base + 70,
+  })), {code: "failed-precondition"});
+  assert.equal(f.rows["lottery/shared"].bookingEnd, base + 60);
+
+  await updateLottery.run(request("owner", {...dates, bookingEnd: base + 69}));
+  assert.ok(f.rows["lotteryBookingLocks/1"]);
+  assert.ok(f.rows["lotteryBookingLocks/2"]);
+  assert.deepEqual(f.rows["lottery/shared"].campsiteIds, ["1", "2"]);
+});
