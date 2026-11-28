@@ -45,6 +45,36 @@ class OwnerBookingCalendarControllerTest {
     }
 
     @Test
+    fun checkoutDateIsExcludedWhenTimestampIsNotMidnight() {
+        val reservation = reservation(startDay = 12, endDay = 15).copy(
+            endMillis = day(15) + 15 * 60 * 60 * 1000L
+        )
+
+        val bookedDays = OwnerBookingCalendarController.bookedDayStarts(
+            december2026,
+            listOf(reservation),
+            utc
+        )
+
+        assertTrue(day(14) in bookedDays)
+        assertFalse(day(15) in bookedDays)
+    }
+
+    @Test
+    fun bookingPeriodMarksOnlyItsInclusiveDatesBookable() {
+        val bookableDays = OwnerBookingCalendarController.bookableDayStarts(
+            december2026,
+            day(5),
+            day(8),
+            utc
+        )
+
+        assertEquals(setOf(day(5), day(6), day(7), day(8)), bookableDays)
+        assertFalse(day(4) in bookableDays)
+        assertFalse(day(9) in bookableDays)
+    }
+
+    @Test
     fun cancelledReservationDoesNotBlockCalendarDays() {
         val bookedDays = OwnerBookingCalendarController.bookedDayStarts(
             december2026,

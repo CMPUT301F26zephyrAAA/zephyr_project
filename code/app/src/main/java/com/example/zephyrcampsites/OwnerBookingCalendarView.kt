@@ -50,7 +50,14 @@ import java.util.TimeZone
 private const val BOOKING_CALENDAR_REFRESH_INTERVAL_MS = 30_000L
 private val AvailableDateColor = Color(0xFFE8F2E6)
 private val BookedDateColor = Color(0xFFF9DEDC)
+private val UnavailableDateColor = Color(0xFFE2E2E2)
 private val SelectedDateBorderColor = Color(0xFF395B3D)
+
+private enum class BookingCalendarDayStatus {
+    AVAILABLE,
+    BOOKED,
+    UNAVAILABLE
+}
 
 /** Describes the year and zero-based month currently rendered in the calendar. */
 internal data class BookingCalendarMonth(val year: Int, val monthIndex: Int) {
@@ -124,7 +131,41 @@ internal object OwnerBookingCalendarController {
         }.timeInMillis
     }
 
-    /** Returns the starts of the booked calendar days in [month]. */
+    /**
+     * Returns the local day starts inside a campsite's inclusive booking period.
+     *
+     * The campsite form stores both period boundaries as selectable dates, so a
+     * campsite remains available through the selected end date.
+     */
+    fun bookableDayStarts(
+        month: BookingCalendarMonth,
+        bookingPeriodStartMillis: Long,
+        bookingPeriodEndMillis: Long,
+        timeZone: TimeZone
+    ): Set<Long> {
+        val firstBookableDay = dayStartMillis(bookingPeriodStartMillis, timeZone)
+        val lastBookableDay = dayStartMillis(bookingPeriodEndMillis, timeZone)
+        if (lastBookableDay < firstBookableDay) {
+            return emptySet()
+        }
+
+        return buildSet {
+            for (day in 1..daysInMonth(month, timeZone)) {
+                val dayStart = dayStartMillis(month, day, timeZone)
+                if (dayStart in firstBookableDay..lastBookableDay) {
+                    add(dayStart)
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns the starts of booked calendar days in [month].
+     *
+     * A stay occupies the check-in date up to, but never including, its
+     * checkout date. The checkout date is excluded even if its stored
+     * timestamp has a time component.
+     */
     fun bookedDayStarts(
         month: BookingCalendarMonth,
         reservations: List<OwnerReservation>,
@@ -133,15 +174,13 @@ internal object OwnerBookingCalendarController {
         return buildSet {
             for (day in 1..daysInMonth(month, timeZone)) {
                 val dayStart = dayStartMillis(month, day, timeZone)
-                val dayEnd = Calendar.getInstance(timeZone).apply {
-                    timeInMillis = dayStart
-                    add(Calendar.DAY_OF_YEAR, 1)
-                }.timeInMillis
                 if (reservations.any { reservation ->
+                        val checkInDay = dayStartMillis(reservation.startMillis, timeZone)
+                        val checkoutDay = dayStartMillis(reservation.endMillis, timeZone)
                         !reservation.cancelled &&
                             reservation.startMillis < reservation.endMillis &&
-                            reservation.startMillis < dayEnd &&
-                            reservation.endMillis > dayStart
+                            checkInDay <= dayStart &&
+                            dayStart < checkoutDay
                     }
                 ) {
                     add(dayStart)
@@ -211,13 +250,27 @@ internal fun OwnerBookingCalendarScreen(
             timeZone = timeZone
         )
     }
-    val monthDays = OwnerBookingCalendarController.daysInMonth(visibleMonth, timeZone)
+    val bookableDayStarts = remember(
+        campsite.bookingPeriodStart.time,
+        campsite.bookingPeriodEnd.time,
+        visibleMonth,
+        timeZone
+    ) {
+        OwnerBookingCalendarController.bookableDayStarts(
+            month = visibleMonth,
+            bookingPeriodStartMillis = campsite.bookingPeriodStart.time,
+            bookingPeriodEndMillis = campsite.bookingPeriodEnd.time,
+            timeZone = timeZone
+        )
+    }
+    val activeBookedDayStarts = bookedDayStarts.intersect(bookableDayStarts)
 
     OwnerBookingCalendarView(
         campsiteName = campsite.name.ifBlank { "Campsite" },
         visibleMonth = visibleMonth,
         selectedDayMillis = selectedDayMillis,
-        bookedDayStarts = bookedDayStarts,
+        bookedDayStarts = activeBookedDayStarts,
+        bookableDayStarts = bookableDayStarts,
         hasLoadedBookings = reservations != null,
         isRefreshing = isRefreshing,
         errorMessage = errorMessage,
@@ -249,7 +302,7 @@ internal fun OwnerBookingCalendarScreen(
         onSelectDay = { selectedDayMillis = it },
         onRefresh = ::loadBookings,
         onBack = onBack,
-        availableDayCount = monthDays - bookedDayStarts.size
+        availableDayCount = bookableDayStarts.size - activeBookedDayStarts.size
     )
 }
 
@@ -260,6 +313,7 @@ internal fun OwnerBookingCalendarView(
     visibleMonth: BookingCalendarMonth,
     selectedDayMillis: Long,
     bookedDayStarts: Set<Long>,
+    bookableDayStarts: Set<Long>,
     hasLoadedBookings: Boolean,
     isRefreshing: Boolean,
     errorMessage: String?,
@@ -380,7 +434,11 @@ internal fun OwnerBookingCalendarView(
                         )
                         BookingCalendarDay(
                             dayOfMonth = dayOfMonth,
-                            isBooked = dayStart in bookedDayStarts,
+                            status = when {
+                                dayStart !in bookableDayStarts -> BookingCalendarDayStatus.UNAVAILABLE
+                                dayStart in bookedDayStarts -> BookingCalendarDayStatus.BOOKED
+                                else -> BookingCalendarDayStatus.AVAILABLE
+                            },
                             isSelected = dayStart == selectedDate,
                             onClick = { onSelectDay(dayStart) },
                             testTag = "BookingCalendarDay_$dayStart"
@@ -424,15 +482,15 @@ internal fun OwnerBookingCalendarView(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    if (selectedDate in bookedDayStarts) {
-                        "Confirmed booking"
-                    } else {
-                        "Available"
+                    when {
+                        selectedDate in bookedDayStarts -> "Confirmed booking"
+                        selectedDate in bookableDayStarts -> "Available"
+                        else -> "Unavailable outside booking period"
                     },
-                    color = if (selectedDate in bookedDayStarts) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
+                    color = when {
+                        selectedDate in bookedDayStarts -> MaterialTheme.colorScheme.error
+                        selectedDate in bookableDayStarts -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
                 )
             }
@@ -459,17 +517,25 @@ private fun BookingCalendarError(message: String, onRetry: () -> Unit) {
     }
 }
 
-/** Renders one selectable date cell with booked and available styling. */
+/** Renders one selectable date cell with booked, available, or unavailable styling. */
 @Composable
 private fun androidx.compose.foundation.layout.RowScope.BookingCalendarDay(
     dayOfMonth: Int,
-    isBooked: Boolean,
+    status: BookingCalendarDayStatus,
     isSelected: Boolean,
     onClick: () -> Unit,
     testTag: String
 ) {
-    val backgroundColor = if (isBooked) BookedDateColor else AvailableDateColor
-    val textColor = if (isBooked) MaterialTheme.colorScheme.error else Color(0xFF2F6841)
+    val backgroundColor = when (status) {
+        BookingCalendarDayStatus.AVAILABLE -> AvailableDateColor
+        BookingCalendarDayStatus.BOOKED -> BookedDateColor
+        BookingCalendarDayStatus.UNAVAILABLE -> UnavailableDateColor
+    }
+    val textColor = when (status) {
+        BookingCalendarDayStatus.AVAILABLE -> Color(0xFF2F6841)
+        BookingCalendarDayStatus.BOOKED -> MaterialTheme.colorScheme.error
+        BookingCalendarDayStatus.UNAVAILABLE -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     val shape = RoundedCornerShape(8.dp)
 
     Box(
@@ -498,7 +564,7 @@ private fun androidx.compose.foundation.layout.RowScope.BookingCalendarDay(
     }
 }
 
-/** Displays the color key used for available and booked dates. */
+/** Displays the color key used for available, booked, and unavailable dates. */
 @Composable
 private fun CalendarLegend() {
     Row(
@@ -523,6 +589,15 @@ private fun CalendarLegend() {
         )
         Spacer(modifier = Modifier.size(4.dp))
         Text("Booked", style = MaterialTheme.typography.labelMedium)
+        Spacer(modifier = Modifier.size(16.dp))
+        Box(
+            modifier = Modifier
+                .size(12.dp)
+                .clip(CircleShape)
+                .background(UnavailableDateColor)
+        )
+        Spacer(modifier = Modifier.size(4.dp))
+        Text("Unavailable", style = MaterialTheme.typography.labelMedium)
     }
 }
 
