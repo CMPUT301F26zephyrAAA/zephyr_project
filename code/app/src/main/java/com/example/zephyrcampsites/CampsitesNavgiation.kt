@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
@@ -502,6 +501,9 @@ internal fun CampsitesNavigation(
                                         null
                                     },
                                     onBackClick = onBack,
+                                    campsiteName = campsiteModel.campsites.firstOrNull {
+                                        it.id == campsiteId
+                                    }?.name?.takeIf { it.isNotBlank() },
                                     onNotifyClick = {
                                         navHostController.navigate(
                                             "$OWNER/notifyEntrants/${Uri.encode(lotteryId)}"
@@ -514,21 +516,36 @@ internal fun CampsitesNavigation(
 
                     if (isOwnerGraph) {
                         composable("$OWNER/allLotteries") {
-                            AccountContent {
-                                val ownedLotteries = lotteryModel.lotteries.filter {
-                                    ownsCampsite(it.campsiteId)
-                                }
-                                LotteryListScreen("My Lotteries", onBack) {
-                                    if (ownedLotteries.isEmpty()) {
-                                        item {
-                                            Text("No lotteries to show.", modifier = Modifier.padding(12.dp))
-                                        }
-                                    }
-                                    items(ownedLotteries) { lottery ->
-                                        LotteryListItem(lottery.lotteryName) {
-                                            openLottery(OWNER, lottery.id)
-                                        }
-                                    }
+                            AccountContent { owner ->
+                                OwnerLotteriesView(
+                                    accountId = owner.id,
+                                    lotteries = lotteryModel.lotteries.filter {
+                                        OWNER in owner.userType && ownsCampsite(it.campsiteId)
+                                    },
+                                    canCreateLottery = campsiteModel.campsites.any {
+                                        OWNER in owner.userType && it.ownerID == owner.id
+                                    },
+                                    onBack = onBack,
+                                    onCreateLottery = {
+                                        navHostController.navigate(GeneralScreen.LotterySettings.route)
+                                    },
+                                    onOpenLottery = { openLottery(OWNER, it) }
+                                )
+                            }
+                        }
+
+                        composable(GeneralScreen.LotterySettings.route) {
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType) {
+                                    lotteryView.LotterySettingsView(
+                                        ownedCampsites = campsiteModel.campsites.filter {
+                                            it.ownerID == owner.id
+                                        },
+                                        onLotteryCreated = { openLottery(OWNER, it) },
+                                        onBackClick = onBack
+                                    )
+                                } else {
+                                    FeaturePage("Only campsite owners can create a lottery.", onBack)
                                 }
                             }
                         }
@@ -706,14 +723,26 @@ internal fun CampsitesNavigation(
                             val lotteryId = entry.arguments?.getString("lotteryId")
                                 ?: return@composable
 
-                            AccountContent {
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            AccountContent { owner ->
                                 val campsiteId = lotteryController
                                     .getLotteryById(lotteryId)?.campsiteId
 
-                                if (ownsCampsite(campsiteId)) {
+                                if (OWNER in owner.userType && ownsCampsite(campsiteId)) {
                                     lotteryView.EditLotteryView(
                                         lotteryId = lotteryId,
-                                        onSaveClick = onBack,
+                                        ownerId = owner.id,
+                                        ownedCampsites = campsiteModel.campsites.filter {
+                                            it.ownerID == owner.id
+                                        },
+                                        onSaveClick = {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Lottery updated.",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                            onBack()
+                                        },
                                         onBackClick = onBack
                                     )
                                 } else {

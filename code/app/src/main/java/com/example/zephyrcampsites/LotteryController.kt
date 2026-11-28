@@ -103,8 +103,11 @@ class LotteryController(
         }
     }
 
+    /** Saves changes to an owner's lottery listing. */
     fun updateLottery(
         lotteryId: String,
+        ownerId: String,
+        campsiteId: String,
         lotteryName: String,
         registrationStart: Long,
         registrationEnd: Long,
@@ -117,6 +120,8 @@ class LotteryController(
     ) {
         lotteryModel.updateLottery(
             lotteryId = lotteryId,
+            ownerId = ownerId,
+            campsiteId = campsiteId,
             lotteryName = lotteryName,
             registrationStart = registrationStart,
             registrationEnd = registrationEnd,

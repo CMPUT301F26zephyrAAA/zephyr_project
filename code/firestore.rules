@@ -123,20 +123,43 @@ service cloud.firestore {
         countMatchesChange(lotteryId, accountId, resource.data.entrantCount, next.entrantCount);
     }
 
+    function validOwnerLotteryUpdate() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let changed = after.diff(before).affectedKeys();
+      let now = request.time.toMillis();
+      let capacity = after.get('waitlistCapacity', null);
+      return verifiedAccount(lotteryOwner(before)) &&
+        (!changed.hasAny(['lotteryName']) ||
+          (after.lotteryName is string && after.lotteryName.size() <= 200 &&
+            after.lotteryName.matches('.*[^\\s].*'))) &&
+        (changed.hasOnly(['lotteryName']) ||
+          (drawOpen(before) && before.registrationStart > now &&
+            changed.hasOnly([
+              'lotteryName', 'campsiteId', 'registrationStart', 'registrationEnd',
+              'bookingStart', 'bookingEnd', 'numberOfWinners', 'waitlistCapacity'
+            ]) &&
+            (after.campsiteId == before.campsiteId || verifiedAccount(lotteryOwner(after))) &&
+            after.registrationStart is int && after.registrationStart > now &&
+            after.registrationEnd is int && after.registrationEnd > after.registrationStart &&
+            after.bookingStart is int && after.bookingStart > after.registrationEnd &&
+            after.bookingEnd is int && after.bookingEnd > after.bookingStart &&
+            after.get('numberOfWinners', 1) is int &&
+            after.get('numberOfWinners', 1) > 0 &&
+            (!changed.hasAny(['waitlistCapacity']) || capacity == null ||
+              (capacity is int && capacity > 0 && capacity >= before.get('entrantCount', 0)))));
+    }
+
     match /lottery/{lotteryId} {
       allow read: if true;
       allow create: if validId(request.resource.data.campsiteId) &&
         request.resource.data.entrantCount == 0 && drawOpen(request.resource.data) &&
         verifiedAccount(lotteryOwner(request.resource.data));
-      allow update: if request.resource.data.campsiteId == resource.data.campsiteId &&
-        (validCountUpdate(lotteryId) ||
-          (verifiedAccount(lotteryOwner(resource.data)) && drawOpen(resource.data) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'lotteryName', 'registrationStart', 'registrationEnd',
-              'bookingStart', 'bookingEnd', 'numberOfWinners', 'waitlistCapacity'
-            ])) ||
-          (notificationAdmin() &&
-            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registrationEnd'])));
+      allow update: if validOwnerLotteryUpdate() ||
+        (request.resource.data.campsiteId == resource.data.campsiteId &&
+          (validCountUpdate(lotteryId) ||
+            (notificationAdmin() &&
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registrationEnd']))));
       allow delete: if notificationAdmin();
     }
 
