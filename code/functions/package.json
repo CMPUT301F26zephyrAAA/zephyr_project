@@ -9,7 +9,8 @@
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
     "test": "node --test test/lotteryDraw.test.js test/sharedLotteries.test.js",
-    "test:integration": "node --test test/lotteryDraw.integration.test.js"
+    "test:integration": "node --test test/lotteryDraw.integration.test.js",
+    "test:booking": "node --test test/lotteryBooking.integration.test.js"
   },
   "engines": {
     "node": "24"

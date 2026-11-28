@@ -1,5 +1,9 @@
 package com.example.zephyrcampsites
 
+// AI Citation [AI-40]
+// Anthropic, Claude Code assisted with KDoc for the
+// booking period, overlap, and edit cutoff validators.
+// AI usage and citation documented in the team AI Documentation.
 /**
  * Validates the information used to create a lottery.
  */
@@ -22,6 +26,12 @@ class LotteryValidator {
 
     /**
      * Checks that the booking period is valid.
+     *
+     * A single-day period is valid when the end time is later than the start time.
+     *
+     * @param start Booking start in epoch milliseconds.
+     * @param end Booking end in epoch milliseconds.
+     * @throws IllegalArgumentException If the end is not after the start.
      */
     fun validateBookingPeriod(start: Long, end: Long) {
         require(start < end) {
@@ -31,6 +41,14 @@ class LotteryValidator {
 
     /**
      * Checks if two booking periods overlap.
+     *
+     * Periods that share an endpoint count as overlapping.
+     *
+     * @param newStart Start of the period being saved.
+     * @param newEnd End of the period being saved.
+     * @param existingStart Start of another lottery's period for the same campsite.
+     * @param existingEnd End of another lottery's period for the same campsite.
+     * @throws IllegalArgumentException If the periods overlap.
      */
     fun validateNoBookingOverlap(
         newStart: Long,
@@ -45,6 +63,10 @@ class LotteryValidator {
 
     /**
      * Checks that registration ends before booking starts.
+     *
+     * @param registrationEnd Registration end in epoch milliseconds.
+     * @param bookingStart Booking start in epoch milliseconds.
+     * @throws IllegalArgumentException If booking starts at or before registration end.
      */
     fun validateRegistrationBeforeBooking(
         registrationEnd: Long,
@@ -57,6 +79,10 @@ class LotteryValidator {
 
     /**
      * Checks if lottery settings can still be updated.
+     *
+     * @param registrationStart Registration start in epoch milliseconds.
+     * @param currentTime Current time in epoch milliseconds.
+     * @throws IllegalArgumentException If registration has started.
      */
     fun validateRegistrationNotStarted(
         registrationStart: Long,
