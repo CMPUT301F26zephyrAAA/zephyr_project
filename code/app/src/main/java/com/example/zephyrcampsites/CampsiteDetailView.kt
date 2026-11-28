@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 // OpenAI, ChatGPT assisted with reservation offer
 // status display and decline confirmation UI.
 // AI usage and citation documented in the GitHub Wiki.
+// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
 
 import android.content.Intent
 import androidx.compose.foundation.Image
@@ -98,6 +99,7 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         reservationOfferController: ReservationOfferController? = null,
+        lotteryCampsiteNames: Map<String, String> = emptyMap(),
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
         onRemoved: () -> Unit = onBack,
@@ -183,6 +185,7 @@ class CampsiteDetailView {
             lottery = lottery,
             waitingListController = waitingListController,
             reservationOfferController = reservationOfferController,
+            lotteryCampsiteNames = lotteryCampsiteNames,
             ratingController = ratingController,
             onRateCampsite = onRateCampsite,
             removing = removing,
@@ -250,6 +253,7 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         reservationOfferController: ReservationOfferController? = null,
+        lotteryCampsiteNames: Map<String, String> = emptyMap(),
         previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
@@ -365,6 +369,7 @@ class CampsiteDetailView {
         var drawStatusError by remember(lottery?.id, accountId) { mutableStateOf("") }
         var checkingReservations by remember(lottery?.id, accountId) { mutableStateOf(true) }
         var hasExistingReservation by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var justConfirmed by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var reservationCheckError by remember(lottery?.id, accountId) { mutableStateOf("") }
         val reservationsModel = remember { ReservationsModel() }
 
@@ -427,7 +432,7 @@ class CampsiteDetailView {
                                 accountId = accountId,
                                 onSuccess = { existing ->
                                     hasExistingReservation = existing.any {
-                                        it.campsiteId == lottery.campsiteId && !it.cancelled
+                                        it.usesLotteryOffer(lottery)
                                     }
                                     checkingReservations = false
                                 },
@@ -640,9 +645,21 @@ class CampsiteDetailView {
                                         text = reservationCheckError,
                                         color = MaterialTheme.colorScheme.error
                                     )
+                                } else if (justConfirmed) {
+                                    Text("Reservation confirmed. View it in My Trips.")
                                 } else if (hasExistingReservation) {
-                                    Text("Reservation already created. Use Cancel Reservation in My Trips.")
+                                    Text("This lottery offer has already been used. See My Trips.")
                                 } else if (reservationOfferController != null) {
+                                    if (System.currentTimeMillis() < lottery.bookingEnd) {
+                                        LotteryBookingPicker(
+                                            lottery = lottery,
+                                            campsiteNames = lotteryCampsiteNames +
+                                                (campsite.id to campsite.name),
+                                            initialCampsiteId = campsite.id,
+                                            controller = reservationOfferController,
+                                            onConfirmed = { justConfirmed = true }
+                                        )
+                                    }
                                     var showDeclineConfirmation by remember(lottery.id, accountId) {
                                         mutableStateOf(false)
                                     }

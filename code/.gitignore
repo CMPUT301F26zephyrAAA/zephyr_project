@@ -14,4 +14,6 @@
 .externalNativeBuild
 .cxx
 local.properties
-AGENTS.md
+/AGENTS.md
+*.log
+hs_err_pid*

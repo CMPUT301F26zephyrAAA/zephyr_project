@@ -2,7 +2,7 @@ package com.example.zephyrcampsites
 /**
  * Represents a lottery listing for a campsite.
  *
- * Each lottery belongs to one campsite and has
+ * Each lottery links one or more campsites and has
  * its own registration and booking settings.
  */
 data class Lottery(
@@ -11,6 +11,13 @@ data class Lottery(
 
     var lotteryName: String = ""
     var campsiteId: String = ""
+    var campsiteIds: List<String> = emptyList()
+
+    // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+    /** Returns all linked sites, including the original site for older records. */
+    fun participatingCampsiteIds(): List<String> = campsiteIds.ifEmpty {
+        listOf(campsiteId).filter { it.isNotBlank() }
+    }
     var registrationStart: Long = 0L
     var registrationEnd: Long = 0L
     var bookingStart: Long = 0L

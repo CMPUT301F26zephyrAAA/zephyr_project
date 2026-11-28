@@ -2,6 +2,7 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf
+import com.google.firebase.functions.FirebaseFunctions
 import java.util.UUID
 
 /**
@@ -18,7 +19,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
      */
     fun createLottery(
         lotteryName: String,
-        campsiteId: String,
+        campsiteIds: List<String>,
         registrationStart: Long,
         registrationEnd: Long,
         bookingStart: Long,
@@ -28,7 +29,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         onSuccess: (String) -> Unit,
         onFailure: (Exception) -> Unit
     ): String {
-        LotteryValidator().validateCampsiteId(campsiteId)
+        require(campsiteIds.isNotEmpty()) { "Select at least one campsite." }
 
         // validate the lottery name
         require(lotteryName.isNotBlank()) {
@@ -56,20 +57,6 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             "Booking must start after registration ends."
         }
 
-        // Check for overlapping booking periods for the same campsite.
-        lotteries
-            .filter { other ->
-                other.campsiteId == campsiteId
-            }
-            .forEach { other ->
-                LotteryValidator().validateNoBookingOverlap(
-                    bookingStart,
-                    bookingEnd,
-                    other.bookingStart,
-                    other.bookingEnd
-                )
-            }
-
         require(numberOfWinners > 0) {
             "Number of winners must be positive."
         }
@@ -77,147 +64,28 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             "Waitlist capacity must be positive."
         }
 
-
-        val lottery = Lottery(UUID.randomUUID().toString())
-        lottery.lotteryName = lotteryName.trim()
-
-        lottery.campsiteId = campsiteId
-        lottery.registrationStart = registrationStart
-        lottery.registrationEnd = registrationEnd
-        lottery.bookingStart = bookingStart
-        lottery.bookingEnd = bookingEnd
-        lottery.numberOfWinners = numberOfWinners
-        lottery.waitlistCapacity = waitlistCapacity
-        lottery.entrantCount = 0L
-        // A new lottery has not started its winner draw yet.
-        lottery.drawCompleted = false
-        lottery.drawCompletedAt = 0L
-        lottery.drawStatus = "PENDING"
-
-        // No draw has started for this lottery yet.
-        lottery.drawStartedAt = 0L
-
-        // Save the lottery and confirm the result.
-        connector.addWithCallback(
-            value = lottery,
-            onSuccess = {
-                onSuccess(lottery.id)
-            },
-            onFailure = { exception ->
-                onFailure(exception)
-            }
-        )
-        return lottery.id
-    }
-
-
-    /**
-     * Updates the registration period of an existing lottery.
-     *
-     * Registration dates can only be changed before registration starts.
-     *
-     * @param lotteryId ID of the lottery to update.
-     * @param newStart New registration start time in milliseconds.
-     * @param newEnd New registration end time in milliseconds.
-     */
-    fun updateRegistrationPeriod(
-        lotteryId: String,
-        newStart: Long,
-        newEnd: Long
-    ) {
-        // Find the existing lottery.
-        val lottery = lotteries.find { it.id == lotteryId }
-            ?: throw IllegalArgumentException("Lottery not found.")
-
-        // Registration dates can only be updated before registration starts.
-        LotteryValidator().validateRegistrationNotStarted(
-            lottery.registrationStart,
-            System.currentTimeMillis()
-        )
-
-        // Make sure the new registration period is valid and in the future.
-        require(newStart > System.currentTimeMillis() && newStart < newEnd) {
-            "Enter a valid future registration period."
-        }
-
-        // Registration must end before the booking period starts.
-        LotteryValidator().validateRegistrationBeforeBooking(
-            newEnd,
-            lottery.bookingStart
-        )
-
-        // Update the registration dates.
-        lottery.registrationStart = newStart
-        lottery.registrationEnd = newEnd
-
-        // Save the updated registration dates to Firebase.
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
-            .collection("lottery")
-            .document(lotteryId)
-            .update(
+        // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+        val lotteryId = UUID.randomUUID().toString()
+        FirebaseFunctions.getInstance().getHttpsCallable("saveLotterySettings")
+            .call(
                 mapOf(
-                    "registrationStart" to newStart,
-                    "registrationEnd" to newEnd
+                    "create" to true,
+                    "lotteryId" to lotteryId,
+                    "campsiteIds" to campsiteIds,
+                    "lotteryName" to lotteryName,
+                    "registrationStart" to registrationStart,
+                    "registrationEnd" to registrationEnd,
+                    "bookingStart" to bookingStart,
+                    "bookingEnd" to bookingEnd,
+                    "numberOfWinners" to numberOfWinners,
+                    "waitlistCapacity" to waitlistCapacity
                 )
             )
+            .addOnSuccessListener { onSuccess(lotteryId) }
+            .addOnFailureListener { onFailure(it) }
+        return lotteryId
     }
 
-    /**
-     * Updates the booking period before booking starts.
-     */
-    fun updateBookingPeriod(
-        lotteryId: String,
-        newStart: Long,
-        newEnd: Long
-    ) {
-        val lottery = lotteries.find { it.id == lotteryId }
-            ?: throw IllegalArgumentException("Lottery not found.")
-
-        // Booking dates can only be changed before registration starts.
-        LotteryValidator().validateRegistrationNotStarted(
-            lottery.registrationStart,
-            System.currentTimeMillis()
-        )
-
-        // Check the new booking dates.
-        require(newStart > lottery.registrationEnd) {
-            "Booking must start after registration ends."
-        }
-
-        LotteryValidator().validateBookingPeriod(newStart, newEnd)
-
-        // Check for overlapping booking periods for the same campsite.
-        lotteries
-            .filter { other ->
-                other.id != lotteryId &&
-                        other.campsiteId == lottery.campsiteId
-            }
-            .forEach { other ->
-                LotteryValidator().validateNoBookingOverlap(
-                    newStart,
-                    newEnd,
-                    other.bookingStart,
-                    other.bookingEnd
-                )
-            }
-
-        require(newStart > System.currentTimeMillis()) {
-            "Booking start must be in the future."
-        }
-
-        lottery.bookingStart = newStart
-        lottery.bookingEnd = newEnd
-
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
-            .collection("lottery")
-            .document(lotteryId)
-            .update(
-                mapOf(
-                    "bookingStart" to newStart,
-                    "bookingEnd" to newEnd
-                )
-            )
-    }
 
     /**
      * Updates the number of winners before registration starts.
@@ -376,7 +244,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lotteries
             .filter { other ->
                 other.id != lotteryId &&
-                        other.campsiteId == lottery.campsiteId
+                        other.participatingCampsiteIds().any { it in lottery.participatingCampsiteIds() }
             }
             .forEach { other ->
                 LotteryValidator().validateNoBookingOverlap(
@@ -399,63 +267,11 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         LotteryValidator().validateNumberOfWinners(numberOfWinners)
 
 
-        // Save lottery settings using the latest data from Firebase.
-        val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
-        val lotteryRef = firestore.collection("lottery").document(lotteryId)
-
-        firestore.runTransaction { transaction ->
-            val document = transaction.get(lotteryRef)
-
-            require(document.exists()) {
-                "Lottery not found."
-            }
-
-            val currentCount = document.getLong("entrantCount")
-                ?: throw IllegalStateException("Entrant count is missing.")
-            // Check the latest registration dates before saving.
-            val savedRegistrationStart = document.getLong("registrationStart")
-                ?: throw IllegalStateException("Registration start is missing.")
-
-            val savedRegistrationEnd = document.getLong("registrationEnd")
-                ?: throw IllegalStateException("Registration end is missing.")
-
-            val savedBookingStart = document.getLong("bookingStart")
-                ?: throw IllegalStateException("Booking start is missing.")
-
-            val savedBookingEnd = document.getLong("bookingEnd")
-                ?: throw IllegalStateException("Booking end is missing.")
-
-            if (System.currentTimeMillis() >= savedRegistrationStart) {
-                require(
-                    registrationStart == savedRegistrationStart &&
-                            registrationEnd == savedRegistrationEnd &&
-                            bookingStart == savedBookingStart &&
-                            bookingEnd == savedBookingEnd
-                ) {
-                    "Registration and booking dates cannot be changed after registration starts."
-                }
-            }
-
-            val oldCapacity = document.getLong("waitlistCapacity")?.toInt()
-            val registrationStarted =
-                System.currentTimeMillis() >=
-                        (document.getLong("registrationStart")
-                            ?: throw IllegalStateException("Registration start is missing."))
-
-            if (waitlistCapacity != oldCapacity) {
-                LotteryCapacityValidator.validateCapacityUpdate(
-                    oldCapacity = oldCapacity,
-                    newCapacity = waitlistCapacity,
-                    registrationStarted = registrationStarted,
-                    entrantCount = currentCount
-                )
-            }
-
-            // Save settings without overwriting the entrant count.
-            transaction.update(
-                lotteryRef,
+        FirebaseFunctions.getInstance().getHttpsCallable("saveLotterySettings")
+            .call(
                 mapOf(
-                    "lotteryName" to lotteryName.trim(),
+                    "lotteryId" to lotteryId,
+                    "lotteryName" to lotteryName,
                     "registrationStart" to registrationStart,
                     "registrationEnd" to registrationEnd,
                     "bookingStart" to bookingStart,
@@ -464,20 +280,9 @@ class LotteryModel : ObservableModel<LotteryModel>() {
                     "waitlistCapacity" to waitlistCapacity
                 )
             )
-
-            true
-        }
-            .addOnSuccessListener {
-                onSuccess()
-            }
-            .addOnFailureListener { exception ->
-                onFailure(exception)
-            }
-
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { onFailure(it) }
     }
-
-
-
 
     init {
         connector.initializeListener(
