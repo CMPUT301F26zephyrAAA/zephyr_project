@@ -1,4 +1,5 @@
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery listing edits
 // Exercises the owner lottery list actions without Firebase.
 package com.example.zephyrcampsites
 

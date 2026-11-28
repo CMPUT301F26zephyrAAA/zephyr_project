@@ -839,6 +839,7 @@ class LotteryView (
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
+            // Hiral - [AI-09] OpenAI ChatGPT Implement lottery listing edits
             Text("Participating campsites", color = Color(0xFF2E8B75))
             val currentCampsiteIds = if (canEditSettings) {
                 selectedCampsiteIds
