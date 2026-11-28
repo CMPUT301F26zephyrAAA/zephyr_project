@@ -1,3 +1,7 @@
+// AI Citation [AI-41]
+// Anthropic, Claude Code assisted with the lottery save functions,
+// including the transactional overlap check and server-time date lock.
+// AI usage and citation documented in the team AI Documentation.
 // Creates and edits campsite lotteries with server-side booking checks.
 // Saves run in one Admin SDK transaction, so the overlap query and the
 // write happen together, and the edit cutoff uses the server's clock.
