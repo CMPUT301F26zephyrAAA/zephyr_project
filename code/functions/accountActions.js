@@ -386,7 +386,7 @@ module.exports = (db) => {
     return {};
   });
 
-  /** Removes a rating and its aggregate entry for a verified admin. */
+  /** Removes a score and its aggregate entry for a verified admin. */
   const removeCampsiteFeedback = authenticated(async (data, auth) => {
     if (auth.token.admin !== true) {
       throw new HttpsError(
@@ -427,13 +427,20 @@ module.exports = (db) => {
             "This rating has changed. Review it again.",
         );
       }
-      if (previous.get("score") !== undefined) {
-        transaction.update(
-            campsite,
-            ratingAggregate(site, previous.get("score")),
+      const score = previous.get("score");
+      if (!Number.isInteger(score) || score < 1 || score > 5) {
+        throw new HttpsError(
+            "failed-precondition",
+            "This entry has no rating to remove.",
         );
       }
-      transaction.delete(rating);
+      transaction.update(campsite, ratingAggregate(site, score));
+      const review = previous.get("review");
+      if (typeof review === "string" && review.trim() !== "") {
+        transaction.update(rating, {score: FieldValue.delete()});
+      } else {
+        transaction.delete(rating);
+      }
     });
     return {};
   });

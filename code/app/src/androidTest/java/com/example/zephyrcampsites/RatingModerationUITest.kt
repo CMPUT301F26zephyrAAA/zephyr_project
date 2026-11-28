@@ -221,6 +221,9 @@ class RatingModerationUITest {
         compose.onNodeWithText("Remove Rating?")
             .assertIsDisplayed()
 
+        compose.onNodeWithText("Remove the star rating? The written review will stay visible.")
+            .assertIsDisplayed()
+
         compose.onNodeWithText("No, Cancel")
             .assertIsDisplayed()
 
@@ -272,7 +275,7 @@ class RatingModerationUITest {
      * AC5:
      * Confirming requests removal of the selected rating.
      *
-     * Firebase deletion is simulated by the fake gateway.
+     * The fake gateway publishes the remaining review after score removal.
      */
     @Test
     fun confirmingRemovalRequestsSelectedRatingDeletion() {
@@ -295,13 +298,13 @@ class RatingModerationUITest {
                 gateway.removedRating
             )
 
-            assertFalse(
-                gateway.rows.contains(flaggedRating)
+            assertTrue(
+                gateway.rows.contains(flaggedRating.copy(score = 0))
             )
         }
 
         compose.onNodeWithText("Policy violation")
-            .assertDoesNotExist()
+            .assertIsDisplayed()
 
         compose.onNodeWithText("Lovely campsite")
             .assertIsDisplayed()
@@ -309,10 +312,10 @@ class RatingModerationUITest {
 
     /**
      * AC7:
-     * Removed ratings disappear immediately from the list.
+     * The removed score disappears immediately and the written review remains.
      */
     @Test
-    fun removedRatingDisappearsImmediately() {
+    fun removedScoreDisappearsImmediatelyAndReviewRemains() {
 
         showDetails()
 
@@ -324,7 +327,8 @@ class RatingModerationUITest {
             .performClick()
 
         compose.onNodeWithText("Policy violation")
-            .assertDoesNotExist()
+            .assertIsDisplayed()
+        compose.onNodeWithText("1 / 5").assertDoesNotExist()
 
         compose.onNodeWithTag("RemoveRating_entrant-1")
             .assertDoesNotExist()
@@ -338,8 +342,7 @@ class RatingModerationUITest {
 
     /**
      * AC7:
-     * Removed ratings remain absent when the admin
-     * returns to the details page and reopens ratings.
+     * The score stays absent and the review remains after reopening ratings.
      */
     @Test
     fun removedRatingRemainsAbsentAfterReopeningList() {
@@ -359,7 +362,8 @@ class RatingModerationUITest {
         openRatings()
 
         compose.onNodeWithText("Policy violation")
-            .assertDoesNotExist()
+            .assertIsDisplayed()
+        compose.onNodeWithTag("RemoveRating_entrant-1").assertDoesNotExist()
 
         compose.onNodeWithText("Lovely campsite")
             .assertIsDisplayed()
@@ -391,7 +395,7 @@ class RatingModerationUITest {
     @Test
     fun removingFinalRatingShowsEmptyMessage() {
 
-        gateway.rows = listOf(flaggedRating)
+        gateway.rows = listOf(flaggedRating.copy(review = ""))
 
         showDetails()
 
@@ -402,8 +406,7 @@ class RatingModerationUITest {
         compose.onNodeWithText("Yes, delete")
             .performClick()
 
-        compose.onNodeWithText("Policy violation")
-            .assertDoesNotExist()
+        compose.onNodeWithTag("RemoveRating_entrant-1").assertDoesNotExist()
 
         compose.onNodeWithTag("AdminRatingsBack")
             .performClick()
@@ -540,7 +543,8 @@ class RatingModerationUITest {
             .performClick()
 
         compose.onNodeWithText("Policy violation")
-            .assertDoesNotExist()
+            .assertIsDisplayed()
+        compose.onNodeWithTag("RemoveRating_entrant-1").assertDoesNotExist()
 
         compose.onNodeWithText("Rating Deleted")
             .assertIsDisplayed()
@@ -863,8 +867,14 @@ class RatingModerationUITest {
 
             removedRating = selected
 
-            rows = rows.filterNot {
-                it == selected
+            rows = rows.mapNotNull { row ->
+                if (row != selected) {
+                    row
+                } else if (row.review.isNotBlank()) {
+                    row.copy(score = 0)
+                } else {
+                    null
+                }
             }
 
             listener?.invoke(rows)

@@ -122,7 +122,15 @@ internal fun AdminRatingsScreen(
         AlertDialog(
             onDismissRequest = { selected = null },
             title = { Text("Remove Rating?") },
-            text = { Text("Are you sure you want to delete this rating?") },
+            text = {
+                Text(
+                    if (rating.review.isNotBlank()) {
+                        "Remove the star rating? The written review will stay visible."
+                    } else {
+                        "Are you sure you want to delete this rating?"
+                    },
+                )
+            },
             dismissButton = {
                 TextButton(onClick = { selected = null }) {
                     Text("No, Cancel")

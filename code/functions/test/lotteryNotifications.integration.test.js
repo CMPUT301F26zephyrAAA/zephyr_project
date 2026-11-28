@@ -497,7 +497,7 @@ test("owner booking scope and server-time cancellation", async () => {
   assert.equal((await cancel(owner, future)).status, 403);
 });
 
-test("moderation checks the version and updates the average", async () => {
+test("moderation preserves reviews and updates the average", async () => {
   const {reviewer, outsider, admin} = accounts;
   const campsiteId = "rated-site-" + suffix;
   const reservationId = "completed-" + suffix;
@@ -508,6 +508,9 @@ test("moderation checks the version and updates the average", async () => {
     rating: [4],
     averageRating: 4,
   });
+  const scoreOnly = site.collection("ratings").doc(outsider.accountId);
+  const scoreOnlyVersion = Timestamp.now();
+  await scoreOnly.set({score: 4, updatedAt: scoreOnlyVersion});
   await reservation.set({
     ...validBooking,
     accountId: reviewer.accountId,
@@ -580,7 +583,33 @@ test("moderation checks the version and updates the average", async () => {
   );
   assert.deepEqual((await site.get()).get("rating"), [4]);
   assert.equal((await site.get()).get("averageRating"), 4);
-  assert.equal((await score.get()).exists, false);
+  const remaining = await score.get();
+  assert.equal(remaining.get("score"), undefined);
+  assert.equal(remaining.get("review"), "Edited review.");
+  assert.equal(remaining.get("reservationId"), reservationId);
+  assert.equal((await read(reviewer, score.path)).status, 200);
+  assert.equal(
+      (await call("removeCampsiteFeedback", admin, removal)).error.status,
+      "FAILED_PRECONDITION",
+  );
+  assert.equal((await score.get()).get("review"), "Edited review.");
+  assert.equal((await site.get()).get("averageRating"), 4);
+
+  assert.deepEqual(
+      (await call("removeCampsiteFeedback", admin, {
+        ...removal,
+        accountId: outsider.accountId,
+        updatedAt: {
+          seconds: scoreOnlyVersion.seconds,
+          nanoseconds: scoreOnlyVersion.nanoseconds,
+        },
+      })).result,
+      {},
+  );
+  assert.equal((await scoreOnly.get()).exists, false);
+  const unrated = await site.get();
+  assert.deepEqual(unrated.get("rating"), []);
+  assert.equal(unrated.get("averageRating"), undefined);
 });
 
 test("verified admin can moderate managed campsite images", async () => {
