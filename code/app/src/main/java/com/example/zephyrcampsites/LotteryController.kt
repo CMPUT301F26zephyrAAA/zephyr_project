@@ -66,16 +66,6 @@ class LotteryController(
     }
 
     /**
-     * Updates the number of winners for a lottery.
-     *
-     * @param lotteryId ID of the lottery to update.
-     * @param newCount New number of winners.
-     */
-    fun updateNumberOfWinners(lotteryId: String, newCount: Int) {
-        lotteryModel.updateNumberOfWinners(lotteryId, newCount)
-    }
-
-    /**
      * Updates the waitlist capacity for a lottery.
      *
      * @param lotteryId ID of the lottery to update.

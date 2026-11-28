@@ -127,11 +127,13 @@ service cloud.firestore {
     match /lottery/{lotteryId} {
       allow read: if true;
       // Callables enforce the registration cutoff and serialize booking periods.
+      // The winner count changes only through saveLotterySettings, which locks it
+      // with server time once registration starts.
       allow update: if request.resource.data.campsiteId == resource.data.campsiteId &&
         (validCountUpdate(lotteryId) ||
           (verifiedAccount(lotteryOwner(resource.data)) && drawOpen(resource.data) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'lotteryName', 'numberOfWinners', 'waitlistCapacity'
+              'lotteryName', 'waitlistCapacity'
             ])) ||
           (notificationAdmin() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registrationEnd'])));
