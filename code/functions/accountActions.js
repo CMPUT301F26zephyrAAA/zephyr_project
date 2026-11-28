@@ -276,7 +276,9 @@ module.exports = (db) => {
       );
       // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
       if (
-        bookings.docs.some((booking) => usesLotteryOffer(booking, lotteryId, lottery.data()))
+        bookings.docs.some((booking) =>
+          usesLotteryOffer(booking, lotteryId, lottery.data()),
+        )
       ) {
         throw new HttpsError(
             "failed-precondition",
