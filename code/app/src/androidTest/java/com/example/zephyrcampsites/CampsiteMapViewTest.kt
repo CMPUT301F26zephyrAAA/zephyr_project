@@ -246,6 +246,66 @@ class CampsiteMapViewTest {
         composeTestRule.onNodeWithText("Retry map").assertDoesNotExist()
     }
 
+    // AI Citation [AI-50]
+    // OpenAI, Codex, November 27, 2026. Added a fallback test with failures on either side of the first check.
+    // See Bhav Saluja's entry in the team's AI Documentation Google Doc.
+    @Test
+    fun laterTileFailureShowsRetryAfterTheFirstCheckKeptTheMapVisible() {
+        val failedTile = "https://tile.openstreetmap.org/1/0/0.png"
+        val lastTile = "https://tile.openstreetmap.org/1/1/0.png"
+        val lastTileAvailable = AtomicBoolean(true)
+        val initialTileFailure = CountDownLatch(1)
+        val lastTileFailure = CountDownLatch(1)
+        val png = mapTileImage()
+        val html = """
+            <!doctype html><html><body>
+            <img id="visible-tile" src="$lastTile" alt="">
+            <script>
+                const originalGetEntries = performance.getEntriesByType.bind(performance);
+                window.fallbackChecks = 0;
+                performance.getEntriesByType = type => {
+                    if (type === 'resource') window.fallbackChecks++;
+                    return originalGetEntries(type);
+                };
+
+                window.reloadVisibleTile = () => {
+                    document.getElementById('visible-tile').removeAttribute('src');
+                    fetch('$lastTile', { cache: 'no-store' });
+                };
+                fetch('$failedTile');
+            </script>
+            </body></html>
+        """.trimIndent()
+        val browser = loadMapFixture(intercept = { request ->
+            when (request.url.toString()) {
+                savedMapUrl -> WebResourceResponse("text/html", "UTF-8", html.byteInputStream())
+                failedTile -> tileResponse(false, png)
+                lastTile -> tileResponse(lastTileAvailable.get(), png)
+                else -> null
+            }
+        }, onTileError = {
+            if (lastTileAvailable.get()) {
+                initialTileFailure.countDown()
+            } else {
+                lastTileFailure.countDown()
+            }
+        })
+
+        assertTrue("The initial tile request should fail", initialTileFailure.await(5, TimeUnit.SECONDS))
+        composeTestRule.waitUntil(15_000) { readMap(browser, "window.fallbackChecks > 0") == "true" }
+        assertEquals("true", readMap(browser, "document.getElementById('visible-tile').naturalWidth > 0"))
+        composeTestRule.onNodeWithTag("CampsiteMapBrowser").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Retry map").assertDoesNotExist()
+
+        lastTileAvailable.set(false)
+        readMap(browser, "window.reloadVisibleTile()")
+        assertTrue("The previously visible tile request should now fail", lastTileFailure.await(5, TimeUnit.SECONDS))
+        composeTestRule.waitUntil(15_000) {
+            composeTestRule.onAllNodesWithText("Retry map").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeTestRule.onNodeWithText("Retry map").assertIsDisplayed()
+    }
+
     // AI Citation [AI-47]
     // OpenAI, Codex, November 27, 2026. Added a regression test using the live embed and controlled tiles.
     // See Bhav Saluja's entry in the team's AI Documentation Google Doc.

@@ -76,14 +76,19 @@ class CampsiteMapView @VisibleForTesting internal constructor(
         var failed by remember(url, attempt) { mutableStateOf(false) }
         var browser by remember(url, attempt) { mutableStateOf<WebView?>(null) }
         var failedTiles by remember(url, attempt) { mutableStateOf(emptySet<String>()) }
+        var tileFailureCount by remember(url, attempt) { mutableIntStateOf(0) }
         val description = stringResource(R.string.campsite_map_description, campsiteName)
 
         // AI Citation [AI-46]
         // OpenAI, Codex, November 27, 2026. Added detection of a map with no successful tiles.
         // See Bhav Saluja's entry in the team's AI Documentation Google Doc.
-        LaunchedEffect(browser, failedTiles.isNotEmpty(), failed) {
+        // AI Citation [AI-50]
+        // OpenAI, Codex, November 27, 2026. Rechecked the fallback after each batch of tile failures.
+        // See Bhav Saluja's entry in the team's AI Documentation Google Doc.
+        LaunchedEffect(browser, tileFailureCount, failed) {
             val view = browser
-            if (view != null && failedTiles.isNotEmpty() && !failed) {
+            val checkedFailureCount = tileFailureCount
+            if (view != null && checkedFailureCount > 0 && !failed) {
                 delay(TILE_LOAD_TIMEOUT_MS)
                 view.evaluateJavascript(
                     """typeof window.zephyrHasVisibleTiles === 'function' &&
@@ -91,7 +96,9 @@ class CampsiteMapView @VisibleForTesting internal constructor(
                         performance.getEntriesByType('resource')
                             .filter(entry => entry.responseEnd > 0).map(entry => entry.name)"""
                 ) { result ->
-                    if (view === browser && allRequestedTilesFailed(result, failedTiles)) {
+                    if (view === browser && tileFailureCount == checkedFailureCount &&
+                        allRequestedTilesFailed(result, failedTiles)
+                    ) {
                         failed = true
                     }
                 }
@@ -166,6 +173,7 @@ class CampsiteMapView @VisibleForTesting internal constructor(
                                             failed = true
                                         } else if (isMapTile(request.url)) {
                                             failedTiles = failedTiles + request.url.toString()
+                                            tileFailureCount++
                                         }
                                     }
                                 }
