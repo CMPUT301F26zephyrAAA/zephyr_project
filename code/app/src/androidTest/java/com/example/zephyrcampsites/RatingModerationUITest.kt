@@ -12,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 // Hiral - [AI-05] OpenAI, ChatGPT, Testing Admin Rating Deletion.
+// Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
 /**
  * Compose UI tests for admin rating moderation.
  *

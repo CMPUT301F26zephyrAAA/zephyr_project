@@ -101,6 +101,7 @@ internal fun AdminRatingsScreen(
                             if (rating.review.isNotBlank()) Text(rating.review)
                         }
 
+                        // Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
                         if (rating.score in 1..5) {
                             IconButton(
                                 onClick = { selected = rating },

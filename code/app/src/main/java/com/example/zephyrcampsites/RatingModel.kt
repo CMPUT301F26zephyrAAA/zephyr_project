@@ -238,6 +238,7 @@ class RatingModel(
         campsiteId: String, adminAccountId: String, selected: CampsiteRating,
         onResult: (Boolean) -> Unit, onError: (String) -> Unit
     ) {
+        // Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
         if (selected.score !in 1..5) {
             onError("This entry has no valid rating to remove.")
             return

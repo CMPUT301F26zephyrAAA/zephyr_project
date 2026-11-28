@@ -227,6 +227,7 @@ class RatingModerationModelTest {
         verifyNoInteractions(functions)
     }
 
+    // Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
     @Test
     fun reviewOnlyEntryDoesNotCallRatingRemoval() {
         val reviewOnly = selectedRating.copy(score = 0, updatedAt = Timestamp(12, 345))

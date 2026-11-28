@@ -109,6 +109,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                     "notificationsEnabled" to account.notificationsEnabled
                 ))
             }
+            // Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
             // The role menu also uses the saved profile. Firebase authorizes privileged actions.
             if (isAdmin) {
                 account.userType = accountRoles("admin")
