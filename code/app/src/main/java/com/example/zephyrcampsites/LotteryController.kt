@@ -33,24 +33,6 @@ class LotteryController(
     }
 
     /**
-     * Updates the registration period for an existing lottery.
-
-     * @param newStart New registration start date and time.
-     * @param newEnd New registration end date and time.
-     */
-    fun updateRegistrationPeriod(
-        lotteryId: String,
-        newStart: Long,
-        newEnd: Long
-    ) {
-        lotteryModel.updateRegistrationPeriod(
-            lotteryId,
-            newStart,
-            newEnd
-        )
-    }
-
-    /**
      * Finds the lottery associated with a campsite.
      *
      * @param campsiteId ID of the selected campsite.

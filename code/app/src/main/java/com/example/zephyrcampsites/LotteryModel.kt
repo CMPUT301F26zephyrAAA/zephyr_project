@@ -88,57 +88,6 @@ class LotteryModel : ObservableModel<LotteryModel>() {
 
 
     /**
-     * Updates the registration period of an existing lottery.
-     *
-     * Registration dates can only be changed before registration starts.
-     *
-     * @param lotteryId ID of the lottery to update.
-     * @param newStart New registration start time in milliseconds.
-     * @param newEnd New registration end time in milliseconds.
-     */
-    fun updateRegistrationPeriod(
-        lotteryId: String,
-        newStart: Long,
-        newEnd: Long
-    ) {
-        // Find the existing lottery.
-        val lottery = lotteries.find { it.id == lotteryId }
-            ?: throw IllegalArgumentException("Lottery not found.")
-
-        // Registration dates can only be updated before registration starts.
-        LotteryValidator().validateRegistrationNotStarted(
-            lottery.registrationStart,
-            System.currentTimeMillis()
-        )
-
-        // Make sure the new registration period is valid and in the future.
-        require(newStart > System.currentTimeMillis() && newStart < newEnd) {
-            "Enter a valid future registration period."
-        }
-
-        // Registration must end before the booking period starts.
-        LotteryValidator().validateRegistrationBeforeBooking(
-            newEnd,
-            lottery.bookingStart
-        )
-
-        // Update the registration dates.
-        lottery.registrationStart = newStart
-        lottery.registrationEnd = newEnd
-
-        // Save the updated registration dates to Firebase.
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
-            .collection("lottery")
-            .document(lotteryId)
-            .update(
-                mapOf(
-                    "registrationStart" to newStart,
-                    "registrationEnd" to newEnd
-                )
-            )
-    }
-
-    /**
      * Updates the number of winners before registration starts.
      */
     fun updateNumberOfWinners(lotteryId: String, newCount: Int) {

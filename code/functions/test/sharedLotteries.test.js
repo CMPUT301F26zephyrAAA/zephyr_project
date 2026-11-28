@@ -276,3 +276,25 @@ test("the edit callable checks a shared lottery's secondary campsite", async () 
   assert.ok(f.rows["lotteryBookingLocks/2"]);
   assert.deepEqual(f.rows["lottery/shared"].campsiteIds, ["1", "2"]);
 });
+
+test("both lottery edit callables reject changes after registration opens", async () => {
+  const f = fixture();
+  const {updateLottery} = require("../lotteryActions")(f.db);
+  const base = Date.now();
+  const current = {
+    ...settings,
+    campsiteId: "1",
+    registrationStart: 1,
+    registrationEnd: base + 10000,
+    bookingStart: base + 20000,
+    bookingEnd: base + 30000,
+  };
+  f.rows["lottery/shared"] = current;
+  const change = {...current, create: false, registrationEnd: base + 15000};
+
+  await assert.rejects(updateLottery.run(request("owner", change)),
+      {code: "failed-precondition"});
+  await assert.rejects(f.saveLotterySettings(request("owner", change)),
+      {code: "failed-precondition"});
+  assert.equal(f.rows["lottery/shared"].registrationEnd, base + 10000);
+});
