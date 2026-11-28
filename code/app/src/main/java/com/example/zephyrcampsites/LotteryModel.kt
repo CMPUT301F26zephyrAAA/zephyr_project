@@ -3,17 +3,34 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.firestore
 import com.google.firebase.functions.FirebaseFunctions
 import java.util.UUID
 
+// AI Citation [AI-42]
+// Anthropic, Claude Code assisted with making Firestore and Functions
+// injectable for emulator tests and stopping the listener.
+// AI usage and citation documented in the team AI Documentation.
 /**
  * Manages campsite lotteries and connects them to Firebase.
+ *
+ * @param firestore Database used for lotteries. Tests pass a local emulator instance.
+ * @param functions Cloud Functions used to save lotteries. Tests pass a local emulator instance.
+ * @property lotteries Local copy of the lottery collection, updated by a snapshot listener.
  */
-class LotteryModel : ObservableModel<LotteryModel>() {
+class LotteryModel(
+    private val firestore: FirebaseFirestore = Firebase.firestore,
+    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
+) : ObservableModel<LotteryModel>() {
 
     val lotteries = mutableStateListOf<Lottery>()
 
-    private val connector = FirebaseConnector("lottery")
+    private val connector = FirebaseConnector("lottery", firestore)
+
+    private var lotteryListener: ListenerRegistration? = null
 
     /**
      * Creates a lottery for a campsite.
@@ -67,7 +84,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
 
         // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
         val lotteryId = UUID.randomUUID().toString()
-        FirebaseFunctions.getInstance().getHttpsCallable("saveLotterySettings")
+        functions.getHttpsCallable("saveLotterySettings")
             .call(
                 mapOf(
                     "create" to true,
@@ -107,7 +124,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.numberOfWinners = newCount
 
         // Save the updated value to Firebase.
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        firestore
             .collection("lottery")
             .document(lotteryId)
             .update("numberOfWinners", newCount)
@@ -118,9 +135,6 @@ class LotteryModel : ObservableModel<LotteryModel>() {
     fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
         val lottery = lotteries.find { it.id == lotteryId }
             ?: throw IllegalArgumentException("Lottery not found.")
-
-        val firestore =
-            com.google.firebase.firestore.FirebaseFirestore.getInstance()
 
         val lotteryRef = firestore.collection("lottery").document(lotteryId)
 
@@ -187,7 +201,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         onFailure: (Exception) -> Unit
     ) {
         require(campsiteIds.isNotEmpty()) { "Select at least one campsite." }
-        FirebaseFunctions.getInstance().getHttpsCallable("saveLotterySettings")
+        functions.getHttpsCallable("saveLotterySettings")
             .call(
                 mapOf(
                     "lotteryId" to lotteryId,
@@ -205,8 +219,16 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             .addOnFailureListener { onFailure(it) }
     }
 
+    /**
+     * Stops the lottery snapshot listener.
+     */
+    fun stopListening() {
+        lotteryListener?.remove()
+        lotteryListener = null
+    }
+
     init {
-        connector.initializeListener(
+        lotteryListener = connector.initializeListener(
             localList = lotteries,
             type = Lottery::class.java,
             onError = { error ->

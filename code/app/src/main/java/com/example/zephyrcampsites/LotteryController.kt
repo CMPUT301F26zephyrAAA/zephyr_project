@@ -1,4 +1,9 @@
 package com.example.zephyrcampsites
+
+// AI Citation [AI-40]
+// Anthropic, Claude Code assisted with KDoc for the
+// lottery create, update, and lookup methods.
+// AI usage and citation documented in the team AI Documentation.
 /**
  * Handles actions related to campsite lotteries.
  */
@@ -6,6 +11,22 @@ class LotteryController(
     private val lotteryModel: LotteryModel
 ) {
 
+    /**
+     * Creates a lottery for a campsite.
+     *
+     * @param lotteryName Name shown for the lottery.
+     * @param campsiteIds IDs of every campsite in the lottery. All must belong to the owner.
+     * @param registrationStart Registration start in epoch milliseconds.
+     * @param registrationEnd Registration end in epoch milliseconds.
+     * @param bookingStart Booking period start in epoch milliseconds.
+     * @param bookingEnd Booking period end in epoch milliseconds.
+     * @param numberOfWinners Number of winners to draw.
+     * @param waitlistCapacity Maximum entrants, or null for no limit.
+     * @param onSuccess Called with the lottery ID after Firebase saves it.
+     * @param onFailure Called if the save fails.
+     * @return ID of the new lottery.
+     * @throws IllegalArgumentException If the input is invalid.
+     */
     fun createLottery(
         lotteryName: String,
         campsiteIds: List<String>, // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
@@ -46,6 +67,9 @@ class LotteryController(
 
     /**
      * Updates the number of winners for a lottery.
+     *
+     * @param lotteryId ID of the lottery to update.
+     * @param newCount New number of winners.
      */
     fun updateNumberOfWinners(lotteryId: String, newCount: Int) {
         lotteryModel.updateNumberOfWinners(lotteryId, newCount)
@@ -53,20 +77,42 @@ class LotteryController(
 
     /**
      * Updates the waitlist capacity for a lottery.
+     *
+     * @param lotteryId ID of the lottery to update.
+     * @param newCapacity New maximum entrants, or null for no limit.
      */
     fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
         lotteryModel.updateWaitlistCapacity(lotteryId, newCapacity)
     }
 
     /**
-    Find a lottery using its ID.*/
+     * Finds a lottery using its ID.
+     *
+     * @param lotteryId ID of the lottery.
+     * @return The matching lottery, or null if none exists.
+     */
     fun getLotteryById(lotteryId: String): Lottery? {
         return lotteryModel.lotteries.find {
             it.id == lotteryId
         }
     }
 
-    /** Saves changes to an owner's lottery listing. */
+    /**
+     * Saves changes to an owner's lottery listing.
+     *
+     * @param lotteryId ID of the lottery to update.
+     * @param lotteryName New lottery name.
+     * @param registrationStart Registration start in epoch milliseconds.
+     * @param registrationEnd Registration end in epoch milliseconds.
+     * @param bookingStart Booking period start in epoch milliseconds.
+     * @param bookingEnd Booking period end in epoch milliseconds.
+     * @param numberOfWinners Number of winners to draw.
+     * @param waitlistCapacity Maximum entrants, or null for no limit.
+     * @param onSuccess Called after Firebase saves the changes.
+     * @param onFailure Called if the save fails.
+     * @throws IllegalArgumentException If the input is invalid or dates changed after
+     * registration started.
+     */
     fun updateLottery(
         lotteryId: String,
         campsiteIds: List<String>,
