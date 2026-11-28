@@ -109,7 +109,10 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                     "notificationsEnabled" to account.notificationsEnabled
                 ))
             }
-            account.userType = accountRoles(if (isAdmin) "admin" else null)
+            // The role menu also uses the saved profile. Firebase authorizes privileged actions.
+            if (isAdmin) {
+                account.userType = accountRoles("admin")
+            }
             account
         }
     }

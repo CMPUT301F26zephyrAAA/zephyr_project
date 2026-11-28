@@ -227,6 +227,17 @@ class RatingModerationModelTest {
         verifyNoInteractions(functions)
     }
 
+    @Test
+    fun reviewOnlyEntryDoesNotCallRatingRemoval() {
+        val reviewOnly = selectedRating.copy(score = 0, updatedAt = Timestamp(12, 345))
+        var error: String? = null
+
+        model.removeAdminRating(campsiteId, adminAccountId, reviewOnly, { fail() }, { error = it })
+
+        assertEquals("This entry has no valid rating to remove.", error)
+        verifyNoInteractions(functions)
+    }
+
     private fun configureRatingDocument(
         document: DocumentSnapshot,
         rating: CampsiteRating

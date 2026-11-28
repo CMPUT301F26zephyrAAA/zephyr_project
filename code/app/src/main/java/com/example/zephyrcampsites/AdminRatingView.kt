@@ -101,12 +101,14 @@ internal fun AdminRatingsScreen(
                             if (rating.review.isNotBlank()) Text(rating.review)
                         }
 
-                        IconButton(
-                            onClick = { selected = rating },
-                            enabled = !deleting && loadError == null,
-                            modifier = Modifier.testTag("RemoveRating_${rating.accountId}"),
-                        ) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Remove Rating")
+                        if (rating.score in 1..5) {
+                            IconButton(
+                                onClick = { selected = rating },
+                                enabled = !deleting && loadError == null,
+                                modifier = Modifier.testTag("RemoveRating_${rating.accountId}"),
+                            ) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Remove Rating")
+                            }
                         }
                     }
                     HorizontalDivider()

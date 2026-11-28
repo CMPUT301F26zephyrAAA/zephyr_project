@@ -176,10 +176,16 @@ class RatingModerationUITest {
 
     /**
      * AC3:
-     * Each individual rating has a Remove Rating option.
+     * Only scored entries have a Remove Rating option.
      */
     @Test
-    fun adminHasRemoveRatingOptionForEveryRating() {
+    fun adminHasRemoveRatingOptionOnlyForScoredEntries() {
+        val reviewOnly = CampsiteRating(
+            reservationId = "stay-3",
+            review = "Review without a score",
+            accountId = "entrant-3"
+        )
+        gateway.rows = gateway.rows + reviewOnly
 
         showDetails()
 
@@ -192,6 +198,9 @@ class RatingModerationUITest {
         compose.onNodeWithTag("RemoveRating_entrant-2")
             .assertIsDisplayed()
             .assertIsEnabled()
+
+        compose.onNodeWithText(reviewOnly.review).assertIsDisplayed()
+        compose.onNodeWithTag("RemoveRating_entrant-3").assertDoesNotExist()
     }
 
     /**

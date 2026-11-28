@@ -238,6 +238,10 @@ class RatingModel(
         campsiteId: String, adminAccountId: String, selected: CampsiteRating,
         onResult: (Boolean) -> Unit, onError: (String) -> Unit
     ) {
+        if (selected.score !in 1..5) {
+            onError("This entry has no valid rating to remove.")
+            return
+        }
         val version = selected.updatedAt
         val accountId = selected.accountId
         if (version == null || accountId == null) {
