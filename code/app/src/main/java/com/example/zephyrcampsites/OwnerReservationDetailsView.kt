@@ -32,6 +32,7 @@ internal fun OwnerReservationDetailsView(
     currentTimeMillis: Long,
     isPast: Boolean,
     errorMessage: String?,
+    onMessageEntrant: (() -> Unit)?,
     onCancel: (() -> Unit)?,
     onBack: () -> Unit
 ) {
@@ -123,6 +124,11 @@ internal fun OwnerReservationDetailsView(
         HorizontalDivider()
         ReservationDetailItem(label = "Reservation ID", value = reservation.id)
 
+        onMessageEntrant?.let { messageEntrant ->
+            Button(onClick = messageEntrant, modifier = Modifier.fillMaxWidth()) {
+                Text("Message Entrant")
+            }
+        }
         onCancel?.let { cancel ->
             Button(onClick = cancel, modifier = Modifier.fillMaxWidth()) {
                 Text("Cancel reservation")

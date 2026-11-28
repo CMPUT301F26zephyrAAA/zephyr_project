@@ -26,9 +26,18 @@ internal data class ReservationMessage(
         if (senderAccountId == null) senderUid == uid else senderAccountId == accountId
 }
 
-/** An open conversation and the authenticated participant sending messages in it. */
+/**
+ * An open conversation and its verified sending and receiving participants.
+ * @property document The reservation's conversation document.
+ * @property userUid Firebase Auth UID of the sender.
+ * @property userAccountId Account ID of the sender.
+ * @property recipientAccountId Account ID of the other participant.
+ */
 internal data class ReservationChatSession(
-    val document: DocumentReference, val userUid: String, val userAccountId: String
+    val document: DocumentReference,
+    val userUid: String,
+    val userAccountId: String,
+    val recipientAccountId: String
 )
 
 // AI Citation [AI-43] (Bhav Saluja)
@@ -87,7 +96,8 @@ internal class ReservationChatModel(
             return null
         }
         val document = firestore.collection("reservationChat").document(reservation.id)
-        return ReservationChatSession(document, uid, accountId)
+        val recipientId = if (ownerReply) reservation.accountId else ownerAccountId
+        return ReservationChatSession(document, uid, accountId, recipientId)
     }
 
     private fun validId(id: String): Boolean =
@@ -216,8 +226,11 @@ internal class ReservationChatModel(
     private fun receipt(session: ReservationChatSession): DocumentReference =
         session.document.collection("readReceipts").document(session.userAccountId)
 
+    // AI Citation [AI-49] (Bhav Saluja)
+    // OpenAI, Codex, November 27, 2026. Saved explicit recipient and reservation IDs.
+    // See Bhav's entry in the team's AI Documentation Google Doc.
     /**
-     * Saves a message under the verified reservation with a server timestamp.
+     * Saves a message with both participant IDs, the reservation ID, and a server timestamp.
      * @param session Open reservation conversation.
      * @param text Message entered by the participant.
      * @return The server write result. Transactions fail when offline.
@@ -232,6 +245,8 @@ internal class ReservationChatModel(
             transaction.set(document, mapOf(
                 "senderUid" to session.userUid,
                 "senderAccountId" to session.userAccountId,
+                "recipientAccountId" to session.recipientAccountId,
+                "reservationId" to session.document.id,
                 "text" to message,
                 "sentAt" to FieldValue.serverTimestamp()
             ))

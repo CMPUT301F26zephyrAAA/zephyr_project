@@ -10,6 +10,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.Source
@@ -35,6 +36,9 @@ import org.junit.runner.RunWith
 // AI Citation [AI-43] (Bhav Saluja)
 // OpenAI, Codex, November 27, 2026. Verified chat with Auth profiles and canonical bookings.
 // See the team AI Documentation Google Doc.
+// AI Citation [AI-49] (Bhav Saluja)
+// OpenAI, Codex, November 28, 2026. Tested message routing requirements and older history reads.
+// See Bhav's entry in the team's AI Documentation Google Doc.
 @RunWith(AndroidJUnit4::class)
 class ReservationChatModelTest {
     private val apps = mutableListOf<FirebaseApp>()
@@ -104,11 +108,68 @@ class ReservationChatModelTest {
             val messages = await(history.task)
             assertEquals(listOf("What time is check-in?", "Check-in is at 2."), messages.map { it.text })
             assertEquals(listOf(entrantUid, ownerUid), messages.map { it.senderUid })
+            val stored = await(ownerChat.document.collection("messages").orderBy("sentAt").get(Source.SERVER))
+            assertEquals(listOf(ownerId, reservation.accountId), stored.documents.map { it.getString("recipientAccountId") })
+            assertEquals(listOf(reservation.id, reservation.id), stored.documents.map { it.getString("reservationId") })
             assertTrue(runCatching { await(entrantModel.open(reservation, ownerId, ownerReply = true)) }.isFailure)
         } finally {
             ownerListener.remove()
             listener.remove()
         }
+    }
+
+    @Test
+    fun rejectsMissingAndIncorrectRoutingIdsForBothParticipants() {
+        writeReservation(reservation)
+        val otherBooking = reservation.copy(id = UUID.randomUUID().toString())
+        writeReservation(otherBooking)
+        val entrant = await(entrantModel.open(reservation, ownerId))
+        val owner = await(ownerModel.open(reservation, ownerId, ownerReply = true))
+
+        for ((sender, recipientId) in listOf(entrant to ownerId, owner to reservation.accountId)) {
+            val message = mapOf(
+                "senderUid" to sender.userUid,
+                "senderAccountId" to sender.userAccountId,
+                "recipientAccountId" to recipientId,
+                "reservationId" to reservation.id,
+                "text" to "Please confirm the check-in time.",
+                "sentAt" to FieldValue.serverTimestamp()
+            )
+            val invalidMessages = mapOf(
+                "missing both IDs" to (message - listOf("recipientAccountId", "reservationId")),
+                "missing recipient" to (message - "recipientAccountId"),
+                "missing reservation" to (message - "reservationId"),
+                "recipient is the sender" to (message + ("recipientAccountId" to sender.userAccountId)),
+                "reservation belongs to another conversation" to (message + ("reservationId" to otherBooking.id))
+            )
+            for ((case, invalid) in invalidMessages) {
+                val document = sender.document.collection("messages").document()
+                assertPermissionDenied(document.set(invalid), "${sender.userAccountId}: $case")
+            }
+        }
+        assertTrue(readMessages(entrantModel, entrant).isEmpty())
+    }
+
+    @Test
+    fun bothParticipantsCanReadOlderMessagesWithoutRoutingIds() {
+        writeReservation(reservation)
+        val entrant = await(entrantModel.open(reservation, ownerId))
+        val owner = await(ownerModel.open(reservation, ownerId, ownerReply = true))
+        val oldText = "I will arrive before sunset."
+        writeDocument("reservationChat/${reservation.id}/messages/legacy", mapOf(
+            "senderUid" to entrantUid,
+            "senderAccountId" to reservation.accountId,
+            "text" to oldText,
+            "sentAt" to Timestamp(1_750_003_200, 0)
+        ))
+        val newText = "We will leave the gate open."
+        await(ownerModel.send(owner, newText))
+
+        val ownerHistory = readMessages(ownerModel, owner)
+        val entrantHistory = readMessages(entrantModel, entrant)
+        assertEquals(listOf(oldText, newText), ownerHistory.map { it.text })
+        assertEquals(ownerHistory, entrantHistory)
+        assertEquals(reservation.accountId, ownerHistory.first().senderAccountId)
     }
 
     @Test
@@ -246,9 +307,9 @@ class ReservationChatModelTest {
         return ReservationChatModel(firestore, auth) to uid
     }
 
-    private fun assertPermissionDenied(task: Task<*>) {
+    private fun assertPermissionDenied(task: Task<*>, case: String = "Expected Firestore to deny the request") {
         val failure = runCatching { await(task) }.exceptionOrNull()
-        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, (failure?.cause as? FirebaseFirestoreException)?.code)
+        assertEquals(case, FirebaseFirestoreException.Code.PERMISSION_DENIED, (failure?.cause as? FirebaseFirestoreException)?.code)
     }
 
     private fun writeReservation(booking: ReservedUser, cancelled: Boolean = false) {
