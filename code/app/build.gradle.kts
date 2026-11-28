@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.navigation.compose)
+    implementation("androidx.webkit:webkit:1.16.0")
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation(platform(libs.androidx.compose.bom))
