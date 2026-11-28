@@ -7,6 +7,7 @@
 // reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
 // reservationChat/{reservationId}: entrantAccountId, ownerAccountId, campsiteId. Immutable.
 // messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
+// New clients also save recipientAccountId and reservationId together.
 // readReceipts/{accountId}: readAt (newest incoming message timestamp seen).
 rules_version = '2';
 service cloud.firestore {
@@ -250,10 +251,18 @@ service cloud.firestore {
         sameBooking(data, booking, ownerId);
     }
 
-    function isValidMessage(data, booking, ownerId) {
-      return data.keys().hasOnly(['senderUid', 'senderAccountId', 'text', 'sentAt']) &&
+    // AI Citation [AI-49] (Bhav Saluja)
+    // OpenAI, Codex, November 27, 2026. Validated explicit message routing IDs.
+    // See Bhav's entry in the team's AI Documentation Google Doc.
+    function isValidMessage(data, booking, ownerId, reservationId) {
+      let recipientId = data.senderAccountId == ownerId ? booking.accountId : ownerId;
+      return data.keys().hasOnly([
+          'senderUid', 'senderAccountId', 'recipientAccountId', 'reservationId', 'text', 'sentAt'
+        ]) &&
         data.senderUid == request.auth.uid && data.senderAccountId in [booking.accountId, ownerId] &&
         verifiedAccount(data.senderAccountId) &&
+        (!data.keys().hasAny(['recipientAccountId', 'reservationId']) ||
+          (data.recipientAccountId == recipientId && data.reservationId == reservationId)) &&
         data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
         data.text.matches('(?s).*\\S.*') &&
         data.sentAt == request.time;
@@ -289,7 +298,7 @@ service cloud.firestore {
         function canSendMessage(booking) {
           let ownerId = chatOwner(booking.get('campsiteId', ''));
           return canAccessChat(booking, ownerId) &&
-            isValidMessage(request.resource.data, booking, ownerId);
+            isValidMessage(request.resource.data, booking, ownerId, reservationId);
         }
 
         allow read: if canReadMessages(chatBooking(reservationId));

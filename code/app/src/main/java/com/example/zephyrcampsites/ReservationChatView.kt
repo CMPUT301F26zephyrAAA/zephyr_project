@@ -32,30 +32,35 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.example.zephyrcampsites.ui.theme.ProfileMenuGreen
+import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
  * Loads the other participant and connects to the conversation for the selected booking.
- * @param reservation Reservation opened from My Trips.
- * @param campsite Campsite associated with the reservation, if available.
+ * @param reservation Reservation opened by the entrant or owner.
+ * @param ownerId Verified campsite owner account expected by Firestore.
+ * @param campsiteName Display name of the reserved campsite.
  * @param accountsController Resolves the campsite owner's display name.
  * @param chatModel Chat model shared with the reservation list.
  * @param onBack Returns to the previous reservation screen.
- * @param ownerReply Opens the conversation for the owner to reply to the entrant.
+ * @param ownerReply Opens the conversation as the campsite owner.
  * @param entrantName The entrant's display name from the verified owner reservation list.
  */
+// AI Citation [AI-49] (Bhav Saluja)
+// OpenAI, Codex, November 27, 2026. Enabled owner initiation and added message attribution.
+// See Bhav's entry in the team's AI Documentation Google Doc.
 @Composable
 internal fun ReservationChatScreen(
     reservation: ReservedUser,
-    campsite: Campsite?,
+    ownerId: String,
+    campsiteName: String,
     accountsController: AccountsController,
     chatModel: ReservationChatModel,
     onBack: () -> Unit,
     ownerReply: Boolean = false,
     entrantName: String? = null
 ) {
-    val ownerId = campsite?.ownerID.orEmpty()
     val participantLabel = if (ownerReply) "Entrant" else "Campsite Owner"
     var ownerName by remember(reservation.campsiteId, ownerId) { mutableStateOf<String?>(null) }
     var session by remember(reservation.id, ownerId) { mutableStateOf<ReservationChatSession?>(null) }
@@ -137,16 +142,13 @@ internal fun ReservationChatScreen(
         onDispose { registration?.remove() }
     }
 
-    val canReply = !ownerReply || messages.any { !it.from(openChat?.userAccountId, openChat?.userUid) }
-    val canCompose = openChat != null && chatStatus.isEmpty() && canReply && !sending
+    val canCompose = openChat != null && chatStatus.isEmpty() && !sending
     ReservationChatView(
         reservation = reservation,
-        campsiteName = campsite?.name.orEmpty(),
+        campsiteName = campsiteName,
         participantName = if (ownerReply) entrantName else ownerName,
         participantLabel = participantLabel,
-        status = chatStatus.ifBlank {
-            if (canReply) "" else "Waiting for the entrant's first message."
-        },
+        status = chatStatus,
         onBack = onBack,
         messages = messages,
         userUid = openChat?.userUid,
@@ -215,6 +217,8 @@ internal fun ReservationChatView(
     participantLabel: String = "Campsite Owner"
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd/yy", Locale.getDefault()) }
+    val timestampFormat = remember { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT) }
+    val participant = participantName?.takeIf { it.isNotBlank() } ?: participantLabel
     val startDate = reservation.bookedPeriodStart?.let { dateFormat.format(it) } ?: "N/A"
     val endDate = reservation.bookedPeriodEnd?.let { dateFormat.format(it) } ?: "N/A"
     val listState = rememberLazyListState()
@@ -231,7 +235,7 @@ internal fun ReservationChatView(
     ) {
         Text("MESSAGES", style = MaterialTheme.typography.labelLarge)
         Text(
-            text = participantName?.takeIf { it.isNotBlank() } ?: participantLabel,
+            text = participant,
             style = MaterialTheme.typography.headlineSmall
         )
         Text("${campsiteName.ifBlank { "Campsite unavailable" }} · $startDate to $endDate")
@@ -247,6 +251,8 @@ internal fun ReservationChatView(
         ) {
             items(messages, key = { it.id }) { message ->
                 val outgoing = message.from(userAccountId, userUid)
+                val sender = if (outgoing) "You" else participant
+                val timestamp = message.sentAt?.toDate()?.let(timestampFormat::format)
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalAlignment = if (outgoing) Alignment.End else Alignment.Start
@@ -254,6 +260,10 @@ internal fun ReservationChatView(
                     if (message.id == newMessageId) {
                         Text("New message", style = MaterialTheme.typography.labelSmall)
                     }
+                    Text(
+                        text = if (timestamp == null) sender else "$sender · $timestamp",
+                        style = MaterialTheme.typography.labelSmall
+                    )
                     Text(
                         text = message.text,
                         modifier = Modifier.widthIn(max = 280.dp)

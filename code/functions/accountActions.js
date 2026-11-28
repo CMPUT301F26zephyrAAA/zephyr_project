@@ -80,6 +80,9 @@ module.exports = (db) => {
   // AI Citation [AI-43] (Bhav Saluja)
   // OpenAI, Codex, November 27, 2026. Added a campsite scope for owner chat.
   // See the team AI Documentation Google Doc.
+  // AI Citation [AI-49] (Bhav Saluja)
+  // OpenAI, Codex, November 27, 2026. Included chat IDs in the owner list.
+  // See Bhav's entry in the team's AI Documentation Google Doc.
   /** Lists only bookings for campsites currently owned by the caller. */
   const listOwnerReservations = authenticated(async (data, auth) => {
     const accountId = "auth_" + auth.uid;
@@ -131,6 +134,7 @@ module.exports = (db) => {
                   return [
                     {
                       id: booking.id,
+                      campsiteId: site.id,
                       campsiteName: site.get("name") ?? "",
                       startMillis,
                       endMillis,
@@ -161,7 +165,8 @@ module.exports = (db) => {
             reservations: rows.map(({entrantId, ...row}) => ({
               ...row,
               entrantName: names.get(entrantId) ?? "",
-              ...(campsiteId === null ? {} : {entrantAccountId: entrantId}),
+              entrantAccountId:
+                typeof entrantId === "string" ? entrantId : "",
             })),
           };
         },

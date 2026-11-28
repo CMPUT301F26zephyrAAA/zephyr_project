@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -43,7 +44,8 @@ internal fun OwnerActiveReservationsView(
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
     onViewDetails: (OwnerReservation) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    listState: LazyListState
 ) {
     Column(
         modifier = Modifier
@@ -118,7 +120,10 @@ internal fun OwnerActiveReservationsView(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     items(reservations, key = { it.id }) { reservation ->
                         OwnerReservationCard(
                             reservation = reservation,
