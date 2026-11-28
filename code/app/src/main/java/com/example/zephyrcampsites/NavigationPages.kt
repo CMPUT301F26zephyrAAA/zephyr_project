@@ -33,8 +33,9 @@ internal fun TripsScreen(
 internal fun LotteryListScreen(
     title: String,
     onBack: () -> Unit,
+    onCreateLottery: (() -> Unit)? = null,
     header: @Composable () -> Unit = {},
-    topAction: @Composable () -> Unit = {},
+    canCreateLottery: Boolean = true,
     content: LazyListScope.() -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -44,7 +45,9 @@ internal fun LotteryListScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             LotteryListAction("Back", onBack)
-            topAction()
+            if (onCreateLottery != null) {
+                LotteryListAction("Create Lottery", onCreateLottery, enabled = canCreateLottery)
+            }
         }
 
         Text(title, style = MaterialTheme.typography.headlineMedium)
@@ -54,7 +57,7 @@ internal fun LotteryListScreen(
 }
 
 @Composable
-internal fun LotteryListAction(label: String, onClick: () -> Unit, enabled: Boolean = true) {
+private fun LotteryListAction(label: String, onClick: () -> Unit, enabled: Boolean = true) {
     TextButton(
         onClick = onClick,
         enabled = enabled,

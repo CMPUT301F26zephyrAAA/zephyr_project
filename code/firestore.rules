@@ -7,6 +7,7 @@
 // reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
 // reservationChat/{reservationId}: entrantAccountId, ownerAccountId, campsiteId. Immutable.
 // messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
+// New messages require recipientAccountId and reservationId. Older messages remain readable.
 // readReceipts/{accountId}: readAt (newest incoming message timestamp seen).
 rules_version = '2';
 service cloud.firestore {
@@ -123,43 +124,17 @@ service cloud.firestore {
         countMatchesChange(lotteryId, accountId, resource.data.entrantCount, next.entrantCount);
     }
 
-    function validOwnerLotteryUpdate() {
-      let before = resource.data;
-      let after = request.resource.data;
-      let changed = after.diff(before).affectedKeys();
-      let now = request.time.toMillis();
-      let capacity = after.get('waitlistCapacity', null);
-      return verifiedAccount(lotteryOwner(before)) &&
-        (!changed.hasAny(['lotteryName']) ||
-          (after.lotteryName is string && after.lotteryName.size() <= 200 &&
-            after.lotteryName.matches('.*[^\\s].*'))) &&
-        (changed.hasOnly(['lotteryName']) ||
-          (drawOpen(before) && before.registrationStart > now &&
-            changed.hasOnly([
-              'lotteryName', 'campsiteId', 'registrationStart', 'registrationEnd',
-              'bookingStart', 'bookingEnd', 'numberOfWinners', 'waitlistCapacity'
-            ]) &&
-            (after.campsiteId == before.campsiteId || verifiedAccount(lotteryOwner(after))) &&
-            after.registrationStart is int && after.registrationStart > now &&
-            after.registrationEnd is int && after.registrationEnd > after.registrationStart &&
-            after.bookingStart is int && after.bookingStart > after.registrationEnd &&
-            after.bookingEnd is int && after.bookingEnd > after.bookingStart &&
-            after.get('numberOfWinners', 1) is int &&
-            after.get('numberOfWinners', 1) > 0 &&
-            (!changed.hasAny(['waitlistCapacity']) || capacity == null ||
-              (capacity is int && capacity > 0 && capacity >= before.get('entrantCount', 0)))));
-    }
-
     match /lottery/{lotteryId} {
       allow read: if true;
-      allow create: if validId(request.resource.data.campsiteId) &&
-        request.resource.data.entrantCount == 0 && drawOpen(request.resource.data) &&
-        verifiedAccount(lotteryOwner(request.resource.data));
-      allow update: if validOwnerLotteryUpdate() ||
-        (request.resource.data.campsiteId == resource.data.campsiteId &&
-          (validCountUpdate(lotteryId) ||
-            (notificationAdmin() &&
-              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registrationEnd']))));
+      // Callables enforce the registration cutoff and serialize booking periods.
+      allow update: if request.resource.data.campsiteId == resource.data.campsiteId &&
+        (validCountUpdate(lotteryId) ||
+          (verifiedAccount(lotteryOwner(resource.data)) && drawOpen(resource.data) &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'lotteryName', 'numberOfWinners', 'waitlistCapacity'
+            ])) ||
+          (notificationAdmin() &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registrationEnd'])));
       allow delete: if notificationAdmin();
     }
 
@@ -273,10 +248,18 @@ service cloud.firestore {
         sameBooking(data, booking, ownerId);
     }
 
-    function isValidMessage(data, booking, ownerId) {
-      return data.keys().hasOnly(['senderUid', 'senderAccountId', 'text', 'sentAt']) &&
+    // AI Citation [AI-49] (Bhav Saluja)
+    // OpenAI, Codex, November 28, 2026. Required and validated routing IDs on message creation.
+    // See Bhav's entry in the team's AI Documentation Google Doc.
+    function isValidMessage(data, booking, ownerId, reservationId) {
+      let recipientId = data.senderAccountId == ownerId ? booking.accountId : ownerId;
+      return data.keys().hasOnly([
+          'senderUid', 'senderAccountId', 'recipientAccountId', 'reservationId', 'text', 'sentAt'
+        ]) &&
+        data.keys().hasAll(['recipientAccountId', 'reservationId']) &&
         data.senderUid == request.auth.uid && data.senderAccountId in [booking.accountId, ownerId] &&
         verifiedAccount(data.senderAccountId) &&
+        data.recipientAccountId == recipientId && data.reservationId == reservationId &&
         data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
         data.text.matches('(?s).*\\S.*') &&
         data.sentAt == request.time;
@@ -312,7 +295,7 @@ service cloud.firestore {
         function canSendMessage(booking) {
           let ownerId = chatOwner(booking.get('campsiteId', ''));
           return canAccessChat(booking, ownerId) &&
-            isValidMessage(request.resource.data, booking, ownerId);
+            isValidMessage(request.resource.data, booking, ownerId, reservationId);
         }
 
         allow read: if canReadMessages(chatBooking(reservationId));

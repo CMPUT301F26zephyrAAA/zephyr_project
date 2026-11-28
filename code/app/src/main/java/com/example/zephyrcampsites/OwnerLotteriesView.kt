@@ -55,9 +55,8 @@ internal fun OwnerLotteriesView(
     LotteryListScreen(
         title = "My Lotteries",
         onBack = onBack,
-        topAction = {
-            LotteryListAction("Create Lottery", onCreateLottery, enabled = canCreateLottery)
-        },
+        onCreateLottery = onCreateLottery,
+        canCreateLottery = canCreateLottery,
         header = {
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)

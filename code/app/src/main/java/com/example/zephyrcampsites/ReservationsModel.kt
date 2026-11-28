@@ -9,7 +9,9 @@ import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.functions.FirebaseFunctions
+import java.util.Date
 
+/** A confirmed or cancelled booking returned for a campsite owned by the caller. */
 internal data class OwnerReservation(
     val id: String,
     val campsiteName: String,
@@ -17,8 +19,20 @@ internal data class OwnerReservation(
     val startMillis: Long,
     val endMillis: Long,
     val cancelled: Boolean,
-    val entrantAccountId: String = ""
-)
+    val entrantAccountId: String = "",
+    val campsiteId: String = ""
+) {
+    /**
+     * Maps a confirmed owner booking to the shared chat's reservation format.
+     * @return The booking, or null if it lacks the participant or campsite required by chat.
+     */
+    fun toChatReservation(): ReservedUser? {
+        if (cancelled || !entrantAccountId.startsWith("auth_") || campsiteId.isBlank()) {
+            return null
+        }
+        return ReservedUser(id, entrantAccountId, campsiteId, Date(startMillis), Date(endMillis))
+    }
+}
 
 internal data class OwnerReservationList(val serverMillis: Long, val reservations: List<OwnerReservation>)
 
@@ -57,7 +71,8 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                             (row["startMillis"] as Number).toLong(),
                             (row["endMillis"] as Number).toLong(),
                             row["cancelled"] as Boolean,
-                            row["entrantAccountId"] as? String ?: ""
+                            row["entrantAccountId"] as? String ?: "",
+                            row["campsiteId"] as? String ?: campsiteId.orEmpty()
                         )
                     }
                     onSuccess(OwnerReservationList((data["serverMillis"] as Number).toLong(), rows))
@@ -124,13 +139,14 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
             campsiteId = campsiteId,
             bookedPeriodStart = start.toDate(),
             bookedPeriodEnd = end.toDate(),
-            cancelled = cancelled
+            cancelled = cancelled,
+            lotteryId = document.get("lotteryId") as? String
         )
     }
 
     /**
      * Retrieve reservations belonging to specified entrant
-     * @param accountId Current entrant's device linked accountID
+     * @param accountId Current entrant's Firebase Auth profile ID.
      * @param onSuccess called with the entrants reservations
      * @param onError called if retrieval or data validation fails
      */

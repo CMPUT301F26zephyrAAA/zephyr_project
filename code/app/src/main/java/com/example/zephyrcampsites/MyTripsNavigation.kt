@@ -109,13 +109,17 @@ fun MyTripsNavigation(
     when (page) {
         ReservationPage.MESSAGE_OWNER -> {
             when {
-                selected != null -> ReservationChatScreen(
-                    reservation = selected,
-                    campsite = campsiteForId(selected.campsiteId),
-                    accountsController = accountsController,
-                    chatModel = chatModel,
-                    onBack = ::goBack
-                )
+                selected != null -> {
+                    val campsite = campsiteForId(selected.campsiteId)
+                    ReservationChatScreen(
+                        reservation = selected,
+                        ownerId = campsite?.ownerID.orEmpty(),
+                        campsiteName = campsite?.name.orEmpty(),
+                        accountsController = accountsController,
+                        chatModel = chatModel,
+                        onBack = ::goBack
+                    )
+                }
                 reservations == null && error == null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()

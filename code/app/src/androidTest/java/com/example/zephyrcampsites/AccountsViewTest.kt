@@ -98,7 +98,8 @@ class AccountsViewTest {
                                 searchHandler = { listOf(campsite) },
                                 filterPage = {},
                                 imageLoader = { "" },
-                                locationClient = locationClient
+                                locationClient = locationClient,
+                                onViewChanged = {}
                             )
                         }
                         composable(GeneralScreen.Profile.route) {
@@ -109,7 +110,8 @@ class AccountsViewTest {
                                 },
                                 onPolicy = { navController.navigate(GeneralScreen.Policy.route) },
                                 onSettings = { navController.navigate(GeneralScreen.Settings.route) },
-                                onBack = { navController.popBackStack() }
+                                onDelete = {},
+                                onBack = { navController.popBackStack() },
                             )
                         }
                         composable(GeneralScreen.Policy.route) {

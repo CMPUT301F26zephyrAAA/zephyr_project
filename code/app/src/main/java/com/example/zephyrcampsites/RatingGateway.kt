@@ -38,4 +38,15 @@ interface RatingGateway {
         campsiteId: String, accountId: String, reservationId: String, review: String,
         onSuccess: () -> Unit, onError: (String) -> Unit
     )
+
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    fun observeRating(
+        campsiteId: String,
+        accountId: String,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        loadRating(campsiteId, accountId, onResult, onError)
+        return {}
+    }
 }

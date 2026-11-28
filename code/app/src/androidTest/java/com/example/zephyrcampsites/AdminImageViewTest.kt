@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class AdminImageViewTest {
     @get:Rule val compose = createComposeRule()
-    private val admin = Account("admin", userType = "admin")
+    private val admin = Account("admin", userType = listOf("admin"))
     private val image = AdminImage("profile", "Taylor Morgan", "profiles/taylor.png", "profile")
 
     @Test

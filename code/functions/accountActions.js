@@ -5,6 +5,7 @@ const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {FieldValue} = require("firebase-admin/firestore");
 const {getStorage} = require("firebase-admin/storage");
 const logger = require("firebase-functions/logger");
+const {usesLotteryOffer} = require("./sharedLotteries");
 
 /**
  * Builds the authenticated account endpoints used by the Android app.
@@ -80,6 +81,9 @@ module.exports = (db) => {
   // AI Citation [AI-43] (Bhav Saluja)
   // OpenAI, Codex, November 27, 2026. Added a campsite scope for owner chat.
   // See the team AI Documentation Google Doc.
+  // AI Citation [AI-49] (Bhav Saluja)
+  // OpenAI, Codex, November 27, 2026. Included chat IDs in the owner list.
+  // See Bhav's entry in the team's AI Documentation Google Doc.
   /** Lists only bookings for campsites currently owned by the caller. */
   const listOwnerReservations = authenticated(async (data, auth) => {
     const accountId = "auth_" + auth.uid;
@@ -131,6 +135,7 @@ module.exports = (db) => {
                   return [
                     {
                       id: booking.id,
+                      campsiteId: site.id,
                       campsiteName: site.get("name") ?? "",
                       startMillis,
                       endMillis,
@@ -161,7 +166,8 @@ module.exports = (db) => {
             reservations: rows.map(({entrantId, ...row}) => ({
               ...row,
               entrantName: names.get(entrantId) ?? "",
-              ...(campsiteId === null ? {} : {entrantAccountId: entrantId}),
+              entrantAccountId:
+                typeof entrantId === "string" ? entrantId : "",
             })),
           };
         },
@@ -268,12 +274,9 @@ module.exports = (db) => {
       const bookings = await transaction.get(
           reservations.where("accountId", "==", accountId),
       );
+      // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
       if (
-        bookings.docs.some(
-            (booking) =>
-              booking.get("campsiteId") === lottery.get("campsiteId") &&
-            booking.get("cancelled") !== true,
-        )
+        bookings.docs.some((booking) => usesLotteryOffer(booking, lotteryId, lottery.data()))
       ) {
         throw new HttpsError(
             "failed-precondition",
@@ -404,7 +407,7 @@ module.exports = (db) => {
     return {};
   });
 
-  /** Removes a rating and its aggregate entry for a verified admin. */
+  /** Removes a score and its aggregate entry for a verified admin. */
   const removeCampsiteFeedback = authenticated(async (data, auth) => {
     if (auth.token.admin !== true) {
       throw new HttpsError(
@@ -445,13 +448,20 @@ module.exports = (db) => {
             "This rating has changed. Review it again.",
         );
       }
-      if (previous.get("score") !== undefined) {
-        transaction.update(
-            campsite,
-            ratingAggregate(site, previous.get("score")),
+      const score = previous.get("score");
+      if (!Number.isInteger(score) || score < 1 || score > 5) {
+        throw new HttpsError(
+            "failed-precondition",
+            "This entry has no rating to remove.",
         );
       }
-      transaction.delete(rating);
+      transaction.update(campsite, ratingAggregate(site, score));
+      const review = previous.get("review");
+      if (typeof review === "string" && review.trim() !== "") {
+        transaction.update(rating, {score: FieldValue.delete()});
+      } else {
+        transaction.delete(rating);
+      }
     });
     return {};
   });

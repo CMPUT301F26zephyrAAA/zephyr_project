@@ -37,6 +37,26 @@ class AccountsController(
     }
 
     /**
+     * Rechecks admin access for the current profile. A failed refresh gives no admin access.
+     *
+     * @param accountId Signed-in profile whose role is being checked.
+     * @param onResult Receives whether the refreshed token grants admin access.
+     */
+    fun refreshAdminAccess(accountId: String, onResult: (Boolean) -> Unit) {
+        val user = FirebaseAuth.getInstance().currentUser
+        if (user == null || accountId != "auth_${user.uid}") {
+            onResult(false)
+            return
+        }
+        user.getIdToken(true).addOnCompleteListener { token ->
+            val isAdmin = token.isSuccessful &&
+                    token.result.claims["admin"] == true &&
+                    isOwnProfile(accountId)
+            onResult(isAdmin)
+        }
+    }
+
+    /**
      * Loads the public owner name used in campsite details.
      * @param campsiteId Campsite being viewed.
      * @param onResult Receives the owner label, if available.

@@ -35,20 +35,19 @@ class LotteryView (
     /**
      * Displays the lottery settings for the selected campsite.
      *
-     * @param campsiteId Fixed campsite when the form is opened from campsite details.
-     * @param ownedCampsites Choices when the form is opened from My Lotteries.
+     * @param campsiteId Initially selected campsite, if opened from its details.
      */
 
     @Composable
     fun LotterySettingsView(
-        campsiteId: String? = null,
+        campsiteId: String?,
+        ownedCampsites: List<Campsite>,
         onLotteryCreated: (String) -> Unit,
-        onBackClick: () -> Unit,
-        ownedCampsites: List<Campsite> = emptyList()
+        onBackClick: () -> Unit
     ) {
-        var selectedCampsiteId by remember { mutableStateOf<String?>(null) }
-        var choosingCampsite by remember { mutableStateOf(false) }
-        val selectedCampsite = ownedCampsites.firstOrNull { it.id == selectedCampsiteId }
+        var selectedIds by remember(campsiteId) { mutableStateOf(listOfNotNull(campsiteId)) }
+        var publishing by remember { mutableStateOf(false) }
+
         var lotteryName by remember { mutableStateOf("") }
 
         var registrationStart by remember { mutableStateOf("") }
@@ -77,34 +76,26 @@ class LotteryView (
                 color = Color.DarkGray
             )
 
-            if (campsiteId == null) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Campsite", color = Color(0xFF2E8B75))
-                Box {
-                    OutlinedButton(
-                        onClick = { choosingCampsite = true },
-                        enabled = ownedCampsites.isNotEmpty()
-                    ) {
-                        Text(selectedCampsite?.let { it.name.ifBlank { it.id } } ?: "Select a campsite")
-                    }
-                    DropdownMenu(
-                        expanded = choosingCampsite && ownedCampsites.isNotEmpty(),
-                        onDismissRequest = { choosingCampsite = false }
-                    ) {
-                        ownedCampsites.forEach { campsite ->
-                            DropdownMenuItem(
-                                text = { Text(campsite.name.ifBlank { campsite.id }) },
-                                onClick = {
-                                    selectedCampsiteId = campsite.id
-                                    choosingCampsite = false
-                                }
-                            )
+            Spacer(modifier = Modifier.height(24.dp))
+            // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+            Text("Participating campsites")
+            if (ownedCampsites.isEmpty()) {
+                Text("Register a campsite before creating a lottery.")
+            }
+            ownedCampsites.forEach { campsite ->
+                val id = campsite.id
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = id in selectedIds,
+                        enabled = !publishing,
+                        onCheckedChange = { checked ->
+                            selectedIds = if (checked) selectedIds + id else selectedIds - id
                         }
-                    }
+                    )
+                    Text(campsite.name)
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = "Lottery Name:",
                 color = Color(0xFF2E8B75)
@@ -242,6 +233,7 @@ class LotteryView (
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Button(
+                    enabled = selectedIds.isNotEmpty() && !publishing,
                     onClick = {
                     try {
                         // Parse registration dates and times using a fixed format.
@@ -295,11 +287,11 @@ class LotteryView (
                         if (waitlistCapacity.isNotBlank() && (capacity == null || capacity <= 0)) {
                             message = "Waitlist capacity must be a positive whole number."
                         } else {
+                            publishing = true
                             lotteryController.createLottery(
                                 // Use the selected campsite ID instead of a fixed test ID.
                                 lotteryName = lotteryName,
-                                campsiteId = campsiteId ?: selectedCampsite?.id
-                                    ?: throw IllegalArgumentException("Select a campsite."),
+                                campsiteIds = selectedIds,
                                 registrationStart = start,
                                 registrationEnd = end,
                                 bookingStart = bookingStartTime,
@@ -308,11 +300,13 @@ class LotteryView (
                                 waitlistCapacity = capacity,
                                 // Navigate only after Firebase confirms the save.
                                 onSuccess = { lotteryId ->
+                                    publishing = false
                                     onLotteryCreated(lotteryId)
                                 },
 
                                 // Display an error if Firebase cannot save the lottery.
                                 onFailure = { exception ->
+                                    publishing = false
                                     message = "Failed to publish lottery: ${exception.message}"
                                 }
                             )
@@ -321,6 +315,7 @@ class LotteryView (
 
 
                     } catch (e: IllegalArgumentException) {
+                        publishing = false
                         message = e.message ?: "Invalid input."
                     } catch (e: java.text.ParseException) {
                         message = "Enter dates and times as YYYY-MM-DD HH:mm."
@@ -363,7 +358,7 @@ class LotteryView (
         onEditClick: (() -> Unit)?,
         onBackClick: () -> Unit,
         onNotifyClick: (() -> Unit)? = null,
-        campsiteName: String? = null
+        campsiteNames: List<String> = emptyList()
     ) {
         val lottery = lotteryController.getLotteryById(lotteryId)
         var declinedEntrants by remember(lotteryId) {
@@ -441,7 +436,7 @@ class LotteryView (
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("Campsite: ${campsiteName ?: lottery.campsiteId}")
+            Text("Participating campsites: ${(campsiteNames.ifEmpty { lottery.participatingCampsiteIds() }).joinToString()}")
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -545,7 +540,7 @@ class LotteryView (
                 }
 
                 // AI Citation [AI-39]
-                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the Bhav Saluja entry in README.md.
+                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the team AI Documentation Google Doc.
                 Button(
                     onClick = { onNotifyClick?.invoke() },
                     enabled = onNotifyClick != null,
@@ -603,7 +598,6 @@ class LotteryView (
     @Composable
     fun EditLotteryView(
         lotteryId: String,
-        ownerId: String,
         ownedCampsites: List<Campsite>,
         onSaveClick: () -> Unit,
         onBackClick: () -> Unit
@@ -657,8 +651,9 @@ class LotteryView (
         }
 
         val original = remember(lotteryId) { lottery }
-        var campsiteId by remember(lotteryId) { mutableStateOf(lottery.campsiteId) }
-        var showCampsites by remember(lotteryId) { mutableStateOf(false) }
+        var selectedCampsiteIds by remember(lotteryId) {
+            mutableStateOf(lottery.participatingCampsiteIds())
+        }
         var saving by remember(lotteryId) { mutableStateOf(false) }
         var registrationStarted by remember(lottery.registrationStart) {
             mutableStateOf(System.currentTimeMillis() >= lottery.registrationStart)
@@ -668,7 +663,6 @@ class LotteryView (
                 (lottery.registrationStart - System.currentTimeMillis()).coerceAtLeast(0)
             )
             registrationStarted = true
-            showCampsites = false
         }
         val canEditSettings = !registrationStarted && !lottery.drawCompleted &&
             lottery.drawStatus == "PENDING"
@@ -845,29 +839,26 @@ class LotteryView (
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Campsite", color = Color(0xFF2E8B75))
-            val currentCampsiteId = if (canEditSettings) campsiteId else lottery.campsiteId
-            val currentCampsite = ownedCampsites.firstOrNull { it.id == currentCampsiteId }
-            Box {
-                OutlinedButton(
-                    enabled = canEditSettings && !saving,
-                    onClick = { showCampsites = true }
-                ) {
-                    Text(currentCampsite?.name?.ifBlank { currentCampsiteId } ?: currentCampsiteId)
-                }
-                DropdownMenu(
-                    expanded = showCampsites && canEditSettings,
-                    onDismissRequest = { showCampsites = false }
-                ) {
-                    ownedCampsites.forEach { campsite ->
-                        DropdownMenuItem(
-                            text = { Text(campsite.name.ifBlank { campsite.id }) },
-                            onClick = {
-                                campsiteId = campsite.id
-                                showCampsites = false
+            Text("Participating campsites", color = Color(0xFF2E8B75))
+            val currentCampsiteIds = if (canEditSettings) {
+                selectedCampsiteIds
+            } else {
+                lottery.participatingCampsiteIds()
+            }
+            ownedCampsites.forEach { campsite ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = campsite.id in currentCampsiteIds,
+                        enabled = canEditSettings && !saving,
+                        onCheckedChange = { checked ->
+                            selectedCampsiteIds = if (checked) {
+                                selectedCampsiteIds + campsite.id
+                            } else {
+                                selectedCampsiteIds - campsite.id
                             }
-                        )
-                    }
+                        }
+                    )
+                    Text(campsite.name.ifBlank { campsite.id })
                 }
             }
             if (!canEditSettings) {
@@ -922,8 +913,7 @@ class LotteryView (
                             saving = true
                             lotteryController.updateLottery(
                                 lotteryId = lotteryId,
-                                ownerId = ownerId,
-                                campsiteId = currentCampsiteId,
+                                campsiteIds = currentCampsiteIds,
                                 lotteryName = lotteryName,
                                 registrationStart = start,
                                 registrationEnd = end,
