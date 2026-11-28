@@ -1,3 +1,4 @@
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 // Defines the routes shared by the app's navigation graphs.
 package com.example.zephyrcampsites
 
@@ -38,8 +39,10 @@ sealed class GeneralScreen(val route: String) {
     data object AdminBrowseProfile : GeneralScreen("GeneralScreen/AdminBrowseProfile")
     data object AdminBrowseImage : GeneralScreen("GeneralScreen/AdminBrowseImage")
 
-    data object AdminProfileDetail : GeneralScreen("GeneralScreen/AdminProfileDetail/{id}") {
-        fun createRoute(id: String) = "GeneralScreen/AdminProfileDetail/${Uri.encode(id)}"
+    data object AdminProfileDetail :
+        GeneralScreen("GeneralScreen/AdminProfileDetail/{id}?fromOwners={fromOwners}") {
+        fun createRoute(id: String, fromOwners: Boolean) =
+            "GeneralScreen/AdminProfileDetail/${Uri.encode(id)}?fromOwners=$fromOwners"
     }
 }
 

@@ -1,6 +1,7 @@
 // Verified profile access, lottery declines, and campsite feedback.
 // AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, 2026-11-27.
 // See the team AI Documentation Google Doc.
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {FieldValue} = require("firebase-admin/firestore");
 const {getStorage} = require("firebase-admin/storage");
@@ -19,6 +20,7 @@ module.exports = (db) => {
   const lotteries = db.collection("lottery");
   const waitlist = db.collection("waitingList");
   const results = db.collection("lotteryDrawResults");
+  const revokedOwners = db.collection("revokedCampsiteOwners");
 
   /**
    * Validates a Firestore document ID supplied by the caller.
@@ -66,6 +68,49 @@ module.exports = (db) => {
     }
   }
 
+  // OpenAI Codex, US 03.07.01 owner revocation, 2026-11-28.
+  /** Revokes owner access and saves an immutable audit record together. */
+  const removeOwnerPrivileges = authenticated(async (data, auth) => {
+    if (auth.token.admin !== true) {
+      throw new HttpsError(
+          "permission-denied", "Administrator access required.",
+      );
+    }
+    const adminId = "auth_" + auth.uid;
+    const ownerId = id(data.ownerId);
+    const reason = typeof data.reason === "string" ? data.reason.trim() : "";
+    if (ownerId === adminId || !reason || reason.length > 500) {
+      throw new HttpsError(
+          "invalid-argument", "Select another owner and enter a reason.",
+      );
+    }
+    await db.runTransaction(async (transaction) => {
+      const [owner, revoked] = await transaction.getAll(
+          accounts.doc(ownerId),
+          revokedOwners.doc(ownerId),
+      );
+      if (revoked.exists) return;
+      const roles = owner.get("userType");
+      const hasOwnerRole = Array.isArray(roles) ?
+        roles.includes("owner") :
+        roles == null || roles === "owner" || roles === "admin";
+      if (!owner.exists || !hasOwnerRole) {
+        throw new HttpsError(
+            "failed-precondition", "This profile is not a registered owner.",
+        );
+      }
+      transaction.update(owner.ref, {ownerPrivilegesRevoked: true});
+      transaction.create(revoked.ref, {revoked: true});
+      transaction.create(db.collection("ownerRemovalAudit").doc(ownerId), {
+        adminId,
+        ownerId,
+        reason,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+    });
+    return {};
+  });
+
   /** Returns the public label used on campsite detail screens. */
   const getAccountDisplayName = authenticated(async (data) => {
     const site = await campsites.doc(id(data.campsiteId)).get();
@@ -92,7 +137,8 @@ module.exports = (db) => {
     return db.runTransaction(
         async (transaction) => {
           const profile = await transaction.get(accounts.doc(accountId));
-          if (!profile.exists) {
+          const revoked = await transaction.get(revokedOwners.doc(accountId));
+          if (!profile.exists || revoked.exists) {
             throw new HttpsError(
                 "permission-denied",
                 "Your profile is unavailable.",
@@ -276,7 +322,8 @@ module.exports = (db) => {
       );
       // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
       if (
-        bookings.docs.some((booking) => usesLotteryOffer(booking, lotteryId, lottery.data()))
+        bookings.docs.some((booking) =>
+          usesLotteryOffer(booking, lotteryId, lottery.data()))
       ) {
         throw new HttpsError(
             "failed-precondition",
@@ -576,6 +623,7 @@ module.exports = (db) => {
     declineLotteryOffer,
     saveCampsiteFeedback,
     removeCampsiteFeedback,
+    removeOwnerPrivileges,
     deleteProfile,
   };
 };

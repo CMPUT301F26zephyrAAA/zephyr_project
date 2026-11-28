@@ -1,6 +1,7 @@
 // Hiral - [AI-02] OpenAI ChatGPT Re-distribute MainActivity.kt
 // Connects the entrant, owner, and admin screens to their navigation routes.
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 package com.example.zephyrcampsites
 
 import android.net.Uri
@@ -31,7 +32,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navigation
 import android.content.Context
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -98,6 +102,29 @@ internal fun CampsitesNavigation(
     val isLoading = accountLoading.value
     val isAdmin = !isLoading && account?.userType?.contains(ADMIN) == true
 
+    var revokedOwners by remember(account?.id) { mutableStateOf<Set<String>?>(null) }
+    DisposableEffect(account?.id) {
+        val listener = account?.let {
+            accountsModel.observeOwnerRevocations { flags ->
+                if (flags != null) {
+                    revokedOwners = flags
+                }
+            }
+        }
+        onDispose { listener?.remove() }
+    }
+    val ownerModeAvailable = account?.canUseOwnerMode(revokedOwners) == true
+    val ownerModeRevoked = !isLoading && account != null && !ownerModeAvailable
+    val activeEntry by navHostController.currentBackStackEntryAsState()
+    LaunchedEffect(ownerModeRevoked, activeEntry) {
+        val inOwnerMode = activeEntry?.destination?.hierarchy?.any {
+            it.route == "mode/$OWNER"
+        } == true
+        if (ownerModeRevoked && inOwnerMode) {
+            navHostController.popBackStack(GeneralScreen.RoleMenu.route, inclusive = false)
+        }
+    }
+
     fun updateCurrentProfile(updated: Account) {
         val latestAccount = currentAccount.value ?: return
         if (latestAccount.id == updated.id) {
@@ -109,13 +136,14 @@ internal fun CampsitesNavigation(
         val owner = currentAccount.value ?: return false
         val id = campsiteId?.toIntOrNull() ?: return false
         val campsite = campsiteController.retrieveId(id) ?: return false
-        return campsite.ownerID == owner.id
+        return ownerModeAvailable && campsite.ownerID == owner.id
     }
 
     fun openRoleGraph(role: String) {
         val signedInAccount = currentAccount.value ?: return
         if (accountLoading.value) return
         if (role == ADMIN && ADMIN !in signedInAccount.userType) return
+        if (role == OWNER && !ownerModeAvailable) return
 
         navHostController.navigate("mode/$role") {
             popUpTo(GeneralScreen.RoleMenu.route)
@@ -216,7 +244,14 @@ internal fun CampsitesNavigation(
                             roleRoute(role, CampsiteScreens.FilterPage.route)
                         )
                     },
-                    searchHandler = { filters -> campsiteController.search(filters) },
+                    searchHandler = { filters ->
+                        val hidden = revokedOwners
+                        if (hidden == null) {
+                            emptyList()
+                        } else {
+                            campsiteController.search(filters).filter { it.ownerID !in hidden }
+                        }
+                    },
                     imageLoader = { id -> campsiteController.imageGetter(id) },
                     locationClient = locationClient,
                     showOwnerView = isOwnerView,
@@ -372,7 +407,9 @@ internal fun CampsitesNavigation(
                 null
             },
             lottery = campsiteLottery,
-            lotteryCampsiteNames = campsiteModel.campsites.associate { it.id to it.name },
+            lotteryCampsiteNames = campsiteModel.campsites
+                .filter { role != ENTRANT || revokedOwners?.contains(it.ownerID) == false }
+                .associate { it.id to it.name },
             waitingListController = waitingListController,
             reservationOfferController = reservationOfferController,
             ratingController = ratingController,
@@ -400,7 +437,8 @@ internal fun CampsitesNavigation(
                     hasAccount = account != null,
                     isAdmin = isAdmin,
                     onSelectRole = { role -> openRoleGraph(role) },
-                    onRetryAccount = onRetryAccount
+                    onRetryAccount = onRetryAccount,
+                    canSelectOwner = ownerModeAvailable
                 )
             }
 
@@ -423,6 +461,7 @@ internal fun CampsitesNavigation(
                                 isAdmin = isAdmin,
                                 onNavigate = { route -> navHostController.navigate(route) },
                                 onBack = onBack,
+                                canSelectOwner = ownerModeAvailable,
                                 onSwitchRole = { targetRole -> openRoleGraph(targetRole) }
                             )
                         }
@@ -456,7 +495,15 @@ internal fun CampsitesNavigation(
                         })
                     ) { entry ->
                         val id = entry.arguments?.getInt("id") ?: return@composable
-                        AccountContent { CampsiteDetails(role, id) }
+                        AccountContent {
+                            val site = campsiteController.retrieveId(id)
+                            val hidden = revokedOwners
+                            if (role == ENTRANT && (hidden == null || site == null || site.ownerID in hidden)) {
+                                FeaturePage("Campsite unavailable", onBack)
+                            } else {
+                                CampsiteDetails(role, id)
+                            }
+                        }
                     }
 
                     composable(profileRoute) {
@@ -888,6 +935,7 @@ internal fun CampsitesNavigation(
                             isAdmin = isAdmin,
                             onNavigate = { route -> navHostController.navigate(route) },
                             onBack = onBack,
+                            canSelectOwner = ownerModeAvailable,
                             onSwitchRole = { targetRole -> openRoleGraph(targetRole) }
                         )
                     }
@@ -928,10 +976,14 @@ internal fun CampsitesNavigation(
                         adminProfileView.AdminProfileListView(
                             account,
                             accountsModel,
-                            onProfileSelected = { profile ->
+                            registeredOwnerIds = campsiteModel.campsites
+                                .mapTo(mutableSetOf()) { it.ownerID },
+                            loadingCampsites = campsiteModel.isLoading,
+                            campsiteLoadError = campsiteModel.error?.message,
+                            onProfileSelected = { profile, fromOwners ->
                                 navHostController.navigate(
                                     GeneralScreen.AdminProfileDetail.createRoute(
-                                        profile.id
+                                        profile.id, fromOwners,
                                     )
                                 )
                             },
@@ -949,9 +1001,13 @@ internal fun CampsitesNavigation(
 
                 composable(
                     route = GeneralScreen.AdminProfileDetail.route,
-                    arguments = listOf(navArgument("id") {
-                        type = NavType.StringType
-                    })
+                    arguments = listOf(
+                        navArgument("id") { type = NavType.StringType },
+                        navArgument("fromOwners") {
+                            type = NavType.BoolType
+                            defaultValue = false
+                        },
+                    )
                 ) { entry ->
                     val profileId = entry.arguments?.getString("id")
                         ?: return@composable
@@ -963,6 +1019,8 @@ internal fun CampsitesNavigation(
                             accountsController,
                             onRemoved = onBack,
                             onBack = onBack,
+                            showOwnerRemoval = entry.arguments?.getBoolean("fromOwners") == true &&
+                                campsiteModel.campsites.any { it.ownerID == profileId },
                             loadImage = { path, result ->
                                 campsiteController.loadCampsiteImage(
                                     path,

@@ -1,3 +1,4 @@
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateOf
@@ -26,6 +27,24 @@ class AdminProfileViewTest {
     private class FakeAccountsModel(private val profiles: List<Account>) : AccountsModel() {
         var listens = 0
         var deletions = 0
+        var revocations = 0
+        var removalReason: String? = null
+
+        override fun removeOwnerPrivileges(
+            ownerId: String,
+            reason: String,
+            onSuccess: () -> Unit,
+            onError: (Exception) -> Unit,
+        ) {
+            revocations++
+            removalReason = reason
+            val error = failure
+            if (error == null) {
+                onSuccess()
+            } else {
+                onError(error)
+            }
+        }
         var failure: Exception? = null
 
         override fun observeAccounts(
@@ -58,7 +77,9 @@ class AdminProfileViewTest {
         val model = FakeAccountsModel(listOf(profile))
         var selected: Account? = null
         compose.setContent {
-            AdminBrowseProfileView().AdminProfileListView(admin, model, { selected = it }, {})
+            AdminBrowseProfileView().AdminProfileListView(admin, model, { account, _ ->
+                selected = account
+            }, {})
         }
         compose.onNodeWithText("Taylor Morgan").assertIsDisplayed()
         compose.onNodeWithText("Email: taylor@example.com").assertIsDisplayed()
@@ -72,11 +93,48 @@ class AdminProfileViewTest {
     }
 
     @Test
+    fun ownersTabRequiresARegisteredCampsiteAndKeepsBackVisible() {
+        val entrant = profile
+        val owner = Account("owner", name = "Owner Profile")
+        val adminProfile = admin.copy(name = "Admin Profile")
+        val model = FakeAccountsModel(listOf(entrant, owner, adminProfile))
+        val registeredOwnerIds = mutableStateOf(setOf(owner.id))
+        var openedFromOwners: Boolean? = null
+        compose.setContent {
+            AdminBrowseProfileView().AdminProfileListView(
+                admin, model, { _, fromOwners -> openedFromOwners = fromOwners }, {},
+                registeredOwnerIds = registeredOwnerIds.value,
+            )
+        }
+        compose.onNodeWithText("All").assertIsSelected()
+        compose.onNodeWithText("Admin Profile").assertIsDisplayed()
+        compose.onNodeWithTag("ProfileItem_owner").performClick()
+        compose.runOnIdle { assertEquals(false, openedFromOwners) }
+
+        compose.onNodeWithText("Owners").performClick().assertIsSelected()
+        compose.onNodeWithText("Owner Profile").assertIsDisplayed()
+        compose.onNodeWithTag("ProfileItem_owner").performClick()
+        compose.runOnIdle { assertEquals(true, openedFromOwners) }
+        compose.onNodeWithText("Taylor Morgan").assertDoesNotExist()
+        compose.onNodeWithText("Admin Profile").assertDoesNotExist()
+
+        compose.runOnIdle { registeredOwnerIds.value = emptySet() }
+        compose.onNodeWithText("No profiles found.").assertIsDisplayed()
+
+        compose.onNodeWithText("Entrants").performClick().assertIsSelected()
+        compose.onNodeWithText("Taylor Morgan").assertIsDisplayed()
+        compose.onNodeWithTag("ProfileItem_owner").performClick()
+        compose.runOnIdle { assertEquals(false, openedFromOwners) }
+        compose.onNodeWithText("BACK").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(1, model.listens) }
+    }
+
+    @Test
     fun emptyListAndBackAreDisplayed() {
         var back = false
         compose.setContent {
             AdminBrowseProfileView()
-                .AdminProfileListView(admin, FakeAccountsModel(emptyList()), {}, { back = true })
+                .AdminProfileListView(admin, FakeAccountsModel(emptyList()), { _, _ -> }, { back = true })
         }
         compose.onNodeWithText("No profiles found.").assertIsDisplayed()
         compose.onNodeWithText("BACK").performClick()
@@ -87,10 +145,36 @@ class AdminProfileViewTest {
     fun nonAdminDoesNotStartProfileListener() {
         val model = FakeAccountsModel(listOf(profile))
         compose.setContent {
-            AdminBrowseProfileView().AdminProfileListView(Account("entrant"), model, {}, {})
+            AdminBrowseProfileView().AdminProfileListView(Account("entrant"), model, { _, _ -> }, {})
         }
         compose.onNodeWithText("Administrator access required.").assertIsDisplayed()
         compose.runOnIdle { assertEquals(0, model.listens) }
+    }
+
+    @Test
+    fun ownerRevocationRequiresAReasonAndShowsSuccess() {
+        val model = FakeAccountsModel(listOf(profile))
+        compose.setContent {
+            AdminBrowseProfileView().AdminProfileDetailView(
+                admin, profile, AccountsController(model), {}, {},
+                showOwnerRemoval = true,
+            )
+        }
+        val removeButton = compose.onNodeWithText("Remove Owner Privileges")
+        removeButton.performScrollTo().performClick()
+        compose.onNodeWithText("Remove Privileges").assertIsNotEnabled()
+        compose.onNodeWithText("Cancel").performClick()
+        compose.runOnIdle { assertEquals(0, model.revocations) }
+
+        removeButton.performScrollTo().performClick()
+        compose.onNodeWithText("Reason for removal").performTextInput("Policy violation")
+        compose.onNodeWithText("Remove Privileges").performClick()
+        compose.onNodeWithText("Owner privileges removed.").performScrollTo().assertIsDisplayed()
+        compose.runOnIdle {
+            assertEquals(1, model.revocations)
+            assertEquals("Policy violation", model.removalReason)
+            assertEquals(0, model.deletions)
+        }
     }
 
     @Test
@@ -107,6 +191,7 @@ class AdminProfileViewTest {
                     {},
                 )
         }
+        compose.onNodeWithText("Remove Owner Privileges").assertDoesNotExist()
         compose.onNodeWithTag("AdminDeleteProfileButton").performScrollTo().performClick()
         compose.onNodeWithText("Cancel").performClick()
         compose.runOnIdle {

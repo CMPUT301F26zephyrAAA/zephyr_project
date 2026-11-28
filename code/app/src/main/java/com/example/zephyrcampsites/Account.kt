@@ -9,6 +9,7 @@ package com.example.zephyrcampsites
  * @property phoneNumber Contact phone number.
  * @property notificationsEnabled Whether notification senders may notify this account.
  * @property imagePath Optional profile image URL or Storage path.
+ * @property ownerPrivilegesRevoked Whether an administrator removed owner privileges.
  */
 
 data class Account(
@@ -19,8 +20,13 @@ data class Account(
     var phoneNumber: String = "",
     var notificationsEnabled: Boolean = true,
     var imagePath: String = "",
-    var compressedImage: String = ""
+    var compressedImage: String = "",
+    val ownerPrivilegesRevoked: Boolean = false
 ) : DataHolder(id)
+
+/** Uses the saved profile and any revocations received during this session. */
+internal fun Account.canUseOwnerMode(revokedOwners: Set<String>?): Boolean =
+    "owner" in userType && !ownerPrivilegesRevoked && revokedOwners?.contains(id) != true
 
 /** Returns a signed-in profile with admin access derived from its verified Auth claim. */
 internal fun Account.withVerifiedAdminRole(isAdmin: Boolean): Account =
@@ -38,4 +44,11 @@ internal fun accountRoles(storedValue: Any?): List<String> {
     } else {
         listOf("entrant", "owner")
     }
+}
+
+/** Reads explicit profile roles and preserves the default for legacy profiles. */
+internal fun storedProfileRoles(storedValue: Any?): List<String> = when (storedValue) {
+    is List<*> -> storedValue.filterIsInstance<String>()
+    "entrant", "owner" -> listOf(storedValue as String)
+    else -> accountRoles(storedValue)
 }

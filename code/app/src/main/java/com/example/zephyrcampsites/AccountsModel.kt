@@ -1,3 +1,4 @@
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 // Reads accounts and coordinates authenticated profile creation and updates.
 package com.example.zephyrcampsites
 import com.google.firebase.Firebase
@@ -65,8 +66,11 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
         if (!document.exists()) {
             return null
         }
-        return Account(document.id).apply {
-            userType = accountRoles(document.get("userType"))
+        return Account(
+            document.id,
+            ownerPrivilegesRevoked = document.get("ownerPrivilegesRevoked") == true,
+        ).apply {
+            userType = storedProfileRoles(document.get("userType"))
             name = document.getString("name") ?: ""
             email = document.getString("email") ?: ""
             phoneNumber = document.getString("phoneNumber") ?: ""
@@ -315,22 +319,35 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                 onError(error)
             } else {
                 onSuccess(
-                    snapshot?.documents.orEmpty().map { document ->
-                        Account(
-                            document.id,
-                            userType = accountRoles(document.get("userType")),
-                            name = document.getString("name") ?: "",
-                            email = document.getString("email") ?: "",
-                            phoneNumber = document.getString("phoneNumber") ?: "",
-                            notificationsEnabled =
-                                document.getBoolean("notificationsEnabled") ?: true,
-                            imagePath = document.getString("imagePath") ?: "",
-                            compressedImage = document.getString("compressedImage") ?: "",
-                        )
-                    }
+                    snapshot?.documents.orEmpty().mapNotNull(::readAccount)
                 )
             }
         }
+    }
+
+    /** Watches the public moderation flags used to hide listings and disable owner mode. */
+    fun observeOwnerRevocations(
+        onResult: (Set<String>?) -> Unit,
+    ): ListenerRegistration =
+        firestore.collection("revokedCampsiteOwners").addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                onResult(null)
+            } else if (snapshot != null) {
+                onResult(snapshot.documents.mapTo(mutableSetOf()) { it.id })
+            }
+        }
+
+    /** Requests a server-verified owner revocation and audit entry. */
+    open fun removeOwnerPrivileges(
+        ownerId: String,
+        reason: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        functions.getHttpsCallable("removeOwnerPrivileges")
+            .call(mapOf("ownerId" to ownerId, "reason" to reason))
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener(onError)
     }
 
     open fun hasActiveReservations(

@@ -1,3 +1,4 @@
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 // Builds the role selector and the available actions for each app mode.
 package com.example.zephyrcampsites
 
@@ -9,12 +10,15 @@ internal fun RoleSelectionMenu(
     hasAccount: Boolean,
     isAdmin: Boolean,
     onSelectRole: (String) -> Unit,
-    onRetryAccount: () -> Unit
+    onRetryAccount: () -> Unit,
+    canSelectOwner: Boolean = true,
 ) {
     RolePage(
         actions = buildList {
             add(RoleAction("Entrant") { onSelectRole(ENTRANT) })
-            add(RoleAction("Owner") { onSelectRole(OWNER) })
+            if (canSelectOwner) {
+                add(RoleAction("Owner") { onSelectRole(OWNER) })
+            }
             if (isAdmin) {
                 add(RoleAction("Admin") { onSelectRole(ADMIN) })
             }
@@ -35,7 +39,8 @@ internal fun RoleHomeMenu(
     isAdmin: Boolean,
     onNavigate: (String) -> Unit,
     onBack: () -> Unit,
-    onSwitchRole: (String) -> Unit
+    onSwitchRole: (String) -> Unit,
+    canSelectOwner: Boolean = true,
 ) {
     val actions = when (role) {
         ENTRANT -> listOf(
@@ -75,6 +80,7 @@ internal fun RoleHomeMenu(
         },
         isAdmin = isAdmin,
         onBack = onBack,
-        openRoleGraph = onSwitchRole
+        openRoleGraph = onSwitchRole,
+        canSelectOwner = canSelectOwner
     )
 }

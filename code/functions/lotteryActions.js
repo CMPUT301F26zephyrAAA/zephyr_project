@@ -5,6 +5,7 @@
 // Creates and edits campsite lotteries with server-side booking checks.
 // Saves run in one Admin SDK transaction, so the overlap query and the
 // write happen together, and the edit cutoff uses the server's clock.
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {FieldValue} = require("firebase-admin/firestore");
 
@@ -25,7 +26,8 @@ module.exports = (db) => {
    */
   function participatingSites(lottery) {
     const linked = lottery.get("campsiteIds");
-    return Array.isArray(linked) && linked.length ? linked : [lottery.get("campsiteId")];
+    return Array.isArray(linked) && linked.length ?
+      linked : [lottery.get("campsiteId")];
   }
 
   /**
@@ -124,8 +126,12 @@ module.exports = (db) => {
    * @param {Object} auth Verified Firebase Auth context.
    */
   async function requireOwner(transaction, campsiteId, auth) {
-    const site = await transaction.get(campsites.doc(campsiteId));
-    if (!site.exists || site.get("ownerID") !== "auth_" + auth.uid) {
+    const accountId = "auth_" + auth.uid;
+    const [site, revoked] = await transaction.getAll(
+        campsites.doc(campsiteId),
+        db.collection("revokedCampsiteOwners").doc(accountId),
+    );
+    if (!site.exists || site.get("ownerID") !== accountId || revoked.exists) {
       throw new HttpsError(
           "permission-denied",
           "Only the campsite owner can manage its lottery.",
@@ -136,7 +142,7 @@ module.exports = (db) => {
   /**
    * Rejects a booking period that overlaps another lottery for the campsite.
    *
-   * The per-site locks match shared lottery publishing. Touching periods conflict.
+   * The per-site locks match shared publishing. Touching periods conflict.
    *
    * @param {FirebaseFirestore.Transaction} transaction Save transaction.
    * @param {string[]} campsiteIds Campsites in the lottery.
@@ -146,7 +152,8 @@ module.exports = (db) => {
    */
   async function requireNoOverlap(
       transaction, campsiteIds, lotteryId, bookingStart, bookingEnd) {
-    const locks = [...new Set(campsiteIds)].sort().map((id) => bookingLocks.doc(id));
+    const locks = [...new Set(campsiteIds)].sort()
+        .map((id) => bookingLocks.doc(id));
     await transaction.getAll(...locks);
     const others = await transaction.get(
         lotteries.where("bookingEnd", ">=", bookingStart),

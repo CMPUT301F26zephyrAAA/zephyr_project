@@ -1,4 +1,4 @@
-
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 // Identifies the installation and coordinates profile operations.
 package com.example.zephyrcampsites
 
@@ -274,6 +274,25 @@ class AccountsController(
             return
         }
         accountsModel.deleteAccount(targetAccount, account.id, onSuccess, onError)
+    }
+
+    /** Validates the administrator's request before sending it for server verification. */
+    fun removeOwnerPrivileges(
+        account: Account,
+        targetAccount: Account,
+        reason: String,
+        onSuccess: () -> Unit,
+        onError: (Exception) -> Unit,
+    ) {
+        val explanation = reason.trim()
+        if ("admin" !in account.userType || account.id == targetAccount.id ||
+            "owner" !in targetAccount.userType || targetAccount.ownerPrivilegesRevoked ||
+            explanation.isEmpty() || explanation.length > 500
+        ) {
+            onError(IllegalArgumentException("Select an active owner and enter a removal reason."))
+            return
+        }
+        accountsModel.removeOwnerPrivileges(targetAccount.id, explanation, onSuccess, onError)
     }
 
     /**

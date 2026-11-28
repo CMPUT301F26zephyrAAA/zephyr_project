@@ -37,6 +37,7 @@ before(async () => {
     "deleting",
     "admin",
     "otherBackup",
+    "revokedOwner",
   ];
   for (const key of roles) {
     const response = await fetch(
@@ -1277,4 +1278,72 @@ test("sent names survive profile changes and older records still look them up",
           await profile.ref.set(profile.data());
         }
       }
+    });
+
+test("admin owner revocation preserves records and blocks new owner activity",
+    async () => {
+      const {admin, revokedOwner, reviewer} = accounts;
+      const site = db.doc("campsite/revocation-" + suffix);
+      const lottery = db.doc("lottery/revocation-" + suffix);
+      const booking = db.doc("reservation/revocation-" + suffix);
+      const audit = db.doc("ownerRemovalAudit/" + revokedOwner.accountId);
+      const marker = "revokedCampsiteOwners/" + revokedOwner.accountId;
+      const now = Date.now();
+      await site.set({ownerID: revokedOwner.accountId});
+      await lottery.set({
+        campsiteId: site.id,
+        entrantCount: 0,
+        registrationStart: now - 60000,
+        registrationEnd: now + 600000,
+      });
+      await booking.set({
+        accountId: reviewer.accountId,
+        campsiteId: site.id,
+        cancelled: false,
+        bookedPeriodStart: Timestamp.fromMillis(now + 3600000),
+        bookedPeriodEnd: Timestamp.fromMillis(now + 7200000),
+      });
+      const joined = await registration(reviewer, 1, true, lottery.id);
+      assert.equal(joined.status, 200);
+
+      const request = {
+        ownerId: revokedOwner.accountId,
+        reason: "Policy violation",
+      };
+      assert.equal(
+          (await call("removeOwnerPrivileges", reviewer, request)).error.status,
+          "PERMISSION_DENIED",
+      );
+      assert.equal((await audit.get()).exists, false);
+      assert.deepEqual(
+          (await call("removeOwnerPrivileges", admin, request)).result, {},
+      );
+      assert.deepEqual((await read(admin, audit.path)).status, 200);
+      assert.deepEqual((await read(reviewer, audit.path)).status, 403);
+      const directWrite = await patch(revokedOwner, marker, {revoked: false});
+      assert.equal(directWrite.status, 403);
+
+      const account = await db.doc("accounts/" + revokedOwner.accountId).get();
+      assert.equal(account.get("ownerPrivilegesRevoked"), true);
+      const entry = (await audit.get()).data();
+      assert.equal(entry.adminId, admin.accountId);
+      assert.equal(entry.ownerId, revokedOwner.accountId);
+      assert.equal(entry.reason, request.reason);
+      assert.ok(entry.timestamp instanceof Timestamp);
+      await call("removeOwnerPrivileges", admin, {...request, reason: "Retry"});
+      assert.deepEqual((await audit.get()).data(), entry);
+
+      const blockedJoin = await registration(admin, 2, true, lottery.id);
+      assert.equal(blockedJoin.status, 403);
+      const blockedEdit =
+        await patch(revokedOwner, site.path, {name: "Changed"}, true);
+      assert.equal(blockedEdit.status, 403);
+      assert.equal(
+          (await call("listOwnerReservations", revokedOwner, {})).error.status,
+          "PERMISSION_DENIED",
+      );
+      assert.equal((await read(admin, booking.path)).status, 200);
+      assert.equal((await lottery.get()).get("entrantCount"), 1);
+      const entryId = `${lottery.id}_${reviewer.accountId}`;
+      assert.equal((await db.doc(`waitingList/${entryId}`).get()).exists, true);
     });
