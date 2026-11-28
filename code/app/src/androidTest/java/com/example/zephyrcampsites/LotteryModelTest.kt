@@ -1,56 +1,103 @@
-// AI Citation [AI-40]
-// Anthropic, Claude Code assisted with generating Firestore emulator
-// tests for booking periods, overlap rechecks, and the edit cutoff.
+// AI Citation [AI-40], [AI-41]
+// Anthropic, Claude Code assisted with generating emulator tests for
+// booking periods, server-side overlap checks, and the edit cutoff.
 // AI usage and citation documented in the team AI Documentation.
-// Tests LotteryModel booking-period checks and the edit cutoff against the local Firestore emulator.
-// Run with -Pandroid.testInstrumentationRunnerArguments.adminFirestoreEmulator=true and
-// adb reverse tcp:8082 tcp:8082. Never points at the live Firebase project.
+// Tests LotteryModel booking checks through the local Auth, Firestore, and Functions emulators.
+// Run with -Pandroid.testInstrumentationRunnerArguments.lotteryFunctionsEmulator=true and
+// adb reverse for ports 8082, 9099, and 5001. Never points at the live Firebase project.
 package com.example.zephyrcampsites
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.android.gms.tasks.Task
 import com.google.android.gms.tasks.TaskCompletionSource
+import com.google.android.gms.tasks.Tasks
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
+import com.google.firebase.functions.FirebaseFunctions
+import java.util.UUID
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Assume.assumeTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Verifies US 02.04.04 booking rules through the real LotteryModel and Firestore transactions. */
+/** Verifies US 02.04.04 booking rules through the real LotteryModel and lottery functions. */
 @RunWith(AndroidJUnit4::class)
-class LotteryModelTest : AdminEmulatorTest() {
+class LotteryModelTest {
+    private lateinit var firestore: FirebaseFirestore
     private lateinit var model: LotteryModel
+    private val suffix = UUID.randomUUID().toString()
     private val campsiteId = "site-$suffix"
-    private val now = System.currentTimeMillis()
+    private val otherCampsiteId = "other-site-$suffix"
     private val hour = 3_600_000L
     private val day = 24 * hour
 
-    // Registration runs from tomorrow to the day after, so booking can start on day 3.
-    private val registrationStart = now + day
-    private val registrationEnd = now + 2 * day
-    private val bookingDayStart = now + 3 * day
+    // The app checks dates with the device clock and the functions use server time, and an
+    // emulator's clock can be a day off. Future dates use the later clock and started
+    // registrations use the earlier one, so both sides agree.
+    private var futureBase = 0L
+    private var startedTime = 0L
 
-    // Lotteries created by the model are not tracked by AdminEmulatorTest.put.
-    private val createdLotteryIds = mutableListOf<String>()
+    // Registration runs from tomorrow to the day after, so booking can start on day 3.
+    private val registrationStart get() = futureBase + day
+    private val registrationEnd get() = futureBase + 2 * day
+    private val bookingDayStart get() = futureBase + 3 * day
+
+    @Before
+    fun connectToEmulators() {
+        assumeTrue(
+            InstrumentationRegistry.getArguments()
+                .getString("lotteryFunctionsEmulator") == "true"
+        )
+        firestore = FirebaseWorkflowFixtures.firestore
+        val deviceNow = System.currentTimeMillis()
+        val serverNow = readServerTime()
+        futureBase = maxOf(deviceNow, serverNow)
+        startedTime = minOf(deviceNow, serverNow) - hour
+        val session = FirebaseWorkflowFixtures.primary
+        val auth = FirebaseAuth.getInstance(session)
+        auth.signOut()
+        val ownerId = "auth_${checkNotNull(await(auth.signInAnonymously()).user).uid}"
+
+        // Both campsites belong to the signed-in owner, so the functions accept the saves.
+        for (id in listOf(campsiteId, otherCampsiteId)) {
+            await(
+                firestore.document("campsite/$id")
+                    .set(mapOf("id" to id, "ownerID" to ownerId))
+            )
+        }
+        model = LotteryModel(firestore, FirebaseFunctions.getInstance(session))
+    }
 
     @After
-    fun removeCreatedLotteries() {
-        if (this::model.isInitialized) {
-            model.stopListening()
+    fun removeTestData() {
+        if (!this::model.isInitialized) {
+            return
         }
-        createdLotteryIds.forEach { await(firestore.document("lottery/$it").delete()) }
+        model.stopListening()
+        for (id in listOf(campsiteId, otherCampsiteId)) {
+            val saved = await(
+                firestore.collection("lottery").whereEqualTo("campsiteId", id).get()
+            )
+            saved.documents.forEach { await(it.reference.delete()) }
+            await(firestore.document("campsite/$id").delete())
+        }
     }
 
     @Test
     fun singleDayBookingPeriodIsSaved() {
-        startModel()
         val bookingEnd = bookingDayStart + day - 60_000L
 
-        val lotteryId = await(create(bookingDayStart, bookingEnd).task)
+        val lotteryId = await(create(bookingDayStart, bookingEnd))
 
         val saved = await(firestore.document("lottery/$lotteryId").get(Source.SERVER))
         assertEquals(bookingDayStart, saved.getLong("bookingStart"))
@@ -59,8 +106,6 @@ class LotteryModelTest : AdminEmulatorTest() {
 
     @Test
     fun equalBookingStartAndEndIsRejected() {
-        startModel()
-
         assertThrows(IllegalArgumentException::class.java) {
             create(bookingDayStart, bookingDayStart)
         }
@@ -68,8 +113,6 @@ class LotteryModelTest : AdminEmulatorTest() {
 
     @Test
     fun bookingStartAtRegistrationEndIsRejected() {
-        startModel()
-
         assertThrows(IllegalArgumentException::class.java) {
             create(registrationEnd, registrationEnd + day)
         }
@@ -78,7 +121,6 @@ class LotteryModelTest : AdminEmulatorTest() {
     @Test
     fun overlappingAndTouchingPeriodsAreRejectedForSameCampsite() {
         seedLottery("existing-$suffix", campsiteId, bookingDayStart, bookingDayStart + day)
-        startModel()
         waitForLottery("existing-$suffix")
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -91,38 +133,32 @@ class LotteryModelTest : AdminEmulatorTest() {
 
     @Test
     fun samePeriodOnAnotherCampsiteIsAllowed() {
-        seedLottery("other-$suffix", "other-site-$suffix", bookingDayStart, bookingDayStart + day)
-        startModel()
+        seedLottery("other-$suffix", otherCampsiteId, bookingDayStart, bookingDayStart + day)
         waitForLottery("other-$suffix")
 
-        await(create(bookingDayStart, bookingDayStart + day).task)
+        await(create(bookingDayStart, bookingDayStart + day))
     }
 
     @Test
-    fun createTransactionRejectsOverlapMissingFromLocalList() {
-        startModel()
+    fun serverRejectsOverlapMissingFromLocalList() {
         model.stopListening()
-        // Saved after the listener stopped, so only the transaction recheck can see it.
+        // Saved after the listener stopped, so only the function's check can see it.
         seedLottery("late-$suffix", campsiteId, bookingDayStart, bookingDayStart + day)
 
-        val error = awaitFailure(create(bookingDayStart, bookingDayStart + day).task)
+        val error = awaitFailure(create(bookingDayStart, bookingDayStart + day))
 
         assertMessage(error, "overlaps")
     }
 
     @Test
-    fun updateTransactionRejectsOverlapMissingFromLocalList() {
+    fun bookingDatesCanMoveBeforeRegistrationStarts() {
         seedLottery("edited-$suffix", campsiteId, bookingDayStart, bookingDayStart + day)
-        startModel()
         waitForLottery("edited-$suffix")
-        model.stopListening()
-        seedLottery("late-$suffix", campsiteId, bookingDayStart + 5 * day, bookingDayStart + 6 * day)
 
-        val error = awaitFailure(
-            update("edited-$suffix", bookingDayStart + 5 * day, bookingDayStart + 6 * day)
-        )
+        await(update("edited-$suffix", bookingDayStart + 5 * day, bookingDayStart + 6 * day))
 
-        assertMessage(error, "overlaps")
+        val saved = await(firestore.document("lottery/edited-$suffix").get(Source.SERVER))
+        assertEquals(bookingDayStart + 5 * day, saved.getLong("bookingStart"))
     }
 
     @Test
@@ -134,7 +170,6 @@ class LotteryModelTest : AdminEmulatorTest() {
             bookingDayStart + day,
             startedRegistration = true
         )
-        startModel()
         waitForLottery("started-$suffix")
 
         assertThrows(IllegalArgumentException::class.java) {
@@ -151,7 +186,6 @@ class LotteryModelTest : AdminEmulatorTest() {
             bookingDayStart + day,
             startedRegistration = true
         )
-        startModel()
         waitForLottery("started-$suffix")
 
         await(update("started-$suffix", bookingDayStart, bookingDayStart + day, "Renamed"))
@@ -161,15 +195,14 @@ class LotteryModelTest : AdminEmulatorTest() {
     }
 
     @Test
-    fun updateTransactionRejectsDateChangeWhenLocalCopyIsStale() {
+    fun serverRejectsDateChangeWhenLocalCopyIsStale() {
         seedLottery("stale-$suffix", campsiteId, bookingDayStart, bookingDayStart + day)
-        startModel()
         waitForLottery("stale-$suffix")
         model.stopListening()
-        // Registration has now started in Firestore, but the local copy still shows it as future.
+        // Registration has now started on the server, but the local copy still shows it as future.
         await(
             firestore.document("lottery/stale-$suffix")
-                .update("registrationStart", now - hour)
+                .update("registrationStart", startedTime)
         )
 
         val error = awaitFailure(
@@ -179,10 +212,6 @@ class LotteryModelTest : AdminEmulatorTest() {
         assertMessage(error, "cannot be changed after registration starts")
     }
 
-    private fun startModel() {
-        model = LotteryModel(firestore)
-    }
-
     private fun seedLottery(
         id: String,
         lotteryCampsiteId: String,
@@ -190,27 +219,29 @@ class LotteryModelTest : AdminEmulatorTest() {
         bookingEnd: Long,
         startedRegistration: Boolean = false
     ) {
-        put(
-            "lottery/$id",
-            mapOf(
-                "id" to id,
-                "lotteryName" to "Seeded",
-                "campsiteId" to lotteryCampsiteId,
-                "registrationStart" to if (startedRegistration) now - hour else registrationStart,
-                "registrationEnd" to registrationEnd,
-                "bookingStart" to bookingStart,
-                "bookingEnd" to bookingEnd,
-                "numberOfWinners" to 1,
-                "entrantCount" to 0L,
-                "drawStatus" to "PENDING",
-                "drawCompleted" to false,
-            ),
+        await(
+            firestore.document("lottery/$id").set(
+                mapOf(
+                    "id" to id,
+                    "lotteryName" to "Seeded",
+                    "campsiteId" to lotteryCampsiteId,
+                    "registrationStart" to
+                            if (startedRegistration) startedTime else registrationStart,
+                    "registrationEnd" to registrationEnd,
+                    "bookingStart" to bookingStart,
+                    "bookingEnd" to bookingEnd,
+                    "numberOfWinners" to 1,
+                    "entrantCount" to 0L,
+                    "drawStatus" to "PENDING",
+                    "drawCompleted" to false,
+                )
+            )
         )
     }
 
-    private fun create(bookingStart: Long, bookingEnd: Long): TaskCompletionSource<String> {
+    private fun create(bookingStart: Long, bookingEnd: Long): Task<String> {
         val result = TaskCompletionSource<String>()
-        val id = model.createLottery(
+        model.createLottery(
             lotteryName = "Test lottery",
             campsiteId = campsiteId,
             registrationStart = registrationStart,
@@ -222,8 +253,7 @@ class LotteryModelTest : AdminEmulatorTest() {
             onSuccess = { result.setResult(it) },
             onFailure = { result.setException(it) }
         )
-        createdLotteryIds.add(id)
-        return result
+        return result.task
     }
 
     private fun update(
@@ -259,6 +289,17 @@ class LotteryModelTest : AdminEmulatorTest() {
             Thread.sleep(50)
         }
     }
+
+    /** Reads the emulator's server time by saving and reading back a server timestamp. */
+    private fun readServerTime(): Long {
+        val clock = firestore.document("serverTime/$suffix")
+        await(clock.set(mapOf("now" to FieldValue.serverTimestamp())))
+        val time = checkNotNull(await(clock.get(Source.SERVER)).getTimestamp("now"))
+        await(clock.delete())
+        return time.toDate().time
+    }
+
+    private fun <T> await(task: Task<T>): T = Tasks.await(task, 20, TimeUnit.SECONDS)
 
     private fun awaitFailure(task: Task<*>): Throwable {
         try {
