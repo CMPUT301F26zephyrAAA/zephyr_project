@@ -17,6 +17,7 @@ setGlobalOptions({maxInstances: 1});
 
 Object.assign(exports, require("./lotteryNotifications")(db));
 Object.assign(exports, require("./accountActions")(db));
+Object.assign(exports, require("./sharedLotteries")(db));
 
 /**
  * Returns canonical, unique waiting-list registrations for a lottery.

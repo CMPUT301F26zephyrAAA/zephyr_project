@@ -24,6 +24,34 @@ class ReservationOfferModel(
     private val waitingList = firestore.collection("waitingList")
 
     /**
+     * Checks availability or confirms the winner's chosen campsite and stay.
+     *
+     * @param checkOnly Whether to check the dates without reserving them.
+     */
+    fun checkOrConfirmBooking(
+        lotteryId: String,
+        campsiteId: String,
+        start: Long,
+        end: Long,
+        checkOnly: Boolean,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        functions.getHttpsCallable("confirmLotteryBooking")
+            .call(
+                mapOf(
+                    "lotteryId" to lotteryId,
+                    "campsiteId" to campsiteId,
+                    "start" to start,
+                    "end" to end,
+                    "checkOnly" to checkOnly
+                )
+            )
+            .addOnSuccessListener { onSuccess() }
+            .addOnFailureListener { onError(it.message ?: "Could not check the booking.") }
+    }
+
+    /**
      * Retrieves the entrant's current lottery draw status from Firestore.
      *
      * Returns null when no registration exists and defaults to WAITING

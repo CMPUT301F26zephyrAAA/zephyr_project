@@ -253,8 +253,10 @@ module.exports = (db) => {
       if (
         bookings.docs.some(
             (booking) =>
-              booking.get("campsiteId") === lottery.get("campsiteId") &&
-            booking.get("cancelled") !== true,
+              booking.get("lotteryId") === lotteryId ||
+              (!booking.get("lotteryId") &&
+                booking.get("campsiteId") === lottery.get("campsiteId") &&
+                booking.get("cancelled") !== true),
         )
       ) {
         throw new HttpsError(

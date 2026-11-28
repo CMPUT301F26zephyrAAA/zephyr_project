@@ -236,7 +236,7 @@ internal fun CampsitesNavigation(
         }
         val entrantLotteries = if (role == ENTRANT) {
             lotteryModel.lotteries.filter { lottery ->
-                lottery.campsiteId == campsiteId.toString()
+                campsiteId.toString() in lottery.participatingCampsiteIds()
             }
         } else {
             emptyList()
@@ -347,6 +347,7 @@ internal fun CampsitesNavigation(
                 null
             },
             lottery = campsiteLottery,
+            lotteryCampsiteNames = campsiteModel.campsites.associate { it.id to it.name },
             waitingListController = waitingListController,
             reservationOfferController = reservationOfferController,
             ratingController = ratingController,
@@ -513,7 +514,13 @@ internal fun CampsitesNavigation(
                                 val ownedLotteries = lotteryModel.lotteries.filter {
                                     ownsCampsite(it.campsiteId)
                                 }
-                                LotteryListScreen("My Lotteries", onBack) {
+                                LotteryListScreen(
+                                    title = "My Lotteries",
+                                    onBack = onBack,
+                                    onCreateLottery = {
+                                        navHostController.navigate("${GeneralScreen.LotterySettings.route}/select")
+                                    }
+                                ) {
                                     if (ownedLotteries.isEmpty()) {
                                         item {
                                             Text("No lotteries to show.", modifier = Modifier.padding(12.dp))
@@ -617,15 +624,21 @@ internal fun CampsitesNavigation(
                                 entry.arguments?.getString("campsiteId")
                                     ?: return@composable
 
-                            AccountContent {
-                                if (ownsCampsite(campsiteId)) {
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType &&
+                                    (campsiteId == "select" || ownsCampsite(campsiteId))
+                                ) {
                                     lotteryView.LotterySettingsView(
-                                        campsiteId = campsiteId,
+                                        campsiteId = campsiteId.takeUnless { it == "select" },
+                                        ownedCampsites = campsiteModel.campsites.filter {
+                                            it.ownerID == owner.id
+                                        },
                                         onLotteryCreated = { id ->
-                                            openLottery(
-                                                OWNER,
-                                                id
-                                            )
+                                            if (campsiteId == "select") {
+                                                onBack()
+                                            } else {
+                                                openLottery(OWNER, id)
+                                            }
                                         },
                                         onBackClick = onBack
                                     )

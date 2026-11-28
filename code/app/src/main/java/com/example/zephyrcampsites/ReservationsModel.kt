@@ -109,7 +109,8 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
             campsiteId = campsiteId,
             bookedPeriodStart = start.toDate(),
             bookedPeriodEnd = end.toDate(),
-            cancelled = cancelled
+            cancelled = cancelled,
+            lotteryId = document.get("lotteryId") as? String
         )
     }
 

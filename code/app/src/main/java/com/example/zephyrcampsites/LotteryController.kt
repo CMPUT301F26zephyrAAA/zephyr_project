@@ -8,7 +8,7 @@ class LotteryController(
 
     fun createLottery(
         lotteryName: String,
-        campsiteId: String,
+        campsiteIds: List<String>,
         registrationStart: Long,
         registrationEnd: Long,
         bookingStart: Long,
@@ -20,7 +20,7 @@ class LotteryController(
     ): String {
         return lotteryModel.createLottery(
             lotteryName = lotteryName,
-            campsiteId = campsiteId,
+            campsiteIds = campsiteIds,
             registrationStart = registrationStart,
             registrationEnd = registrationEnd,
             bookingStart = bookingStart,
@@ -51,25 +51,6 @@ class LotteryController(
     }
 
     /**
-     * Updates the booking period for an existing lottery.
-     *
-     * @param lotteryId ID of the lottery to update.
-     * @param newStart New booking start date and time.
-     * @param newEnd New booking end date and time.
-     */
-    fun updateBookingPeriod(
-        lotteryId: String,
-        newStart: Long,
-        newEnd: Long
-    ) {
-        lotteryModel.updateBookingPeriod(
-            lotteryId,
-            newStart,
-            newEnd
-        )
-    }
-
-    /**
      * Finds the lottery associated with a campsite.
      *
      * @param campsiteId ID of the selected campsite.
@@ -77,7 +58,7 @@ class LotteryController(
      */
     fun getLotteryByCampsiteId(campsiteId: String): Lottery? {
         return lotteryModel.lotteries.find {
-            it.campsiteId == campsiteId
+            campsiteId in it.participatingCampsiteIds()
         }
     }
 
