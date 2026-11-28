@@ -44,4 +44,5 @@
     <string name="campsite_map_description">Map of %1$s</string>
     <string name="campsite_map_missing">Map location not provided.</string>
     <string name="campsite_map_error">Unable to load map. Check your connection.</string>
+    <string name="campsite_map_retry">Retry map</string>
 </resources>
