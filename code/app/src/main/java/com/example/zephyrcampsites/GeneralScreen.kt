@@ -10,6 +10,8 @@ sealed class GeneralScreen(val route: String) {
     data object AdminMenu : GeneralScreen("GeneralScreen/AdminMenu")
     data object Trips : GeneralScreen("entrant/trips")
     data object LotteryNotifications : GeneralScreen("entrant/lottery-notifications")
+    data object SentNotifications : GeneralScreen("owner/sent-notifications")
+    data object SentNotificationDetails : GeneralScreen("owner/sent-notifications/{notificationId}")
     data object ViewReservations : GeneralScreen("owner/reservations")
     data object NotificationLogs : GeneralScreen("admin/notification-logs")
     data object MessageLogs : GeneralScreen("admin/message-logs")

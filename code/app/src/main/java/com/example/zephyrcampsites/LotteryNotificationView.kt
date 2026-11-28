@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.google.firebase.functions.FirebaseFunctionsException
 import java.text.DateFormat
 import java.util.Date
 import java.util.UUID
@@ -51,13 +52,15 @@ internal fun NotifyLotteryEntrantsScreen(
     accountId: String,
     lottery: Lottery,
     controller: LotteryNotificationController,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onViewSent: () -> Unit
 ) {
     var recipients by remember { mutableStateOf<List<LotteryNotificationRecipient>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmation by rememberSaveable { mutableStateOf<String?>(null) }
+    var recordedFailure by rememberSaveable { mutableStateOf(false) }
     var message by rememberSaveable { mutableStateOf("") }
     var allEntrants by rememberSaveable { mutableStateOf(false) }
     var selected by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -67,6 +70,7 @@ internal fun NotifyLotteryEntrantsScreen(
     fun draftChanged() {
         requestId = UUID.randomUUID().toString()
         confirmation = null
+        recordedFailure = false
     }
 
     fun loadRecipients() {
@@ -188,13 +192,20 @@ internal fun NotifyLotteryEntrantsScreen(
                 Text("Reload Waitlist")
             }
         }
+        // AI Citation [AI-40]
+        // OpenAI, Codex, US 02.10.02, 2026-11-27. Added the post-send history link.
+        // See Bhav's entry in the team's AI Documentation Google Doc.
         confirmation?.let { NotificationStatus(it) }
+        if (confirmation != null || recordedFailure) {
+            TextButton(onClick = onViewSent) { Text("View Sent Notifications") }
+        }
         Button(
             onClick = {
                 focus.clearFocus()
                 sending = true
                 error = null
                 confirmation = null
+                recordedFailure = false
                 controller.send(accountId, lottery.id, message, allEntrants, selected.toSet(), requestId)
                     .addOnSuccessListener { result ->
                         message = ""
@@ -205,6 +216,14 @@ internal fun NotifyLotteryEntrantsScreen(
                     }
                     .addOnFailureListener {
                         sending = false
+                        // AI Citation [AI-41]
+                        // OpenAI, Codex, US 02.10.02, 2026-11-27. Retry confirmed failures with a new ID.
+                        // See Bhav's entry in the team's AI Documentation Google Doc.
+                        val details = (it as? FirebaseFunctionsException)?.details as? Map<*, *>
+                        if (details?.get("recordedFailure") == true) {
+                            requestId = UUID.randomUUID().toString()
+                            recordedFailure = true
+                        }
                         error = lotteryNotificationError(it, "Unable to send the notification. Try again.")
                     }
             },
@@ -283,7 +302,7 @@ internal fun LotteryNotificationsScreen(
 
 /** Announces feedback and lets a user copy account setup details. */
 @Composable
-private fun NotificationStatus(message: String, isError: Boolean = false) {
+internal fun NotificationStatus(message: String, isError: Boolean = false) {
     SelectionContainer {
         Text(
             message,

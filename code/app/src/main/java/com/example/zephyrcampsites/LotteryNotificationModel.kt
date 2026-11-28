@@ -21,6 +21,44 @@ internal data class ReceivedLotteryNotification(
     val sentAtMillis: Long
 )
 
+// AI Citation [AI-40]
+// OpenAI, Codex, US 02.10.02, 2026-11-27. Generated the sent-history data types and callable mapping.
+// See Bhav's entry in the team's AI Documentation Google Doc.
+/**
+ * A message saved in the owner's notification history.
+ * @property id Firestore notification ID.
+ * @property lotteryName Lottery name saved when the message was sent.
+ * @property message Sent message text.
+ * @property sentAtMillis Server send time in milliseconds since the epoch.
+ * @property delivery Counts from the committed send.
+ * @property failureReason Saved reason for a failed attempt, if any.
+ */
+internal data class SentLotteryNotification(
+    val id: String,
+    val lotteryName: String,
+    val message: String,
+    val sentAtMillis: Long,
+    val delivery: LotteryNotificationResult,
+    val failureReason: String?
+)
+
+/**
+ * One intended recipient and the result of the in-app delivery.
+ * @property name Recipient's display name.
+ * @property delivered Whether the message was delivered to the entrant's inbox.
+ */
+internal data class SentLotteryNotificationRecipient(val name: String, val delivered: Boolean)
+
+/**
+ * The sent message and its intended recipients.
+ * @property notification Saved notification summary.
+ * @property recipients Recipient names and delivery outcomes.
+ */
+internal data class SentLotteryNotificationDetails(
+    val notification: SentLotteryNotification,
+    val recipients: List<SentLotteryNotificationRecipient>
+)
+
 /**
  * Reads and sends lottery notifications using the current installation's Firebase identity.
  *
@@ -103,6 +141,55 @@ internal class LotteryNotificationModel(
                 )
             }
         }
+    }
+
+    /**
+     * Loads notifications sent by the verified owner.
+     * @param accountId Current owner account ID.
+     * @return Saved messages in newest-first order.
+     */
+    fun loadSent(accountId: String): Task<List<SentLotteryNotification>> {
+        return call("listSentLotteryNotifications", accountId) { data ->
+            (data as List<*>).map { decodeSent(it as Map<*, *>) }
+        }
+    }
+
+    /**
+     * Loads the message and recipients for a notification sent by the owner.
+     * @param accountId Current owner account ID.
+     * @param notificationId Selected notification ID.
+     * @return The saved message and per-recipient delivery outcomes.
+     */
+    fun loadSentDetails(accountId: String, notificationId: String): Task<SentLotteryNotificationDetails> {
+        return call("getSentLotteryNotification", accountId, mapOf("notificationId" to notificationId)) { data ->
+            val entry = data as Map<*, *>
+            val recipients = (entry["recipients"] as List<*>).map { row ->
+                val recipient = row as Map<*, *>
+                SentLotteryNotificationRecipient(
+                    name = recipient["name"] as String,
+                    delivered = recipient["delivered"] as Boolean
+                )
+            }
+            SentLotteryNotificationDetails(decodeSent(entry), recipients)
+        }
+    }
+
+    /** Decodes the common fields from the history and detail endpoints. */
+    // AI Citation [AI-41]
+    // OpenAI, Codex, US 02.10.02, 2026-11-27. Added failure decoding for the history screen.
+    // See Bhav's entry in the team's AI Documentation Google Doc.
+    private fun decodeSent(entry: Map<*, *>): SentLotteryNotification {
+        return SentLotteryNotification(
+            id = entry["id"] as String,
+            lotteryName = entry["lotteryName"] as String,
+            message = entry["message"] as String,
+            sentAtMillis = (entry["sentAtMillis"] as Number).toLong(),
+            delivery = LotteryNotificationResult(
+                intended = (entry["intended"] as Number).toInt(),
+                delivered = (entry["delivered"] as Number).toInt()
+            ),
+            failureReason = entry["failureReason"] as? String
+        )
     }
 
     /** Calls Firebase using the current signed-in session. */
