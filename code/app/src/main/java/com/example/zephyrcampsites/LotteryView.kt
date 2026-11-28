@@ -1,6 +1,7 @@
 // Displays lottery details and the forms for creating or editing a lottery.
 package com.example.zephyrcampsites
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -21,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.graphics.Color
 import java.util.Date
+import kotlinx.coroutines.delay
 
 
 /**
@@ -73,9 +75,6 @@ class LotteryView (
                 style = MaterialTheme.typography.titleSmall,
                 color = Color.DarkGray
             )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
 
             Spacer(modifier = Modifier.height(24.dp))
             // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
@@ -358,7 +357,8 @@ class LotteryView (
         lotteryId: String,
         onEditClick: (() -> Unit)?,
         onBackClick: () -> Unit,
-        onNotifyClick: (() -> Unit)? = null
+        onNotifyClick: (() -> Unit)? = null,
+        campsiteNames: List<String> = emptyList()
     ) {
         val lottery = lotteryController.getLotteryById(lotteryId)
         var declinedEntrants by remember(lotteryId) {
@@ -398,6 +398,15 @@ class LotteryView (
             return
         }
 
+        val registrationEnd = lottery.registrationEnd
+        var lotteryFinished by remember(lotteryId, registrationEnd) {
+            mutableStateOf(System.currentTimeMillis() >= registrationEnd)
+        }
+        LaunchedEffect(lotteryId, registrationEnd) {
+            delay((registrationEnd - System.currentTimeMillis()).coerceAtLeast(0))
+            lotteryFinished = true
+        }
+
         val formatter = SimpleDateFormat(
             "yyyy-MM-dd HH:mm",
             Locale.US
@@ -427,7 +436,7 @@ class LotteryView (
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("Participating campsites: ${lottery.participatingCampsiteIds().joinToString()}")
+            Text("Participating campsites: ${(campsiteNames.ifEmpty { lottery.participatingCampsiteIds() }).joinToString()}")
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -546,15 +555,22 @@ class LotteryView (
             onEditClick?.let { edit ->
                 Spacer(modifier = Modifier.height(12.dp))
 
-                Button(
-                    onClick = edit,
-                    modifier = Modifier.fillMaxWidth(0.5f),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF19483D),
-                        contentColor = Color.White
+                if (lotteryFinished) {
+                    Text(
+                        text = "Lottery has already finished. Cannot edit details.",
+                        style = MaterialTheme.typography.bodySmall
                     )
-                ) {
-                    Text("EDIT LOTTERY")
+                } else {
+                    Button(
+                        onClick = edit,
+                        modifier = Modifier.fillMaxWidth(0.5f),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF19483D),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text("EDIT LOTTERY")
+                    }
                 }
             }
 
@@ -582,6 +598,7 @@ class LotteryView (
     @Composable
     fun EditLotteryView(
         lotteryId: String,
+        ownedCampsites: List<Campsite>,
         onSaveClick: () -> Unit,
         onBackClick: () -> Unit
     ) {
@@ -633,11 +650,36 @@ class LotteryView (
             mutableStateOf("")
         }
 
-        val canEditRegistration =
-            System.currentTimeMillis() < lottery.registrationStart
+        val original = remember(lotteryId) { lottery }
+        var selectedCampsiteIds by remember(lotteryId) {
+            mutableStateOf(lottery.participatingCampsiteIds())
+        }
+        var saving by remember(lotteryId) { mutableStateOf(false) }
+        var registrationStarted by remember(lottery.registrationStart) {
+            mutableStateOf(System.currentTimeMillis() >= lottery.registrationStart)
+        }
+        LaunchedEffect(lottery.registrationStart) {
+            delay(
+                (lottery.registrationStart - System.currentTimeMillis()).coerceAtLeast(0)
+            )
+            registrationStarted = true
+        }
+        val canEditSettings = !registrationStarted && !lottery.drawCompleted &&
+            lottery.drawStatus == "PENDING"
 
-        val canEditBooking =
-            System.currentTimeMillis() < lottery.registrationStart
+        BackHandler(enabled = saving) {}
+
+        fun parseDate(text: String, saved: Long, field: String): Long {
+            if (text == formatter.format(Date(saved))) {
+                return saved
+            }
+            val position = java.text.ParsePosition(0)
+            val date = formatter.parse(text, position)
+            require(date != null && text.length == 16 && position.index == text.length) {
+                "Enter a valid ${field.lowercase()} using YYYY-MM-DD HH:mm."
+            }
+            return date.time
+        }
 
         Column(
             modifier = Modifier
@@ -663,6 +705,7 @@ class LotteryView (
             OutlinedTextField(
                 value = lotteryName,
                 onValueChange = { lotteryName = it },
+                enabled = !saving,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -688,23 +731,23 @@ class LotteryView (
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedTextField(
-                    value = registrationStart,
+                    value = if (canEditSettings) registrationStart else formatter.format(Date(lottery.registrationStart)),
                     onValueChange = { registrationStart = it },
                     placeholder = { Text("Start date") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    enabled = canEditRegistration
+                    enabled = canEditSettings && !saving
                 )
 
                 Text("to")
 
                 OutlinedTextField(
-                    value = registrationEnd,
+                    value = if (canEditSettings) registrationEnd else formatter.format(Date(lottery.registrationEnd)),
                     onValueChange = { registrationEnd = it },
                     placeholder = { Text("End date") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    enabled = canEditRegistration
+                    enabled = canEditSettings && !saving
                 )
             }
 
@@ -729,23 +772,23 @@ class LotteryView (
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 OutlinedTextField(
-                    value = bookingStart,
+                    value = if (canEditSettings) bookingStart else formatter.format(Date(lottery.bookingStart)),
                     onValueChange = { bookingStart = it },
                     placeholder = { Text("Start date") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    enabled = canEditBooking
+                    enabled = canEditSettings && !saving
                 )
 
                 Text("to")
 
                 OutlinedTextField(
-                    value = bookingEnd,
+                    value = if (canEditSettings) bookingEnd else formatter.format(Date(lottery.bookingEnd)),
                     onValueChange = { bookingEnd = it },
                     placeholder = { Text("End date") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    enabled = canEditBooking
+                    enabled = canEditSettings && !saving
                 )
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -763,10 +806,11 @@ class LotteryView (
                     Spacer(modifier = Modifier.height(8.dp))
 
                     OutlinedTextField(
-                        value = numberOfWinners,
+                        value = if (canEditSettings) numberOfWinners else lottery.numberOfWinners.toString(),
                         onValueChange = { numberOfWinners = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
+                        enabled = canEditSettings && !saving,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Number
                         )
@@ -782,17 +826,46 @@ class LotteryView (
                     Spacer(modifier = Modifier.height(8.dp))
 
                     OutlinedTextField(
-                        value = waitlistCapacity,
+                        value = if (canEditSettings) waitlistCapacity else lottery.waitlistCapacity?.toString().orEmpty(),
                         onValueChange = { waitlistCapacity = it },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         placeholder = { Text("Unlimited") },
+                        enabled = canEditSettings && !saving,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Number
                         )
                     )
                 }
             }
+            Spacer(modifier = Modifier.height(16.dp))
+            // Hiral - [AI-09] OpenAI ChatGPT Implement lottery listing edits
+            Text("Participating campsites", color = Color(0xFF2E8B75))
+            val currentCampsiteIds = if (canEditSettings) {
+                selectedCampsiteIds
+            } else {
+                lottery.participatingCampsiteIds()
+            }
+            ownedCampsites.forEach { campsite ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = campsite.id in currentCampsiteIds,
+                        enabled = canEditSettings && !saving,
+                        onCheckedChange = { checked ->
+                            selectedCampsiteIds = if (checked) {
+                                selectedCampsiteIds + campsite.id
+                            } else {
+                                selectedCampsiteIds - campsite.id
+                            }
+                        }
+                    )
+                    Text(campsite.name.ifBlank { campsite.id })
+                }
+            }
+            if (!canEditSettings) {
+                Text("Lottery settings are locked. You can still edit the name.")
+            }
+
             Spacer(modifier = Modifier.height(24.dp))
 
             Row(
@@ -800,35 +873,48 @@ class LotteryView (
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Button(
+                    enabled = !saving,
                     onClick = {
                         try {
-                            // Convert the entered dates into timestamps.
-                            val start = formatter.parse(registrationStart)?.time
-                                ?: throw IllegalArgumentException("Invalid registration start date.")
-
-                            val end = formatter.parse(registrationEnd)?.time
-                                ?: throw IllegalArgumentException("Invalid registration end date.")
-
-                            val bookingStartTime = formatter.parse(bookingStart)?.time
-                                ?: throw IllegalArgumentException("Invalid booking start date.")
-
-                            val bookingEndTime = formatter.parse(bookingEnd)?.time
-                                ?: throw IllegalArgumentException("Invalid booking end date.")
-
-                            // Validate the numeric fields.
-                            val winners = numberOfWinners.toIntOrNull()
-                                ?: throw IllegalArgumentException("Invalid number of winners.")
-
-                            val capacity = if (waitlistCapacity.isBlank()) {
-                                null
+                            val settings = if (canEditSettings) original else lottery
+                            val start = if (canEditSettings) {
+                                parseDate(registrationStart, settings.registrationStart, "registration start")
                             } else {
-                                waitlistCapacity.toIntOrNull()
+                                settings.registrationStart
+                            }
+                            val end = if (canEditSettings) {
+                                parseDate(registrationEnd, settings.registrationEnd, "registration end")
+                            } else {
+                                settings.registrationEnd
+                            }
+                            val bookingStartTime = if (canEditSettings) {
+                                parseDate(bookingStart, settings.bookingStart, "booking start")
+                            } else {
+                                settings.bookingStart
+                            }
+                            val bookingEndTime = if (canEditSettings) {
+                                parseDate(bookingEnd, settings.bookingEnd, "booking end")
+                            } else {
+                                settings.bookingEnd
+                            }
+                            val winners = if (canEditSettings) {
+                                numberOfWinners.toIntOrNull()
+                                    ?: throw IllegalArgumentException("Invalid number of winners.")
+                            } else {
+                                settings.numberOfWinners
+                            }
+                            val capacity = when {
+                                !canEditSettings -> settings.waitlistCapacity
+                                waitlistCapacity.isBlank() -> null
+                                else -> waitlistCapacity.toIntOrNull()
                                     ?: throw IllegalArgumentException("Invalid waitlist limit.")
                             }
 
-                            // Send the updated information to the controller.
+                            message = ""
+                            saving = true
                             lotteryController.updateLottery(
                                 lotteryId = lotteryId,
+                                campsiteIds = currentCampsiteIds,
                                 lotteryName = lotteryName,
                                 registrationStart = start,
                                 registrationEnd = end,
@@ -836,23 +922,18 @@ class LotteryView (
                                 bookingEnd = bookingEndTime,
                                 numberOfWinners = winners,
                                 waitlistCapacity = capacity,
-                                // Firebase confirmed that the lottery was saved.
                                 onSuccess = {
+                                    saving = false
                                     onSaveClick()
                                 },
-
-                                // Firebase could not save the lottery.
                                 onFailure = { exception ->
-                                    message = "Failed to update lottery: ${exception.message}"
+                                    saving = false
+                                    message = exception.message ?: "Unable to save lottery changes."
                                 }
                             )
-
-                        } catch (e: IllegalArgumentException) {
-                            message = e.message ?: "Invalid lottery information."
-                        } catch (e: java.text.ParseException) {
-                            message = "Invalid date. Please use YYYY-MM-DD HH:mm and enter a real date."}
-                        catch (e: Exception) {
-                            message = e.message ?: "Unable to submit lottery update."
+                        } catch (exception: IllegalArgumentException) {
+                            saving = false
+                            message = exception.message ?: "Invalid lottery information."
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -861,10 +942,11 @@ class LotteryView (
                         contentColor = Color.White
                     )
                 ) {
-                    Text("SAVE")
+                    Text(if (saving) "SAVING…" else "SAVE")
                 }
 
                 Button(
+                    enabled = !saving,
                     onClick = onBackClick,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(

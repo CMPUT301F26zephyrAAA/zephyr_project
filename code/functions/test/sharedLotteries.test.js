@@ -1,5 +1,6 @@
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
-// Tests the callables with an in-memory transaction fixture.
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery list edits
+// Runs the production callable handlers against an in-memory transaction fixture.
 const assert = require("node:assert/strict");
 const {test} = require("node:test");
 const {sharedLotteryHandlers} = require("../sharedLotteries");
@@ -153,7 +154,30 @@ test("create and edit check every linked campsite", async () => {
   assert.equal(f.rows["lottery/shared"].bookingEnd, 60);
 });
 
-test("availability requires a winner, linked site, and dates", async () => {
+test("an edit validates newly selected campsites and locks them when registration opens", async () => {
+  const f = fixture();
+  await f.saveLotterySettings(request("owner", settings));
+  f.rows["lottery/conflict"] = {campsiteId: "4", bookingStart: 45, bookingEnd: 65};
+  const edit = {...settings, create: false};
+  await assert.rejects(f.saveLotterySettings(request("owner", {
+    ...edit, campsiteIds: ["1", "4"],
+  })), {code: "already-exists"});
+  delete f.rows["lottery/conflict"];
+  await f.saveLotterySettings(request("owner", {...edit, campsiteIds: ["2", "4"]}));
+  assert.deepEqual(f.rows["lottery/shared"].campsiteIds, ["2", "4"]);
+  assert.equal(f.rows["lottery/shared"].campsiteId, "2");
+
+  f.rows["lottery/shared"].registrationStart = 1;
+  await assert.rejects(f.saveLotterySettings(request("owner", {
+    ...edit, registrationStart: 1,
+  })), {code: "failed-precondition"});
+  await f.saveLotterySettings(request("owner", {
+    ...edit, registrationStart: 1, campsiteIds: ["2", "4"], lotteryName: "Renamed",
+  }));
+  assert.equal(f.rows["lottery/shared"].lotteryName, "Renamed");
+});
+
+test("only a winner can check a participating campsite within the lottery period", async () => {
   const f = fixture();
   await draw(f);
   await assert.rejects(f.confirmLotteryBooking(request("backup", stay)),

@@ -16,6 +16,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -33,28 +34,33 @@ internal fun LotteryListScreen(
     title: String,
     onBack: () -> Unit,
     onCreateLottery: (() -> Unit)? = null,
+    header: @Composable () -> Unit = {},
+    canCreateLottery: Boolean = true,
     content: LazyListScope.() -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             LotteryListAction("Back", onBack)
             if (onCreateLottery != null) {
-                LotteryListAction("Create Lottery", onCreateLottery)
+                LotteryListAction("Create Lottery", onCreateLottery, enabled = canCreateLottery)
             }
         }
 
         Text(title, style = MaterialTheme.typography.headlineMedium)
+        header()
         LazyColumn(modifier = Modifier.weight(1f), content = content)
     }
 }
-// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+
 @Composable
-private fun LotteryListAction(label: String, onClick: () -> Unit) {
+private fun LotteryListAction(label: String, onClick: () -> Unit, enabled: Boolean = true) {
     TextButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier.padding(8.dp),
         shape = RoundedCornerShape(10.dp),
         colors = ButtonDefaults.buttonColors(

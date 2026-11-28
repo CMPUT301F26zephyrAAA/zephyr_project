@@ -98,7 +98,7 @@ class LotteryController(
     }
 
     /**
-     * Updates a lottery's settings from the Edit Lottery screen.
+     * Saves changes to an owner's lottery listing.
      *
      * @param lotteryId ID of the lottery to update.
      * @param lotteryName New lottery name.
@@ -115,6 +115,7 @@ class LotteryController(
      */
     fun updateLottery(
         lotteryId: String,
+        campsiteIds: List<String>,
         lotteryName: String,
         registrationStart: Long,
         registrationEnd: Long,
@@ -127,6 +128,7 @@ class LotteryController(
     ) {
         lotteryModel.updateLottery(
             lotteryId = lotteryId,
+            campsiteIds = campsiteIds,
             lotteryName = lotteryName,
             registrationStart = registrationStart,
             registrationEnd = registrationEnd,

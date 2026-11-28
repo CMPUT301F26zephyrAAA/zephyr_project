@@ -1,6 +1,7 @@
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
-// Saves lottery periods and winning reservations in transactions.
-// OpenAI, Codex, US 02.04.02, shared lottery transactions, 2026-11-27.
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery list edits
+// Persists lottery periods and winning reservations through server transactions.
+// OpenAI, Codex, US 02.04.02 shared lottery and booking transactions, 2026-11-27.
 const {createHash} = require("node:crypto");
 
 const validId = (value) => typeof value === "string" &&
@@ -102,10 +103,8 @@ function sharedLotteryHandlers(db, {
       bookingEnd, numberOfWinners, waitlistCapacity = null} = data;
     const lotteryName = typeof data.lotteryName === "string" ?
       data.lotteryName.trim() : "";
-    const dates = [
-      registrationStart, registrationEnd, bookingStart, bookingEnd,
-    ];
-    if (!validId(lotteryId) || !lotteryName ||
+    const dates = [registrationStart, registrationEnd, bookingStart, bookingEnd];
+    if (!validId(lotteryId) || !lotteryName || lotteryName.length > 200 ||
         !dates.every((value) => Number.isSafeInteger(value) && value > 0 &&
           value <= 253402300799999) ||
         !(registrationStart < registrationEnd &&
@@ -126,15 +125,21 @@ function sharedLotteryHandlers(db, {
       const ref = lotteries.doc(lotteryId);
       const saved = await transaction.get(ref);
       const current = saved.data();
+      if (data.create !== true && !current) {
+        fail("not-found", "Lottery not found.");
+      }
+      const previousIds = current ? sitesFor(current) : [];
       const ids = data.create === true ? data.campsiteIds :
-        current && sitesFor(current);
+        data.campsiteIds ?? previousIds;
       if (!Array.isArray(ids) || !ids.length || !ids.every(validId) ||
           new Set(ids).size !== ids.length || ids.length > 100) {
         fail("invalid-argument", "Select up to 100 distinct campsites.");
       }
-      const sites = await transaction.getAll(
-          ...ids.map((id) => campsites.doc(id)),
-      );
+      const affectedIds = [...new Set([...previousIds, ...ids])];
+      if (!affectedIds.every(validId)) {
+        fail("failed-precondition", "The lottery has an invalid campsite.");
+      }
+      const sites = await transaction.getAll(...affectedIds.map((id) => campsites.doc(id)));
       if (sites.some((site) => site.get("ownerID") !== accountId)) {
         fail("permission-denied", "You must own every participating campsite.");
       }
@@ -149,27 +154,31 @@ function sharedLotteryHandlers(db, {
         fail("already-exists", "This lottery already exists.");
       }
 
+      const sitesChanged = ids.length !== previousIds.length ||
+        ids.some((id) => !previousIds.includes(id));
       if (current) {
-        if (current.drawCompleted ||
-            !["PENDING", undefined].includes(current.drawStatus)) {
+        if (now() >= current.registrationEnd) {
+          fail("failed-precondition", "Lottery has already finished. Cannot edit details.");
+        }
+        if (current.drawCompleted || !["PENDING", undefined].includes(current.drawStatus)) {
           fail("failed-precondition", "The draw has already started.");
         }
         const started = now() >= current.registrationStart;
-        if (started && ["registrationStart", "registrationEnd", "bookingStart",
-          "bookingEnd", "numberOfWinners"]
-            .some((key) => current[key] !== settings[key])) {
-          fail("failed-precondition",
-              "The dates and winner count are locked after registration " +
-              "opens.");
-        }
+        const datesChanged = ["registrationStart", "registrationEnd", "bookingStart",
+          "bookingEnd"].some((key) => current[key] !== settings[key]);
+        const winnersChanged = (current.numberOfWinners ?? 1) !== numberOfWinners;
         const oldCapacity = current.waitlistCapacity ?? null;
+        if (started && (datesChanged || winnersChanged ||
+          sitesChanged || oldCapacity !== waitlistCapacity)) {
+          fail("failed-precondition", "Lottery settings are locked after registration opens.");
+        }
+        if (started) {
+          transaction.update(ref, {lotteryName});
+          return {lotteryId};
+        }
         if (oldCapacity !== waitlistCapacity &&
-            ((waitlistCapacity !== null &&
-                waitlistCapacity < current.entrantCount) ||
-             (started && (oldCapacity === null || waitlistCapacity === null ||
-               waitlistCapacity <= oldCapacity)))) {
-          fail("failed-precondition",
-              "The waitlist capacity cannot be changed to that value.");
+            waitlistCapacity !== null && waitlistCapacity < (current.entrantCount ?? 0)) {
+          fail("failed-precondition", "The waitlist capacity cannot be changed to that value.");
         }
       }
       if (registrationStart !== current?.registrationStart &&
@@ -177,12 +186,10 @@ function sharedLotteryHandlers(db, {
         fail("invalid-argument", "Registration must start in the future.");
       }
 
-      if (!current || current.bookingStart !== bookingStart ||
-          current.bookingEnd !== bookingEnd) {
-        const locks = await lockSites(transaction, ids);
-        const candidates = await transaction.get(
-            lotteries.where("bookingEnd", ">=", bookingStart),
-        );
+      if (!current || sitesChanged ||
+        current.bookingStart !== bookingStart || current.bookingEnd !== bookingEnd) {
+        const locks = await lockSites(transaction, affectedIds);
+        const candidates = await transaction.get(lotteries.where("bookingEnd", ">=", bookingStart));
         for (const other of candidates.docs) {
           const period = other.data();
           // Touching lottery periods also conflict.
@@ -197,7 +204,8 @@ function sharedLotteryHandlers(db, {
       }
 
       if (current) {
-        transaction.update(ref, settings);
+        transaction.update(ref, sitesChanged ?
+          {...settings, campsiteId: ids[0], campsiteIds: ids} : settings);
       } else {
         transaction.create(ref, {...settings, id: lotteryId,
           campsiteId: ids[0], campsiteIds: ids, entrantCount: 0,

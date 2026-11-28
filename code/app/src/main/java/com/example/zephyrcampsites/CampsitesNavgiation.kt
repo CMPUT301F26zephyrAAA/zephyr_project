@@ -1,6 +1,7 @@
 // Hiral - [AI-02] OpenAI ChatGPT Re-distribute MainActivity.kt
 // Connects the entrant, owner, and admin screens to their navigation routes.
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery list edits
 package com.example.zephyrcampsites
 
 import android.net.Uri
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
@@ -521,6 +521,11 @@ internal fun CampsitesNavigation(
                                         null
                                     },
                                     onBackClick = onBack,
+                                    campsiteNames = lotteryController.getLotteryById(lotteryId)
+                                        ?.participatingCampsiteIds().orEmpty().map { id ->
+                                            campsiteModel.campsites.firstOrNull { it.id == id }
+                                                ?.name?.ifBlank { id } ?: id
+                                        },
                                     onNotifyClick = {
                                         navHostController.navigate(
                                             "$OWNER/notifyEntrants/${Uri.encode(lotteryId)}"
@@ -533,28 +538,21 @@ internal fun CampsitesNavigation(
 
                     if (isOwnerGraph) {
                         composable("$OWNER/allLotteries") {
-                            AccountContent {
-                                val ownedLotteries = lotteryModel.lotteries.filter {
-                                    ownsCampsite(it.campsiteId)
-                                }
-                                LotteryListScreen(
-                                    title = "My Lotteries",
+                            AccountContent { owner ->
+                                OwnerLotteriesView(
+                                    accountId = owner.id,
+                                    lotteries = lotteryModel.lotteries.filter {
+                                        OWNER in owner.userType && ownsCampsite(it.campsiteId)
+                                    },
+                                    canCreateLottery = campsiteModel.campsites.any {
+                                        OWNER in owner.userType && it.ownerID == owner.id
+                                    },
                                     onBack = onBack,
                                     onCreateLottery = {
                                         navHostController.navigate("${GeneralScreen.LotterySettings.route}/select")
-                                    }
-                                ) {
-                                    if (ownedLotteries.isEmpty()) {
-                                        item {
-                                            Text("No lotteries to show.", modifier = Modifier.padding(12.dp))
-                                        }
-                                    }
-                                    items(ownedLotteries) { lottery ->
-                                        LotteryListItem(lottery.lotteryName) {
-                                            openLottery(OWNER, lottery.id)
-                                        }
-                                    }
-                                }
+                                    },
+                                    onOpenLottery = { openLottery(OWNER, it) }
+                                )
                             }
                         }
 
@@ -768,14 +766,25 @@ internal fun CampsitesNavigation(
                             val lotteryId = entry.arguments?.getString("lotteryId")
                                 ?: return@composable
 
-                            AccountContent {
+                            val context = androidx.compose.ui.platform.LocalContext.current
+                            AccountContent { owner ->
                                 val campsiteId = lotteryController
                                     .getLotteryById(lotteryId)?.campsiteId
 
-                                if (ownsCampsite(campsiteId)) {
+                                if (OWNER in owner.userType && ownsCampsite(campsiteId)) {
                                     lotteryView.EditLotteryView(
                                         lotteryId = lotteryId,
-                                        onSaveClick = onBack,
+                                        ownedCampsites = campsiteModel.campsites.filter {
+                                            it.ownerID == owner.id
+                                        },
+                                        onSaveClick = {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Lottery updated.",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                            onBack()
+                                        },
                                         onBackClick = onBack
                                     )
                                 } else {

@@ -1,4 +1,5 @@
-
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery list edits
+// Persists lottery settings and observes lottery records in Firestore.
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf
@@ -184,8 +185,11 @@ class LotteryModel(
             }
     }
 
+    // AI citation. OpenAI Codex, US 02.04.06 lottery edit form, navigation and Firebase write, 2026-11-27 (Edmonton).
+    /** Saves listing settings after checking the current owner and registration cutoff. */
     fun updateLottery(
         lotteryId: String,
+        campsiteIds: List<String>,
         lotteryName: String,
         registrationStart: Long,
         registrationEnd: Long,
@@ -196,95 +200,12 @@ class LotteryModel(
         onSuccess: () -> Unit,
         onFailure: (Exception) -> Unit
     ) {
-        // Find the lottery that needs to be updated.
-        val lottery = lotteries.find { it.id == lotteryId }
-            ?: throw IllegalArgumentException("Lottery not found.")
-
-        val now = System.currentTimeMillis()
-
-        // Check the lottery name.
-        require(lotteryName.isNotBlank()) {
-            "Lottery name cannot be empty."
-        }
-
-        // Registration dates cannot be changed after registration starts.
-        require(
-            now < lottery.registrationStart ||
-                    (registrationStart == lottery.registrationStart &&
-                            registrationEnd == lottery.registrationEnd)
-        ) {
-            "Registration period cannot be changed after registration starts."
-        }
-
-        // Booking dates cannot be changed after registration starts.
-        require(
-            now < lottery.registrationStart ||
-                    (bookingStart == lottery.bookingStart &&
-                            bookingEnd == lottery.bookingEnd)
-        ) {
-            "Booking period cannot be changed after registration starts."
-        }
-
-        // Check that the registration period is valid.
-        require(registrationStart < registrationEnd) {
-            "Invalid registration period."
-        }
-
-        // A changed registration start date must be in the future.
-        if (registrationStart != lottery.registrationStart) {
-            require(registrationStart > now) {
-                "Registration start must be in the future."
-            }
-        }
-
-        // Registration must finish before booking begins.
-        LotteryValidator().validateRegistrationBeforeBooking(
-            registrationEnd,
-            bookingStart
-        )
-
-        require(registrationEnd < bookingStart && bookingStart < bookingEnd) {
-            "Booking must start after registration ends and end after it starts."
-        }
-
-        // Check that a newly changed booking start is in the future.
-        if (bookingStart != lottery.bookingStart) {
-            require(bookingStart > System.currentTimeMillis()) {
-                "Booking start must be in the future."
-            }
-        }
-
-        // Check for overlapping booking periods on the same campsite.
-        lotteries
-            .filter { other ->
-                other.id != lotteryId &&
-                        other.participatingCampsiteIds().any { it in lottery.participatingCampsiteIds() }
-            }
-            .forEach { other ->
-                LotteryValidator().validateNoBookingOverlap(
-                    bookingStart,
-                    bookingEnd,
-                    other.bookingStart,
-                    other.bookingEnd
-                )
-            }
-
-        // Winner count can only be changed before registration starts.
-        if (numberOfWinners != lottery.numberOfWinners) {
-            LotteryValidator().validateRegistrationNotStarted(
-                lottery.registrationStart,
-                now
-            )
-        }
-
-        // Check that the winner count is valid.
-        LotteryValidator().validateNumberOfWinners(numberOfWinners)
-
-
+        require(campsiteIds.isNotEmpty()) { "Select at least one campsite." }
         functions.getHttpsCallable("saveLotterySettings")
             .call(
                 mapOf(
                     "lotteryId" to lotteryId,
+                    "campsiteIds" to campsiteIds,
                     "lotteryName" to lotteryName,
                     "registrationStart" to registrationStart,
                     "registrationEnd" to registrationEnd,
