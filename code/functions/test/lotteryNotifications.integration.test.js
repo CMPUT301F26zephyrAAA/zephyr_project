@@ -116,20 +116,16 @@ before(async () => {
       200,
   );
   const now = Date.now();
+  // Only the createLottery function creates lotteries, so use admin access.
   for (const id of [lotteryId, emptyLotteryId]) {
-    assert.equal(
-        (
-          await patch(owner, `lottery/${id}`, {
-            campsiteId,
-            lotteryName: "Whispering Pines",
-            registrationStart: now - 60000,
-            registrationEnd: now + 600000,
-            waitlistCapacity: 2,
-            entrantCount: 0,
-          })
-        ).status,
-        200,
-    );
+    await db.doc(`lottery/${id}`).set({
+      campsiteId,
+      lotteryName: "Whispering Pines",
+      registrationStart: now - 60000,
+      registrationEnd: now + 600000,
+      waitlistCapacity: 2,
+      entrantCount: 0,
+    });
   }
   assert.equal((await registration(accounts.allowed, 1, true)).status, 200);
   assert.equal(

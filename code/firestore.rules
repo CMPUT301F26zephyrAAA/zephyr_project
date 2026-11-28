@@ -125,15 +125,15 @@ service cloud.firestore {
 
     match /lottery/{lotteryId} {
       allow read: if true;
-      allow create: if validId(request.resource.data.campsiteId) &&
-        request.resource.data.entrantCount == 0 && drawOpen(request.resource.data) &&
-        verifiedAccount(lotteryOwner(request.resource.data));
+      // Lotteries are created and their dates changed only by the createLottery and
+      // updateLottery Cloud Functions, which check booking overlap and the date cutoff
+      // with server time inside one transaction.
+      allow create: if false;
       allow update: if request.resource.data.campsiteId == resource.data.campsiteId &&
         (validCountUpdate(lotteryId) ||
           (verifiedAccount(lotteryOwner(resource.data)) && drawOpen(resource.data) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-              'lotteryName', 'registrationStart', 'registrationEnd',
-              'bookingStart', 'bookingEnd', 'numberOfWinners', 'waitlistCapacity'
+              'lotteryName', 'numberOfWinners', 'waitlistCapacity'
             ])) ||
           (notificationAdmin() &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registrationEnd'])));
