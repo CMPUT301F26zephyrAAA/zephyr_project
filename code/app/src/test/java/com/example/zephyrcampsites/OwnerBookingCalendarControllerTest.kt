@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.TimeZone
-// Hiral - [AI-09] OpenAI ChatGPT Implement lottery listing edits
+
 /** Verifies booking-day calculations used by the owner calendar. */
 class OwnerBookingCalendarControllerTest {
     private val utc = TimeZone.getTimeZone("UTC")

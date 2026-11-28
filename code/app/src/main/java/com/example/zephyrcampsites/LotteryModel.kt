@@ -1,5 +1,5 @@
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery list edits
 // Persists lottery settings and observes lottery records in Firestore.
-
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf

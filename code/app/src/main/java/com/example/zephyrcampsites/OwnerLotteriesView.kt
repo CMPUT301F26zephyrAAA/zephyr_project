@@ -1,3 +1,4 @@
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery list edits
 // Shows an owner's lottery listings by registration status.
 package com.example.zephyrcampsites
 

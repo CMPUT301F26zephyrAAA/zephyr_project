@@ -1,6 +1,7 @@
 // Hiral - [AI-02] OpenAI ChatGPT Re-distribute MainActivity.kt
 // Connects the entrant, owner, and admin screens to their navigation routes.
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+// Hiral - [AI-09] OpenAI ChatGPT Implement lottery list edits
 package com.example.zephyrcampsites
 
 import android.net.Uri
