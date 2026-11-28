@@ -77,9 +77,14 @@ module.exports = (db) => {
     };
   });
 
+  // AI Citation [AI-43] (Bhav Saluja)
+  // OpenAI, Codex, November 27, 2026. Added a campsite scope for owner chat.
+  // See the team AI Documentation Google Doc.
   /** Lists only bookings for campsites currently owned by the caller. */
-  const listOwnerReservations = authenticated(async (_data, auth) => {
+  const listOwnerReservations = authenticated(async (data, auth) => {
     const accountId = "auth_" + auth.uid;
+    const campsiteId =
+      data.campsiteId === undefined ? null : id(data.campsiteId);
     return db.runTransaction(
         async (transaction) => {
           const profile = await transaction.get(accounts.doc(accountId));
@@ -89,11 +94,23 @@ module.exports = (db) => {
                 "Your profile is unavailable.",
             );
           }
-          const sites = await transaction.get(
-              campsites.where("ownerID", "==", accountId),
-          );
+          let sites;
+          if (campsiteId === null) {
+            sites = (await transaction.get(
+                campsites.where("ownerID", "==", accountId),
+            )).docs;
+          } else {
+            const site = await transaction.get(campsites.doc(campsiteId));
+            if (site.get("ownerID") !== accountId) {
+              throw new HttpsError(
+                  "permission-denied",
+                  "This campsite belongs to another account.",
+              );
+            }
+            sites = [site];
+          }
           const groups = await Promise.all(
-              sites.docs.map(async (site) => {
+              sites.map(async (site) => {
                 const bookings = await transaction.get(
                     reservations.where("campsiteId", "==", site.id),
                 );
@@ -144,6 +161,7 @@ module.exports = (db) => {
             reservations: rows.map(({entrantId, ...row}) => ({
               ...row,
               entrantName: names.get(entrantId) ?? "",
+              ...(campsiteId === null ? {} : {entrantAccountId: entrantId}),
             })),
           };
         },

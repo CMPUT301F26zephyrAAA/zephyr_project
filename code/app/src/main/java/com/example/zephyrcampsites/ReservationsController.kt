@@ -1,7 +1,8 @@
-
+// Coordinates loading and filtering reservations for entrant and owner screens.
 package com.example.zephyrcampsites
 
 import java.util.Date
+
 // AI Citation [AI-15], [AI-16]
 // OpenAI, ChatGPT assisted with reservation filtering,
 // sorting, date validation, and testability improvements.
@@ -40,6 +41,26 @@ class ReservationsController(
     ) = model.cancelOwnerReservation(reservation.id, owner.id, onSuccess, onError)
 
     /**
+     * Filters the owner-scoped reservations returned by the callable to active stays.
+     *
+     * @param reservations Reservations already scoped to the signed-in owner's campsites.
+     * @param currentTimeMillis Server-aligned current time in milliseconds.
+     * @return Confirmed, non-cancelled reservations whose checkout has not passed.
+     */
+    internal fun filterActiveOwnerReservations(
+        reservations: List<OwnerReservation>,
+        currentTimeMillis: Long
+    ): List<OwnerReservation> {
+        return reservations
+            .filter { reservation ->
+                !reservation.cancelled &&
+                    reservation.startMillis < reservation.endMillis &&
+                    reservation.endMillis > currentTimeMillis
+            }
+            .sortedBy { it.startMillis }
+    }
+
+    /**
      * Retrieves all reservations for an entrant in a single request.
      * The caller can then classify active and past reservations
      * using the same cutoff time.
@@ -53,6 +74,35 @@ class ReservationsController(
             accountId = accountId,
             onSuccess = onSuccess,
             onError = onError
+        )
+    }
+
+    /**
+     * Loads uncancelled bookings at the selected campsite for the owner's chat list.
+     * @param owner Current owner account.
+     * @param campsiteId The campsite selected in owner mode.
+     * @param onSuccess Receives the bookings, including completed stays.
+     * @param onError Called when the bookings cannot be loaded for this owner.
+     */
+    internal fun getCampsiteReservations(
+        owner: Account,
+        campsiteId: String,
+        onSuccess: (List<OwnerReservation>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        if (OWNER !in owner.userType || owner.id.isBlank()) {
+            onError(IllegalArgumentException("Only the campsite owner can open these reservations."))
+            return
+        }
+        model.getOwnerReservations(
+            onSuccess = { bookings ->
+                val chatBookings = bookings.reservations
+                    .filter { !it.cancelled && it.entrantAccountId.isNotBlank() }
+                    .sortedBy { it.startMillis }
+                onSuccess(chatBookings)
+            },
+            onError = onError,
+            campsiteId = campsiteId
         )
     }
 
@@ -131,6 +181,38 @@ class ReservationsController(
                         end.after(currentTime)
             }
             .sortedBy { it.bookedPeriodStart }
+    }
+
+    /**
+     * Filters active reservations belonging to campsites
+     * owned by the specified owner.
+     *
+     * @param reservations Reservations to filter.
+     * @param campsites Available campsites.
+     * @param ownerId Current owner's account ID.
+     * @param currentTime Time used to determine active reservations.
+     * @return Active reservations belonging to the owner.
+     */
+    fun filterOwnerActiveReservations(
+        reservations: List<ReservedUser>,
+        campsites: List<Campsite>,
+        ownerId: String,
+        currentTime: Date = Date()
+    ): List<ReservedUser> {
+
+        val ownerCampsiteIds = filterOwnerCampsites(
+            campsites,
+            ownerId
+        ).map { it.id }.toSet()
+
+        val ownerReservations = reservations.filter {
+            it.campsiteId in ownerCampsiteIds
+        }
+
+        return filterActiveReservations(
+            ownerReservations,
+            currentTime
+        )
     }
 
     /**
