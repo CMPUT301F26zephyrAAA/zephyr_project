@@ -965,3 +965,80 @@ test("everyone uses current membership and honors opt-outs", async () => {
   );
   assert.deepEqual((await inbox(late)).result, []);
 });
+
+// AI Citation [AI-40]
+// OpenAI, Codex, US 02.10.02, 2026-11-27. Generated history emulator tests.
+// See Bhav's entry in the team's AI Documentation Google Doc.
+test("sent history returns only the owner's records in newest-first order",
+    async () => {
+      const {owner, allowed, optedOut, outsider, admin} = accounts;
+      const saved = db.collection("lotteryNotifications");
+      const history = "listSentLotteryNotifications";
+      const details = "getSentLotteryNotification";
+      const newest = {
+        senderAccountId: owner.accountId,
+        lotteryId,
+        lotteryName: "Whispering Pines",
+        campsiteId,
+        message: "Check the updated arrival instructions.",
+        allEntrants: true,
+        intendedRecipientIds: [
+          allowed.accountId, optedOut.accountId, `auth_deleted-${suffix}`,
+        ],
+        deliveredRecipientIds: [allowed.accountId],
+        sentAt: new Timestamp(2, 2000),
+      };
+      const newestId = `history-z-new-${suffix}`;
+      const oldestId = `history-a-old-${suffix}`;
+      const privateId = `history-private-${suffix}`;
+      await saved.doc(newestId).set(newest);
+      await saved.doc(oldestId).set({
+        ...newest,
+        message: "The south gate is closed.",
+        sentAt: new Timestamp(2, 1000),
+      });
+      await saved.doc(privateId).set({
+        ...newest,
+        senderAccountId: outsider.accountId,
+      });
+
+      const summary = {
+        id: newestId,
+        lotteryName: newest.lotteryName,
+        message: newest.message,
+        sentAtMillis: 2000,
+        intended: 3,
+        delivered: 1,
+      };
+      const {result: sent} = await call(history, owner, {});
+      const ids = sent.map((notification) => notification.id);
+      assert.deepEqual(ids.slice(-2), [newestId, oldestId]);
+      assert.equal(ids.includes(privateId), false);
+      assert.deepEqual(sent.at(-2), summary);
+      assert.deepEqual(await call(details, owner, {notificationId: newestId}), {
+        result: {
+          ...summary,
+          recipients: [
+            {name: "allowed", delivered: true},
+            {name: "optedOut", delivered: false},
+            {name: "Unnamed entrant", delivered: false},
+          ],
+        },
+      });
+
+      assert.deepEqual(await call(history, admin, {}), {result: []});
+      assert.equal((await call(history, null, {})).error.status,
+          "UNAUTHENTICATED");
+      assert.equal((await call(history, outsider, {
+        accountId: owner.accountId,
+      })).error.status, "PERMISSION_DENIED");
+      for (const account of [outsider, admin]) {
+        assert.equal((await call(details, account, {
+          notificationId: newestId,
+        })).error.status, "NOT_FOUND");
+        assert.equal((await read(account,
+            `lotteryNotifications/${newestId}`)).status, 403);
+      }
+      assert.equal((await read(owner, `lotteryNotifications/${newestId}`))
+          .status, 403);
+    });

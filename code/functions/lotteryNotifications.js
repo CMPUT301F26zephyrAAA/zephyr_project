@@ -214,10 +214,92 @@ function lotteryNotifications(db) {
     ),
   );
 
+  // AI Citation [AI-40]
+  // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated history reads.
+  // See Bhav's entry in the team's AI Documentation Google Doc.
+  const listSentLotteryNotifications = onCall((request) =>
+    db.runTransaction(async (transaction) => {
+      const owner = await verifyHistoryOwner(request, transaction);
+      const sent = await transaction.get(notifications.where(
+          "senderAccountId", "==", owner.id,
+      ));
+      return sent.docs.sort((first, second) => {
+        const firstTime = first.get("sentAt");
+        const secondTime = second.get("sentAt");
+        return secondTime.seconds - firstTime.seconds ||
+          secondTime.nanoseconds - firstTime.nanoseconds;
+      }).map(sentNotificationSummary);
+    }, {readOnly: true}),
+  );
+
+  const getSentLotteryNotification = onCall((request) =>
+    db.runTransaction(async (transaction) => {
+      const owner = await verifyHistoryOwner(request, transaction);
+      const notificationId = request.data.notificationId;
+      if (!validId(notificationId)) {
+        throw new HttpsError("invalid-argument", "Invalid notification.");
+      }
+      const notification = await transaction.get(
+          notifications.doc(notificationId),
+      );
+      if (notification.get("senderAccountId") !== owner.id) {
+        throw new HttpsError("not-found", "Notification unavailable.");
+      }
+
+      const intended = notification.get("intendedRecipientIds");
+      const delivered = new Set(notification.get("deliveredRecipientIds"));
+      const profiles = intended.length === 0 ? [] : await transaction.getAll(
+          ...intended.map((id) => accounts.doc(id)),
+      );
+      const recipients = profiles.map((profile) => {
+        const displayName = profile.get("name");
+        const name = typeof displayName === "string" ? displayName.trim() : "";
+        return {
+          name: name || "Unnamed entrant",
+          delivered: delivered.has(profile.id),
+        };
+      });
+      return {...sentNotificationSummary(notification), recipients};
+    }, {readOnly: true}),
+  );
+
+  /**
+   * Verifies the caller's account and owner role before reading history.
+   * @param {Object} request Callable request.
+   * @param {Object} transaction Current read transaction.
+   * @return {Promise<Object>} Verified owner profile.
+   */
+  async function verifyHistoryOwner(request, transaction) {
+    const account = await verifyAccount(request, transaction);
+    const roles = account.get("userType");
+    if (!Array.isArray(roles) || !roles.includes("owner")) {
+      throw new HttpsError("permission-denied", "Owner access is required.");
+    }
+    return account;
+  }
+
   return {
     listLotteryNotificationRecipients,
     sendLotteryNotification,
     listReceivedLotteryNotifications,
+    listSentLotteryNotifications,
+    getSentLotteryNotification,
+  };
+}
+
+/**
+ * Builds a history row from the record saved by the owner send transaction.
+ * @param {Object} notification Saved notification snapshot.
+ * @return {Object} Message, lottery, timestamp and delivery counts.
+ */
+function sentNotificationSummary(notification) {
+  const record = notification.data();
+  return {
+    id: notification.id,
+    lotteryName: record.lotteryName,
+    message: record.message,
+    sentAtMillis: record.sentAt.toMillis(),
+    ...deliveryCounts(record),
   };
 }
 

@@ -545,7 +545,10 @@ internal fun CampsitesNavigation(
                                         accountId = owner.id,
                                         lottery = lottery,
                                         controller = notificationController,
-                                        onBack = onBack
+                                        onBack = onBack,
+                                        onViewSent = {
+                                            navHostController.navigate(GeneralScreen.SentNotifications.route)
+                                        }
                                     )
                                 } else {
                                     FeaturePage("Only the campsite owner can notify entrants.", onBack)
@@ -555,6 +558,36 @@ internal fun CampsitesNavigation(
 
                         composable(GeneralScreen.ViewReservations.route) {
                             AccountContent { owner -> OwnerReservationsScreen(owner, reservationsController, onBack) }
+                        }
+
+                        // AI Citation [AI-40]
+                        // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated the owner history routes.
+                        // See Bhav's entry in the team's AI Documentation Google Doc.
+                        composable(GeneralScreen.SentNotifications.route) {
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType) {
+                                    SentLotteryNotificationsScreen(owner.id, notificationController, onBack) { id ->
+                                        val route = GeneralScreen.SentNotifications.route
+                                        navHostController.navigate("$route/${Uri.encode(id)}")
+                                    }
+                                } else {
+                                    FeaturePage("Owner access required", onBack)
+                                }
+                            }
+                        }
+
+                        composable(
+                            route = GeneralScreen.SentNotificationDetails.route,
+                            arguments = listOf(navArgument("notificationId") { type = NavType.StringType })
+                        ) { entry ->
+                            val id = entry.arguments?.getString("notificationId") ?: return@composable
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType) {
+                                    SentLotteryNotificationDetailsScreen(owner.id, id, notificationController, onBack)
+                                } else {
+                                    FeaturePage("Owner access required", onBack)
+                                }
+                            }
                         }
 
                         composable(GeneralScreen.RegisterCampsite.route) {

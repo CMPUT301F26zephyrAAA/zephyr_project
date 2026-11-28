@@ -85,9 +85,17 @@ class LotteryNotificationNavigationTest {
         lateinit var entrantAccountId: String
         freshProfile(auth, firestore, entrantEmail) { entrantId ->
             entrantAccountId = entrantId
+            Tasks.await(
+                firestore.document("accounts/$entrantId").update("name", "Taylor North"),
+                15, TimeUnit.SECONDS
+            )
             join(firestore, lottery.id, entrantId)
         }
         freshProfile(auth, firestore, optedOutEmail) { entrantId ->
+            Tasks.await(
+                firestore.document("accounts/$entrantId").update("name", "Morgan Lake"),
+                15, TimeUnit.SECONDS
+            )
             join(firestore, lottery.id, entrantId)
             val saved = TaskCompletionSource<Boolean>()
             AccountsModel(database = firestore).updateNotificationPreference(
@@ -101,9 +109,18 @@ class LotteryNotificationNavigationTest {
 
         val message = "The south gate is closed. Use the north gate instead."
         signIn(auth, ownerEmail)
+        val ownerId = "auth_${checkNotNull(auth.currentUser).uid}"
+        val emptyHistory = Tasks.await(LotteryNotificationModel().loadSent(ownerId), 15, TimeUnit.SECONDS)
+        assertTrue(emptyHistory.isEmpty())
         ActivityScenario.launch(MainActivity::class.java).use {
             waitForAccount()
             compose.onNodeWithText("Owner").performClick()
+            // AI Citation [AI-40]
+            // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated the history navigation assertions.
+            // See Bhav's entry in the team's AI Documentation Google Doc.
+            compose.onNodeWithText("Sent Notifications").performClick()
+            waitFor("You haven’t sent any notifications yet.")
+            compose.onNodeWithText("Back").performClick()
             compose.onNodeWithText("View Lotteries").performClick()
             waitFor(lottery.lotteryName)
             compose.onNodeWithText(lottery.lotteryName).performClick()
@@ -115,6 +132,20 @@ class LotteryNotificationNavigationTest {
             compose.onNodeWithText("Everyone on the waitlist").performClick()
             compose.onNodeWithText("Send Notification").assertIsEnabled().performClick()
             waitFor("Notification saved. Delivered to 1 of 2 waitlisted entrants.")
+            compose.onNodeWithText("View Sent Notifications").performClick()
+            waitFor(message)
+            waitFor(lottery.lotteryName)
+            compose.onNodeWithText(message).performClick()
+            waitFor("Notification Details")
+            waitFor("Taylor North")
+            waitFor("Delivered to inbox")
+            waitFor("Morgan Lake")
+            waitFor("Not delivered")
+            compose.onNodeWithText("Back").performClick()
+            waitFor("Sent Notifications")
+            waitFor(message)
+            compose.onNodeWithText("Back").performClick()
+            waitFor("Notify Entrants")
             compose.onNodeWithText("Back").performClick()
             waitFor("LOTTERY DETAILS")
         }
@@ -123,6 +154,7 @@ class LotteryNotificationNavigationTest {
         ActivityScenario.launch(MainActivity::class.java).use {
             waitForAccount()
             compose.onNodeWithText("Entrant").performClick()
+            compose.onNodeWithText("Sent Notifications").assertDoesNotExist()
             compose.onNodeWithText("Notifications").performClick()
             waitFor(message)
             compose.onNodeWithText("Back").performClick()

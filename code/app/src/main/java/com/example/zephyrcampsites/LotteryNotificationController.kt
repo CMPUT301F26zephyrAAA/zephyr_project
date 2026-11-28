@@ -37,6 +37,16 @@ internal class LotteryNotificationController(
 
     /** Loads notifications addressed to the entrant. */
     fun loadReceived(accountId: String) = model.loadReceived(accountId)
+
+    // AI Citation [AI-40]
+    // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated the history controller methods.
+    // See Bhav's entry in the team's AI Documentation Google Doc.
+    /** Loads the owner's sent notifications. */
+    fun loadSent(accountId: String) = model.loadSent(accountId)
+
+    /** Loads the message and delivery outcomes for a selected notification. */
+    fun loadSentDetails(accountId: String, notificationId: String) =
+        model.loadSentDetails(accountId, notificationId)
 }
 
 /** Identifies a validation error from the notification composer. */

@@ -51,7 +51,8 @@ internal fun NotifyLotteryEntrantsScreen(
     accountId: String,
     lottery: Lottery,
     controller: LotteryNotificationController,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onViewSent: () -> Unit
 ) {
     var recipients by remember { mutableStateOf<List<LotteryNotificationRecipient>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -188,7 +189,13 @@ internal fun NotifyLotteryEntrantsScreen(
                 Text("Reload Waitlist")
             }
         }
-        confirmation?.let { NotificationStatus(it) }
+        // AI Citation [AI-40]
+        // OpenAI, Codex, US 02.10.02, 2026-11-27. Added the post-send history link.
+        // See Bhav's entry in the team's AI Documentation Google Doc.
+        confirmation?.let {
+            NotificationStatus(it)
+            TextButton(onClick = onViewSent) { Text("View Sent Notifications") }
+        }
         Button(
             onClick = {
                 focus.clearFocus()
@@ -283,7 +290,7 @@ internal fun LotteryNotificationsScreen(
 
 /** Announces feedback and lets a user copy account setup details. */
 @Composable
-private fun NotificationStatus(message: String, isError: Boolean = false) {
+internal fun NotificationStatus(message: String, isError: Boolean = false) {
     SelectionContainer {
         Text(
             message,
