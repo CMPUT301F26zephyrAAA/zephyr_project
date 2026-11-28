@@ -31,13 +31,15 @@ internal data class ReceivedLotteryNotification(
  * @property message Sent message text.
  * @property sentAtMillis Server send time in milliseconds since the epoch.
  * @property delivery Counts from the committed send.
+ * @property failureReason Saved reason for a failed attempt, if any.
  */
 internal data class SentLotteryNotification(
     val id: String,
     val lotteryName: String,
     val message: String,
     val sentAtMillis: Long,
-    val delivery: LotteryNotificationResult
+    val delivery: LotteryNotificationResult,
+    val failureReason: String?
 )
 
 /**
@@ -173,6 +175,9 @@ internal class LotteryNotificationModel(
     }
 
     /** Decodes the common fields from the history and detail endpoints. */
+    // AI Citation [AI-41]
+    // OpenAI, Codex, US 02.10.02, 2026-11-27. Added failure decoding for the history screen.
+    // See Bhav's entry in the team's AI Documentation Google Doc.
     private fun decodeSent(entry: Map<*, *>): SentLotteryNotification {
         return SentLotteryNotification(
             id = entry["id"] as String,
@@ -182,7 +187,8 @@ internal class LotteryNotificationModel(
             delivery = LotteryNotificationResult(
                 intended = (entry["intended"] as Number).toInt(),
                 delivered = (entry["delivered"] as Number).toInt()
-            )
+            ),
+            failureReason = entry["failureReason"] as? String
         )
     }
 

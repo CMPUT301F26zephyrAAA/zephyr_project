@@ -9,6 +9,7 @@ const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
 const {getFirestore, Timestamp} = require("firebase-admin/firestore");
 const {getStorage} = require("firebase-admin/storage");
+const lotteryNotifications = require("../lotteryNotifications");
 
 const projectId = "demo-zephyr-notifications";
 const auth = "http://127.0.0.1:9099";
@@ -1041,4 +1042,126 @@ test("sent history returns only the owner's records in newest-first order",
       }
       assert.equal((await read(owner, `lotteryNotifications/${newestId}`))
           .status, 403);
+    });
+
+// AI Citation [AI-41]
+// OpenAI, Codex, US 02.10.02, 2026-11-27. Generated failure and retry tests.
+// See Bhav's entry in the team's AI Documentation Google Doc.
+test("records a failed send without delivering or exposing unrelated profiles",
+    async () => {
+      const {owner, allowed, outsider} = accounts;
+      const id = `history-lottery-${suffix}`;
+      const message = "Please use the marked parking bays.";
+      const draft = {
+        lotteryId: id,
+        message,
+        requestId: randomUUID(),
+        allEntrants: false,
+        recipientIds: [allowed.accountId, outsider.accountId],
+      };
+      await db.doc(`lottery/${id}`).set({
+        lotteryName: "North Pines",
+        campsiteId,
+      });
+      await db.doc(`waitingList/${id}_${allowed.accountId}`).set({
+        lotteryId: id,
+        accountId: allowed.accountId,
+      });
+      const previousInbox = await inbox(allowed);
+
+      const {error} = await send(owner, draft);
+      assert.equal(error.status, "FAILED_PRECONDITION");
+      assert.equal(error.details.recordedFailure, true);
+      assert.deepEqual(await send(owner, draft), {error});
+      assert.equal((await send(owner, {...draft, message: "Changed"}))
+          .error.status, "ALREADY_EXISTS");
+
+      const history = "listSentLotteryNotifications";
+      const {result} = await call(history, owner, {});
+      const entries = result.filter((row) => row.message === message);
+      assert.equal(entries.length, 1);
+      const [failure] = entries;
+      assert.equal(failure.failureReason, error.message);
+      assert.equal(failure.delivered, 0);
+      const details = "getSentLotteryNotification";
+      const detail = await call(details, owner, {notificationId: failure.id});
+      assert.deepEqual(detail.result.recipients, [
+        {name: "allowed", delivered: false},
+      ]);
+      assert.deepEqual(await inbox(allowed), previousInbox);
+      assert.equal((await call(details, outsider, {
+        notificationId: failure.id,
+      })).error.status, "NOT_FOUND");
+
+      await db.doc(`waitingList/${id}_${outsider.accountId}`).set({
+        lotteryId: id,
+        accountId: outsider.accountId,
+      });
+      const delivered = {result: {intended: 2, delivered: 2}};
+      assert.deepEqual(await send(owner, draft), delivered);
+      assert.deepEqual(await send(owner, draft), delivered);
+      const updated = (await call(history, owner, {})).result
+          .filter((row) => row.message === message);
+      assert.equal(updated.length, 2);
+      assert.equal(updated[0].delivered, 2);
+      assert.deepEqual(updated[1], failure);
+    });
+
+test("recovers failed transactions and preserves sends with a lost response",
+    async () => {
+      const {owner, allowed} = accounts;
+      const id = `recovery-lottery-${suffix}`;
+      await db.doc(`lottery/${id}`).set({
+        lotteryName: "West Pines",
+        campsiteId,
+      });
+      await db.doc(`waitingList/${id}_${allowed.accountId}`).set({
+        lotteryId: id,
+        accountId: allowed.accountId,
+      });
+      for (const committed of [false, true]) {
+        let first = true;
+        const client = {
+          collection: (path) => db.collection(path),
+          runTransaction: async (action) => {
+            if (!first) {
+              return db.runTransaction(action);
+            }
+            first = false;
+            if (committed) {
+              await db.runTransaction(action);
+            }
+            throw new Error("Simulated loss of the transaction response");
+          },
+        };
+        const message = committed ? "Bring a flashlight." : "Pack out trash.";
+        const request = {
+          auth: {uid: owner.localId},
+          data: {
+            accountId: owner.accountId,
+            lotteryId: id,
+            message,
+            requestId: randomUUID(),
+            allEntrants: true,
+            recipientIds: [],
+          },
+        };
+        const {sendLotteryNotification: sendAttempt} =
+          lotteryNotifications(client);
+        if (committed) {
+          assert.deepEqual(await sendAttempt.run(request), {
+            intended: 1, delivered: 1,
+          });
+        } else {
+          await assert.rejects(sendAttempt.run(request), {
+            code: "failed-precondition",
+            details: {recordedFailure: true},
+          });
+        }
+        const history = await call("listSentLotteryNotifications", owner, {});
+        const entries = history.result.filter((row) => row.message === message);
+        assert.equal(entries.length, 1);
+        assert.equal(Boolean(entries[0].failureReason), !committed);
+        assert.equal(entries[0].delivered, committed ? 1 : 0);
+      }
     });

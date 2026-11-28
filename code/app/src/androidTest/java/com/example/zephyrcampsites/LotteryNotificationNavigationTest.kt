@@ -119,7 +119,7 @@ class LotteryNotificationNavigationTest {
             // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated the history navigation assertions.
             // See Bhav's entry in the team's AI Documentation Google Doc.
             compose.onNodeWithText("Sent Notifications").performClick()
-            waitFor("You haven’t sent any notifications yet.")
+            waitFor("You haven’t attempted to send any notifications yet.")
             compose.onNodeWithText("Back").performClick()
             compose.onNodeWithText("View Lotteries").performClick()
             waitFor(lottery.lotteryName)
@@ -127,6 +127,35 @@ class LotteryNotificationNavigationTest {
             compose.onNodeWithText("NOTIFY ENTRANTS").performScrollTo().performClick()
             waitFor("Everyone on the waitlist")
             compose.onNodeWithText("Send Notification").assertIsNotEnabled()
+
+            // AI Citation [AI-41]
+            // OpenAI, Codex, US 02.10.02, 2026-11-27. Added failure history and retry coverage.
+            // See Bhav's entry in the team's AI Documentation Google Doc.
+            val failedMessage = "Bring a flashlight to check in."
+            compose.onNodeWithText("Taylor North").performClick()
+            compose.onNodeWithText("Message").performTextInput(failedMessage)
+            val entrantProfile = "accounts/$entrantAccountId"
+            writeApprovedFixture(entrantProfile, mapOf("deletionPending" to true), merge = true)
+            try {
+                compose.onNodeWithText("Send Notification").assertIsEnabled().performClick()
+                waitFor("The waitlist changed. Reload and try again.")
+                compose.onNodeWithText("View Sent Notifications").performClick()
+                waitFor("Send failed")
+                compose.onNodeWithText(failedMessage).performClick()
+                waitFor("No eligible recipients were recorded for this attempt.")
+                waitFor("The waitlist changed. Reload and try again.")
+            } finally {
+                writeApprovedFixture(entrantProfile, mapOf("deletionPending" to false), merge = true)
+            }
+            compose.onNodeWithText("Back").performClick()
+            waitFor("Send failed")
+            compose.onNodeWithText("Back").performClick()
+            waitFor("Taylor North")
+            compose.onNodeWithText("Send Notification").assertIsEnabled().performClick()
+            waitFor("Notification saved. Delivered to 1 of 1 waitlisted entrants.")
+
+            compose.onNodeWithText("Select individual entrants").performClick()
+            compose.onNodeWithText("Taylor North").performClick()
             compose.onNodeWithText("Message").performTextInput(message)
             compose.onNodeWithText("Send Notification").assertIsNotEnabled()
             compose.onNodeWithText("Everyone on the waitlist").performClick()
@@ -140,7 +169,7 @@ class LotteryNotificationNavigationTest {
             waitFor("Taylor North")
             waitFor("Delivered to inbox")
             waitFor("Morgan Lake")
-            waitFor("Not delivered")
+            waitFor("Skipped by notification preference")
             compose.onNodeWithText("Back").performClick()
             waitFor("Sent Notifications")
             waitFor(message)
@@ -275,10 +304,15 @@ class LotteryNotificationNavigationTest {
         compose.waitUntil(20_000) { compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() }
     }
 
-    /** Creates or removes a booking fixture in the local demo emulator. */
-    private fun writeApprovedFixture(path: String, fields: Map<String, Any>?) {
+    /** Writes or removes a fixture in the local demo emulator. */
+    private fun writeApprovedFixture(path: String, fields: Map<String, Any>?, merge: Boolean = false) {
+        val mask = if (merge) {
+            fields.orEmpty().keys.joinToString(separator = "&", prefix = "?") { "updateMask.fieldPaths=$it" }
+        } else {
+            ""
+        }
         val endpoint = "http://127.0.0.1:8082/v1/projects/demo-zephyr-notifications" +
-            "/databases/(default)/documents/$path"
+            "/databases/(default)/documents/$path$mask"
         val connection = URI(endpoint).toURL().openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 5_000

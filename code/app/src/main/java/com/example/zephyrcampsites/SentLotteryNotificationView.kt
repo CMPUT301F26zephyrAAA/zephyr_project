@@ -50,7 +50,7 @@ internal fun SentLotteryNotificationsScreen(
             !result.isSuccessful -> item {
                 SentNotificationLoadError("Unable to load sent notifications.", ::loadHistory)
             }
-            result.result.isEmpty() -> item { Text("You haven’t sent any notifications yet.") }
+            result.result.isEmpty() -> item { Text("You haven’t attempted to send any notifications yet.") }
             else -> items(result.result, key = { it.id }) { notification ->
                 Card(
                     onClick = { onSelect(notification.id) },
@@ -95,17 +95,28 @@ internal fun SentLotteryNotificationDetailsScreen(
                     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         SentNotificationMessage(details.notification)
                     }
+                    // AI Citation [AI-41]
+                    // OpenAI, Codex, US 02.10.02, 2026-11-27. Added failure and preference statuses.
+                    // See Bhav's entry in the team's AI Documentation Google Doc.
+                    details.notification.failureReason?.let { NotificationStatus(it, isError = true) }
                     Text(
                         "Recipients",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(top = 12.dp)
                     )
+                    if (details.recipients.isEmpty()) {
+                        Text("No eligible recipients were recorded for this attempt.")
+                    }
                 }
                 items(details.recipients) { recipient ->
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                         Text(recipient.name)
                         Text(
-                            if (recipient.delivered) { "Delivered to inbox" } else { "Not delivered" },
+                            when {
+                                details.notification.failureReason != null -> "Not sent"
+                                recipient.delivered -> "Delivered to inbox"
+                                else -> "Skipped by notification preference"
+                            },
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
@@ -130,7 +141,11 @@ private fun SentNotificationMessage(notification: SentLotteryNotification, maxLi
         Text(notification.message, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
         Text(notification.lotteryName, style = MaterialTheme.typography.titleSmall)
         Text(timestamp, style = MaterialTheme.typography.bodySmall)
-        Text("Delivered to ${delivery.delivered} of ${delivery.intended}", style = MaterialTheme.typography.bodySmall)
+        if (notification.failureReason != null) {
+            Text("Send failed", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        } else {
+            Text("Delivered to ${delivery.delivered} of ${delivery.intended}", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
