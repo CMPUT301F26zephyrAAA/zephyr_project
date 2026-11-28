@@ -105,30 +105,6 @@ class LotteryModel(
 
 
     /**
-     * Updates the number of winners before registration starts.
-     */
-    fun updateNumberOfWinners(lotteryId: String, newCount: Int) {
-        val lottery = lotteries.find { it.id == lotteryId }
-            ?: throw IllegalArgumentException("Lottery not found.")
-
-        // Winner count can only be changed before registration starts.
-        LotteryValidator().validateRegistrationNotStarted(
-            lottery.registrationStart,
-            System.currentTimeMillis()
-        )
-
-        // Check that the winner count is positive.
-        LotteryValidator().validateNumberOfWinners(newCount)
-
-        lottery.numberOfWinners = newCount
-
-        // Save the updated value to Firebase.
-        firestore
-            .collection("lottery")
-            .document(lotteryId)
-            .update("numberOfWinners", newCount)
-    }
-    /**
      * Updates the waitlist capacity for a lottery.
      */
     fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {

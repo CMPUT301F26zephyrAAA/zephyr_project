@@ -639,6 +639,11 @@ class LotteryView (
         val canEditBooking =
             System.currentTimeMillis() < lottery.registrationStart
 
+        // AI Citation [AI-43] Anthropic, Claude Code, locking the winner count field. See the AI Documentation.
+        // The winner count is locked once registration starts. The server makes the final check.
+        val canEditWinners =
+            System.currentTimeMillis() < lottery.registrationStart
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -769,7 +774,8 @@ class LotteryView (
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Number
-                        )
+                        ),
+                        enabled = canEditWinners
                     )
                 }
 
