@@ -8,7 +8,7 @@ class LotteryController(
 
     fun createLottery(
         lotteryName: String,
-        campsiteIds: List<String>,
+        campsiteIds: List<String>, // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
         registrationStart: Long,
         registrationEnd: Long,
         bookingStart: Long,

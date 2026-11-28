@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 // OpenAI, ChatGPT assisted with reservation offer
 // status display and decline confirmation UI.
 // AI usage and citation documented in the GitHub Wiki.
+// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
 
 import android.content.Intent
 import androidx.compose.foundation.Image

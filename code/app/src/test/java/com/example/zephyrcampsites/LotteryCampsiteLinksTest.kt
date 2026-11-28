@@ -1,3 +1,4 @@
+// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
 // Verifies campsite membership for shared lotteries and legacy Firestore records.
 package com.example.zephyrcampsites
 

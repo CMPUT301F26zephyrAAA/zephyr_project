@@ -250,6 +250,7 @@ module.exports = (db) => {
       const bookings = await transaction.get(
           reservations.where("accountId", "==", accountId),
       );
+      // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
       if (
         bookings.docs.some(
             (booking) =>

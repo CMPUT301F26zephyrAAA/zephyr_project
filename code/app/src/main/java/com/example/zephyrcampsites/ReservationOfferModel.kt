@@ -23,6 +23,7 @@ class ReservationOfferModel(
 ) {
     private val waitingList = firestore.collection("waitingList")
 
+    // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
     /**
      * Checks availability or confirms the winner's chosen campsite and stay.
      *

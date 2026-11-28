@@ -8,6 +8,7 @@ package com.example.zephyrcampsites
  * Controller for entrant reservation-offer actions.
  */
 class ReservationOfferController(private val reservationOfferModel: ReservationOfferModel) {
+    // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
     /** Checks availability or confirms a winning entrant's selected stay. */
     fun checkOrConfirmBooking(
         lotteryId: String,

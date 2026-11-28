@@ -13,6 +13,7 @@ data class Lottery(
     var campsiteId: String = ""
     var campsiteIds: List<String> = emptyList()
 
+    // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
     /** Returns all linked sites, including the original site for older records. */
     fun participatingCampsiteIds(): List<String> = campsiteIds.ifEmpty {
         listOf(campsiteId).filter { it.isNotBlank() }

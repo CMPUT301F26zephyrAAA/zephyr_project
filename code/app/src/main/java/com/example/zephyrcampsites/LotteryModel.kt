@@ -64,7 +64,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             "Waitlist capacity must be positive."
         }
 
-
+        // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
         val lotteryId = UUID.randomUUID().toString()
         FirebaseFunctions.getInstance().getHttpsCallable("saveLotterySettings")
             .call(

@@ -78,6 +78,7 @@ class LotteryView (
 
 
             Spacer(modifier = Modifier.height(24.dp))
+            // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
             Text("Participating campsites")
             if (ownedCampsites.isEmpty()) {
                 Text("Register a campsite before creating a lottery.")

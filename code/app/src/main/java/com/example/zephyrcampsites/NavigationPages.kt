@@ -50,6 +50,7 @@ internal fun LotteryListScreen(
         LazyColumn(modifier = Modifier.weight(1f), content = content)
     }
 }
+// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
 @Composable
 private fun LotteryListAction(label: String, onClick: () -> Unit) {
     TextButton(
