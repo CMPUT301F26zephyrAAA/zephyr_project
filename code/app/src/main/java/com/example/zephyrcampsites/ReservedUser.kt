@@ -23,3 +23,14 @@ data class ReservedUser(
     val cancelled: Boolean = false,
     val lotteryId: String? = null
 ) : DataHolder(id)
+
+/** Matches an explicit offer link or an overlapping stay from a legacy reservation. */
+internal fun ReservedUser.usesLotteryOffer(lottery: Lottery): Boolean {
+    if (!lotteryId.isNullOrEmpty()) {
+        return lotteryId == lottery.id
+    }
+    val start = bookedPeriodStart?.time ?: return false
+    val end = bookedPeriodEnd?.time ?: return false
+    return !cancelled && campsiteId == lottery.campsiteId &&
+        start < end && start < lottery.bookingEnd && lottery.bookingStart < end
+}

@@ -5,6 +5,7 @@ const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {FieldValue} = require("firebase-admin/firestore");
 const {getStorage} = require("firebase-admin/storage");
 const logger = require("firebase-functions/logger");
+const {usesLotteryOffer} = require("./sharedLotteries");
 
 /**
  * Builds the authenticated account endpoints used by the Android app.
@@ -252,13 +253,7 @@ module.exports = (db) => {
       );
       // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
       if (
-        bookings.docs.some(
-            (booking) =>
-              booking.get("lotteryId") === lotteryId ||
-              (!booking.get("lotteryId") &&
-                booking.get("campsiteId") === lottery.get("campsiteId") &&
-                booking.get("cancelled") !== true),
-        )
+        bookings.docs.some((booking) => usesLotteryOffer(booking, lotteryId, lottery.data()))
       ) {
         throw new HttpsError(
             "failed-precondition",

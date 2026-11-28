@@ -418,9 +418,7 @@ class CampsiteDetailView {
                                 accountId = accountId,
                                 onSuccess = { existing ->
                                     hasExistingReservation = existing.any {
-                                        it.lotteryId == lottery.id ||
-                                            (it.lotteryId == null && !it.cancelled &&
-                                                it.campsiteId == lottery.campsiteId)
+                                        it.usesLotteryOffer(lottery)
                                     }
                                     checkingReservations = false
                                 },

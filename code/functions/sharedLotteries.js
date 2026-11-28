@@ -7,6 +7,24 @@ const validId = (value) => typeof value === "string" &&
   /^[^/]{1,128}$/.test(value) && !/^(__.*__|\.{1,2})$/.test(value);
 const overlaps = (start, end, otherStart, otherEnd) =>
   start < otherEnd && otherStart < end;
+/** Checks explicit offer links and infers legacy links only within the lottery period.
+ * @param {Object} booking Reservation snapshot.
+ * @param {string} lotteryId Lottery document ID.
+ * @param {Object} lottery Lottery data.
+ * @return {boolean} Whether the reservation uses this offer.
+ */
+function usesLotteryOffer(booking, lotteryId, lottery) {
+  const bookedLotteryId = booking.get("lotteryId");
+  if (bookedLotteryId) {
+    return bookedLotteryId === lotteryId;
+  }
+  const start = booking.get("bookedPeriodStart")?.toMillis?.();
+  const end = booking.get("bookedPeriodEnd")?.toMillis?.();
+  return booking.get("campsiteId") === lottery.campsiteId &&
+    booking.get("cancelled") !== true && start < end &&
+    overlaps(start, end, lottery.bookingStart, lottery.bookingEnd);
+}
+
 const sitesFor = (lottery) => lottery.campsiteIds?.length ?
   lottery.campsiteIds : [lottery.campsiteId];
 function sharedLotteryHandlers(db, {
@@ -188,10 +206,7 @@ function sharedLotteryHandlers(db, {
       }
 
       const prior = await transaction.get(reservations.where("accountId", "==", accountId));
-      if (prior.docs.some((booking) => booking.get("lotteryId") === lotteryId ||
-        (!booking.get("lotteryId") &&
-          booking.get("campsiteId") === lottery.campsiteId &&
-          booking.get("cancelled") !== true))) {
+      if (prior.docs.some((booking) => usesLotteryOffer(booking, lotteryId, lottery))) {
         fail("already-exists", "A reservation already exists for this offer.");
       }
 
@@ -228,3 +243,4 @@ module.exports = (db) => {
   };
 };
 module.exports.sharedLotteryHandlers = sharedLotteryHandlers;
+module.exports.usesLotteryOffer = usesLotteryOffer;

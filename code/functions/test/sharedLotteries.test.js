@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const {test} = require("node:test");
 const {sharedLotteryHandlers} = require("../sharedLotteries");
+const accountActions = require("../accountActions");
 
 class TestHttpsError extends Error {
   constructor(code, message) {
@@ -69,7 +70,7 @@ function fixture() {
     Timestamp: {fromMillis: timestamp},
     FieldValue: {serverTimestamp: () => 1},
   });
-  return {rows, ...handlers};
+  return {db, rows, ...handlers};
 }
 
 const request = (uid, data) => ({auth: {uid}, data});
@@ -187,3 +188,51 @@ test("a site's available period and the winner's decline are enforced at confirm
   await assert.rejects(f.confirmLotteryBooking(request("a", {...validStay, checkOnly: false})),
       {code: "permission-denied"});
 });
+
+test("past legacy reservations do not consume a new winning offer", async () => {
+  const f = fixture();
+  await draw(f);
+  f.rows["reservation/old"] = {
+    accountId: "auth_a",
+    campsiteId: "1",
+    bookedPeriodStart: timestamp(2),
+    bookedPeriodEnd: timestamp(30),
+    cancelled: false,
+  };
+
+  await f.confirmLotteryBooking(request("a", {...stay, campsiteId: "1"}));
+});
+
+test("a legacy reservation overlapping the lottery still consumes the offer", async () => {
+  const f = fixture();
+  await draw(f);
+  f.rows["reservation/legacy"] = {
+    accountId: "auth_a",
+    campsiteId: "1",
+    bookedPeriodStart: timestamp(25),
+    bookedPeriodEnd: timestamp(31),
+    cancelled: false,
+  };
+
+  await assert.rejects(f.confirmLotteryBooking(request("a", stay)),
+      {code: "already-exists", message: "A reservation already exists for this offer."});
+});
+
+test("the decline callable rejects a confirmed booking on a secondary campsite", async () => {
+  const f = fixture();
+  await draw(f);
+  await f.confirmLotteryBooking(request("a", stay));
+
+  const {declineLotteryOffer} = accountActions(f.db);
+  await assert.rejects(
+      declineLotteryOffer.run(request("a", {
+        accountId: "auth_a",
+        lotteryId: "shared",
+      })),
+      {code: "failed-precondition", message: "Cancel your existing reservation instead."},
+  );
+
+  assert.equal(f.rows["waitingList/shared_auth_a"].drawStatus, "WINNER");
+  assert.equal(f.rows["lotteryDrawResults/shared"].declinedIds, undefined);
+});
+
