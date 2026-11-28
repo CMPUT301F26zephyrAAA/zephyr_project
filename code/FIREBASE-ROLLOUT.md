@@ -50,6 +50,48 @@ conversation, and both parties can use it after checkout while the booking remai
 uncancelled. Deploy the chat rules, unread-message index, and updated
 `listOwnerReservations` callable with the chat-enabled Android build.
 
+## Owner reservation chat release (PR #153)
+
+Use a release revision that includes [PR #153](https://github.com/CMPUT301F26zephyrAAA/zephyr_project/pull/153)
+and the callable-backed lottery app and rules from
+[PR #154](https://github.com/CMPUT301F26zephyrAAA/zephyr_project/pull/154).
+The live lottery rules require `createLottery` and `updateLottery` for creation
+and date changes. Confirm those callables are active and the release app uses them.
+
+1. Export the active default Firestore release and record its ruleset ID for rollback.
+   Compare its source with the release revision's `code/firestore.rules`. The
+   changes for this rollout should be limited to chat. Keep the deployed lottery
+   and waitlist rules, including the transaction-backed count updates. Resolve
+   any other drift before publishing the full Firestore rules file.
+2. Verify the existing `messages` index on `senderAccountId` (ascending) and
+   `sentAt` (descending) is ready. Stage the Android build and validate it with
+   the release rules in the Firebase emulators. Update only the
+   `listOwnerReservations` callable so its results include both `campsiteId`
+   and `entrantAccountId`. Use a checkout with LF line endings for the
+   Functions predeploy lint. Run from `code/` during the coordinated release.
+
+   ```powershell
+   firebase deploy --project zephyrproject-aa324 --only functions:listOwnerReservations
+   ```
+
+3. Pause chat use for the switch and publish the reviewed Firestore rules, then
+   distribute the staged build in the same release window. The old
+   `reservationChatAccess` rules reject messages with the new fields. The new
+   rules require both fields on every message create, so older builds must
+   upgrade before sending again. Existing history needs no backfill.
+
+   ```powershell
+   firebase deploy --project zephyrproject-aa324 --only firestore:rules
+   ```
+
+4. Once the rules have propagated, reopen the updated app as the owner and
+   entrant on a confirmed booking. Verify both can send, older messages remain
+   readable, and an unrelated account has no access. Smoke-test lottery creation,
+   date edits, and waitlist join and leave with the release build. If the
+   cutover must be reversed, restore the recorded ruleset and the previous
+   compatible app together. Admin Message Logs are tracked in
+   [US 03.12.01](https://github.com/CMPUT301F26zephyrAAA/zephyr_project/issues/60).
+
 Profile deletion commits the profile, bookings, registrations, and rating changes in one
 transaction. An unsuccessful transaction leaves the account usable and supports retry.
 Active and upcoming stays are cancelled and detached. Past stay records retain their
