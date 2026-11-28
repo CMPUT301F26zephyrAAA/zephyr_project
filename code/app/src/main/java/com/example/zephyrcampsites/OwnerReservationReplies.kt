@@ -46,23 +46,15 @@ internal fun OwnerReservationReplies(
     }
 
     val reservations = remember(bookings, campsite.id) {
-        bookings?.map { booking ->
-            ReservedUser(
-                id = booking.id,
-                accountId = booking.entrantAccountId,
-                campsiteId = campsite.id,
-                bookedPeriodStart = Date(booking.startMillis),
-                bookedPeriodEnd = Date(booking.endMillis),
-                cancelled = booking.cancelled
-            )
-        }
+        bookings?.mapNotNull(OwnerReservation::toChatReservation)
     }
     val selected = reservations?.firstOrNull { it.id == selectedId }
     BackHandler(enabled = selected != null) { selectedId = null }
     if (selected != null) {
         ReservationChatScreen(
             reservation = selected,
-            campsite = campsite,
+            ownerId = owner.id,
+            campsiteName = campsite.name,
             accountsController = accountsController,
             chatModel = chatModel,
             onBack = { selectedId = null },

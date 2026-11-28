@@ -1,4 +1,4 @@
-// Renders the active reservations returned by the authenticated owner-booking callable.
+// Renders the active and past reservations returned by the authenticated owner-booking callable.
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.clickable
@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -47,7 +48,8 @@ internal fun OwnerReservationsListView(
     onRetry: () -> Unit,
     onSelectTab: (OwnerReservationTab) -> Unit,
     onViewDetails: (OwnerReservation) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    listState: LazyListState
 ) {
     Column(
         modifier = Modifier
@@ -155,7 +157,10 @@ internal fun OwnerReservationsListView(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                     items(reservations, key = { it.id }) { reservation ->
                         OwnerReservationCard(
                             reservation = reservation,

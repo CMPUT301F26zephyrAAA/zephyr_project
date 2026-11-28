@@ -588,11 +588,16 @@ internal fun CampsitesNavigation(
 
                         composable(GeneralScreen.ViewReservations.route) {
                             AccountContent { owner ->
-                                OwnerReservationsScreen(
-                                    owner = owner,
-                                    controller = reservationsController,
-                                    onBack = onBack
-                                )
+                                if (OWNER in owner.userType) {
+                                    OwnerReservationsScreen(
+                                        owner = owner,
+                                        controller = reservationsController,
+                                        accountsController = accountsController,
+                                        onBack = onBack
+                                    )
+                                } else {
+                                    FeaturePage("Owner access required", onBack)
+                                }
                             }
                         }
 
