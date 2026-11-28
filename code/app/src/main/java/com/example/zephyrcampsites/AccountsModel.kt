@@ -48,8 +48,8 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     }
 
     /**
-     ** Retrieves an account using its device ID
-     * @param deviceID ID of the device
+     ** Retrieves an account using its Firebase Auth profile ID.
+     * @param deviceID Firebase Auth profile ID.
      * @param onResult Returns the account, or null if not found
      * @param onError Called if Firestore cannot read the document
      */
@@ -109,8 +109,8 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
                     "notificationsEnabled" to account.notificationsEnabled
                 ))
             }
-            account.userType = accountRoles(if (isAdmin) "admin" else null)
-            account
+            // Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
+            account.withVerifiedAdminRole(isAdmin)
         }
     }
 
@@ -283,7 +283,7 @@ open class AccountsModel(private val database: FirebaseFirestore? = null, privat
     /**
      * Saves the notification preference without changing other account fields.
      *
-     * @param deviceId Device identifier of the account.
+     * @param deviceId Firebase Auth profile ID.
      * @param enabled Whether the account may receive notifications.
      * @param onSuccess Called after the preference is saved.
      * @param onError Called if the preference cannot be saved.

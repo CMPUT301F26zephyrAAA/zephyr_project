@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
  * @param loadError Error message, if any.
  * @param removeRating Called when a rating is removed.
  * @param onBack Called when BACK is selected.
+ * @param ratingRemovalEnabled Whether the current admin check permits confirmation.
  */
 @Composable
 internal fun AdminRatingsScreen(
@@ -31,6 +32,7 @@ internal fun AdminRatingsScreen(
     loadError: String?,
     removeRating: (CampsiteRating, (Boolean) -> Unit, (String) -> Unit) -> Unit,
     onBack: () -> Unit,
+    ratingRemovalEnabled: Boolean = true,
 ) {
     var selected by remember { mutableStateOf<CampsiteRating?>(null) }
     var deleting by remember { mutableStateOf(false) }
@@ -101,12 +103,15 @@ internal fun AdminRatingsScreen(
                             if (rating.review.isNotBlank()) Text(rating.review)
                         }
 
-                        IconButton(
-                            onClick = { selected = rating },
-                            enabled = !deleting && loadError == null,
-                            modifier = Modifier.testTag("RemoveRating_${rating.accountId}"),
-                        ) {
-                            Icon(Icons.Filled.Delete, contentDescription = "Remove Rating")
+                        // Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
+                        if (rating.score in 1..5) {
+                            IconButton(
+                                onClick = { selected = rating },
+                                enabled = !deleting && loadError == null,
+                                modifier = Modifier.testTag("RemoveRating_${rating.accountId}"),
+                            ) {
+                                Icon(Icons.Filled.Delete, contentDescription = "Remove Rating")
+                            }
                         }
                     }
                     HorizontalDivider()
@@ -119,7 +124,15 @@ internal fun AdminRatingsScreen(
         AlertDialog(
             onDismissRequest = { selected = null },
             title = { Text("Remove Rating?") },
-            text = { Text("Are you sure you want to delete this rating?") },
+            text = {
+                Text(
+                    if (rating.review.isNotBlank()) {
+                        "Remove the star rating? The written review will stay visible."
+                    } else {
+                        "Are you sure you want to delete this rating?"
+                    },
+                )
+            },
             dismissButton = {
                 TextButton(onClick = { selected = null }) {
                     Text("No, Cancel")
@@ -127,7 +140,7 @@ internal fun AdminRatingsScreen(
             },
             confirmButton = {
                 TextButton(
-                    enabled = !deleting && loadError == null,
+                    enabled = ratingRemovalEnabled && !deleting && loadError == null,
                     onClick = {
                         selected = null
                         deleting = true
