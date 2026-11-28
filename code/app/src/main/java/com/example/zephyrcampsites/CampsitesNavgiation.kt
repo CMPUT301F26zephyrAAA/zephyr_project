@@ -1,4 +1,6 @@
+// Hiral - [AI-02] OpenAI ChatGPT Re-distribute MainActivity.kt
 // Connects the entrant, owner, and admin screens to their navigation routes.
+// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
 package com.example.zephyrcampsites
 
 import android.net.Uri
@@ -46,6 +48,7 @@ internal fun CampsitesNavigation(
     currentAccount: MutableState<Account?>,
     accountLoading: State<Boolean>,
     profileDeletionInProgress: MutableState<Boolean>,
+    adminRefreshInProgress: State<Boolean>,
     onRetryAccount: () -> Unit,
     onFinishActivity: () -> Unit
 ) {
@@ -94,6 +97,13 @@ internal fun CampsitesNavigation(
     val account = currentAccount.value
     val isLoading = accountLoading.value
     val isAdmin = !isLoading && account?.userType?.contains(ADMIN) == true
+
+    fun updateCurrentProfile(updated: Account) {
+        val latestAccount = currentAccount.value ?: return
+        if (latestAccount.id == updated.id) {
+            currentAccount.value = updated.copy(userType = latestAccount.userType)
+        }
+    }
 
     fun ownsCampsite(campsiteId: String?): Boolean {
         val owner = currentAccount.value ?: return false
@@ -236,7 +246,7 @@ internal fun CampsitesNavigation(
         }
         val entrantLotteries = if (role == ENTRANT) {
             lotteryModel.lotteries.filter { lottery ->
-                lottery.campsiteId == campsiteId.toString()
+                campsiteId.toString() in lottery.participatingCampsiteIds()
             }
         } else {
             emptyList()
@@ -328,6 +338,7 @@ internal fun CampsitesNavigation(
             showOwnerView = role == OWNER,
             showEntrantActions = role == ENTRANT,
             showAdminActions = role == ADMIN,
+            ratingRemovalEnabled = !adminRefreshInProgress.value,
             codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
             onBack = onBack,
             onEdit = if (canManage) {
@@ -346,7 +357,22 @@ internal fun CampsitesNavigation(
             } else {
                 null
             },
+            onReservationMessages = if (canManage) {
+                { navHostController.navigate(GeneralScreen.ReservationReplies.createRoute(campsiteId.toString())) }
+            } else {
+                null
+            },
+            onBookingCalendar = if (canManage) {
+                {
+                    navHostController.navigate(
+                        GeneralScreen.OwnerBookingCalendar.createRoute(campsiteId.toString())
+                    )
+                }
+            } else {
+                null
+            },
             lottery = campsiteLottery,
+            lotteryCampsiteNames = campsiteModel.campsites.associate { it.id to it.name },
             waitingListController = waitingListController,
             reservationOfferController = reservationOfferController,
             ratingController = ratingController,
@@ -452,9 +478,7 @@ internal fun CampsitesNavigation(
                             AccountsView().ProfileView(
                                 account = profileAccount,
                                 accountsController = accountsController,
-                                onSaved = { updated ->
-                                    currentAccount.value = updated
-                                },
+                                onSaved = ::updateCurrentProfile,
                                 onBack = onBack
                             )
                         }
@@ -513,7 +537,13 @@ internal fun CampsitesNavigation(
                                 val ownedLotteries = lotteryModel.lotteries.filter {
                                     ownsCampsite(it.campsiteId)
                                 }
-                                LotteryListScreen("My Lotteries", onBack) {
+                                LotteryListScreen(
+                                    title = "My Lotteries",
+                                    onBack = onBack,
+                                    onCreateLottery = {
+                                        navHostController.navigate("${GeneralScreen.LotterySettings.route}/select")
+                                    }
+                                ) {
                                     if (ownedLotteries.isEmpty()) {
                                         item {
                                             Text("No lotteries to show.", modifier = Modifier.padding(12.dp))
@@ -529,7 +559,7 @@ internal fun CampsitesNavigation(
                         }
 
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(
                             route = "$OWNER/notifyEntrants/{lotteryId}",
                             arguments = listOf(navArgument("lotteryId") { type = NavType.StringType })
@@ -545,7 +575,10 @@ internal fun CampsitesNavigation(
                                         accountId = owner.id,
                                         lottery = lottery,
                                         controller = notificationController,
-                                        onBack = onBack
+                                        onBack = onBack,
+                                        onViewSent = {
+                                            navHostController.navigate(GeneralScreen.SentNotifications.route)
+                                        }
                                     )
                                 } else {
                                     FeaturePage("Only the campsite owner can notify entrants.", onBack)
@@ -560,6 +593,81 @@ internal fun CampsitesNavigation(
                                     controller = reservationsController,
                                     onBack = onBack
                                 )
+                            }
+                        }
+
+                        // AI Citation [AI-40]
+                        // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated the owner history routes.
+                        // See Bhav's entry in the team's AI Documentation Google Doc.
+                        composable(GeneralScreen.SentNotifications.route) {
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType) {
+                                    SentLotteryNotificationsScreen(owner.id, notificationController, onBack) { id ->
+                                        val route = GeneralScreen.SentNotifications.route
+                                        navHostController.navigate("$route/${Uri.encode(id)}")
+                                    }
+                                } else {
+                                    FeaturePage("Owner access required", onBack)
+                                }
+                            }
+                        }
+
+                        composable(
+                            route = GeneralScreen.SentNotificationDetails.route,
+                            arguments = listOf(navArgument("notificationId") { type = NavType.StringType })
+                        ) { entry ->
+                            val id = entry.arguments?.getString("notificationId") ?: return@composable
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType) {
+                                    SentLotteryNotificationDetailsScreen(owner.id, id, notificationController, onBack)
+                                } else {
+                                    FeaturePage("Owner access required", onBack)
+                                }
+                            }
+                        }
+
+                        composable(
+                            route = GeneralScreen.ReservationReplies.route,
+                            arguments = listOf(navArgument("campsiteId") { type = NavType.StringType })
+                        ) { entry ->
+                            val campsiteId = entry.arguments?.getString("campsiteId") ?: return@composable
+                            AccountContent { owner ->
+                                val campsite = campsiteModel.campsites.firstOrNull {
+                                    it.id == campsiteId && it.ownerID == owner.id
+                                }
+                                if (campsite != null && OWNER in owner.userType) {
+                                    OwnerReservationReplies(
+                                        owner, campsite, reservationsController, accountsController, onBack
+                                    )
+                                } else {
+                                    FeaturePage("Only the campsite owner can open these reservations.", onBack)
+                                }
+                            }
+                        }
+
+                        composable(
+                            route = GeneralScreen.OwnerBookingCalendar.route,
+                            arguments = listOf(navArgument("campsiteId") { type = NavType.StringType })
+                        ) { entry ->
+                            val campsiteId = entry.arguments?.getString("campsiteId")
+                                ?: return@composable
+                            AccountContent { owner ->
+                                val campsite = campsiteModel.campsites.firstOrNull {
+                                    it.id == campsiteId && it.ownerID == owner.id
+                                }
+                                if (campsite != null && OWNER in owner.userType) {
+                                    OwnerBookingCalendarScreen(
+                                        campsite = campsite,
+                                        owner = owner,
+                                        controller = reservationsController,
+                                        onBack = onBack
+                                    )
+                                } else {
+                                    FeaturePage(
+                                        "Only the campsite owner can open this booking calendar.",
+                                        onBack
+                                    )
+                                }
                             }
                         }
 
@@ -617,15 +725,21 @@ internal fun CampsitesNavigation(
                                 entry.arguments?.getString("campsiteId")
                                     ?: return@composable
 
-                            AccountContent {
-                                if (ownsCampsite(campsiteId)) {
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType &&
+                                    (campsiteId == "select" || ownsCampsite(campsiteId))
+                                ) {
                                     lotteryView.LotterySettingsView(
-                                        campsiteId = campsiteId,
+                                        campsiteId = campsiteId.takeUnless { it == "select" },
+                                        ownedCampsites = campsiteModel.campsites.filter {
+                                            it.ownerID == owner.id
+                                        },
                                         onLotteryCreated = { id ->
-                                            openLottery(
-                                                OWNER,
-                                                id
-                                            )
+                                            if (campsiteId == "select") {
+                                                onBack()
+                                            } else {
+                                                openLottery(OWNER, id)
+                                            }
                                         },
                                         onBackClick = onBack
                                     )
@@ -669,7 +783,7 @@ internal fun CampsitesNavigation(
                         }
                     } else {
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(GeneralScreen.LotteryNotifications.route) {
                             AccountContent { entrant ->
                                 LotteryNotificationsScreen(entrant, notificationController, onBack)
@@ -680,6 +794,7 @@ internal fun CampsitesNavigation(
                             AccountContent { entrant ->
                                 MyTripsNavigation(
                                     accountId = entrant.id,
+                                    accountsController = accountsController,
                                     reservationsController = reservationsController,
                                     campsiteForId = { id ->
                                         campsiteModel.campsites.firstOrNull { it.id == id }
@@ -932,7 +1047,7 @@ internal fun CampsitesNavigation(
                             AccountsView().ProfileView(
                                 account = profileAccount,
                                 accountsController = accountsController,
-                                onSaved = { updated -> currentAccount.value = updated },
+                                onSaved = ::updateCurrentProfile,
                                 onBack = onBack
                             )
                         }

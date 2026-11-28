@@ -17,6 +17,7 @@ setGlobalOptions({maxInstances: 1});
 
 Object.assign(exports, require("./lotteryNotifications")(db));
 Object.assign(exports, require("./accountActions")(db));
+Object.assign(exports, require("./sharedLotteries")(db));
 Object.assign(exports, require("./lotteryActions")(db));
 
 /**

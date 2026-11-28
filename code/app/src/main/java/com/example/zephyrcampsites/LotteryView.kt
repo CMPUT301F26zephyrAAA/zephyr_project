@@ -33,12 +33,18 @@ class LotteryView (
     /**
      * Displays the lottery settings for the selected campsite.
      *
-     * @param campsiteId ID of the campsite being added to the lottery.
+     * @param campsiteId Initially selected campsite, if opened from its details.
      */
 
     @Composable
-    fun LotterySettingsView(campsiteId: String, onLotteryCreated: (String) -> Unit,
-                            onBackClick: () -> Unit) {
+    fun LotterySettingsView(
+        campsiteId: String?,
+        ownedCampsites: List<Campsite>,
+        onLotteryCreated: (String) -> Unit,
+        onBackClick: () -> Unit
+    ) {
+        var selectedIds by remember(campsiteId) { mutableStateOf(listOfNotNull(campsiteId)) }
+        var publishing by remember { mutableStateOf(false) }
 
         var lotteryName by remember { mutableStateOf("") }
 
@@ -72,6 +78,25 @@ class LotteryView (
 
 
             Spacer(modifier = Modifier.height(24.dp))
+            // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+            Text("Participating campsites")
+            if (ownedCampsites.isEmpty()) {
+                Text("Register a campsite before creating a lottery.")
+            }
+            ownedCampsites.forEach { campsite ->
+                val id = campsite.id
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = id in selectedIds,
+                        enabled = !publishing,
+                        onCheckedChange = { checked ->
+                            selectedIds = if (checked) selectedIds + id else selectedIds - id
+                        }
+                    )
+                    Text(campsite.name)
+                }
+            }
+
             Text(
                 text = "Lottery Name:",
                 color = Color(0xFF2E8B75)
@@ -209,6 +234,7 @@ class LotteryView (
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Button(
+                    enabled = selectedIds.isNotEmpty() && !publishing,
                     onClick = {
                     try {
                         // Parse registration dates and times using a fixed format.
@@ -262,10 +288,11 @@ class LotteryView (
                         if (waitlistCapacity.isNotBlank() && (capacity == null || capacity <= 0)) {
                             message = "Waitlist capacity must be a positive whole number."
                         } else {
+                            publishing = true
                             lotteryController.createLottery(
                                 // Use the selected campsite ID instead of a fixed test ID.
                                 lotteryName = lotteryName,
-                                campsiteId = campsiteId,
+                                campsiteIds = selectedIds,
                                 registrationStart = start,
                                 registrationEnd = end,
                                 bookingStart = bookingStartTime,
@@ -274,11 +301,13 @@ class LotteryView (
                                 waitlistCapacity = capacity,
                                 // Navigate only after Firebase confirms the save.
                                 onSuccess = { lotteryId ->
+                                    publishing = false
                                     onLotteryCreated(lotteryId)
                                 },
 
                                 // Display an error if Firebase cannot save the lottery.
                                 onFailure = { exception ->
+                                    publishing = false
                                     message = "Failed to publish lottery: ${exception.message}"
                                 }
                             )
@@ -287,6 +316,7 @@ class LotteryView (
 
 
                     } catch (e: IllegalArgumentException) {
+                        publishing = false
                         message = e.message ?: "Invalid input."
                     } catch (e: java.text.ParseException) {
                         message = "Enter dates and times as YYYY-MM-DD HH:mm."
@@ -397,7 +427,7 @@ class LotteryView (
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("Campsite ID: ${lottery.campsiteId}")
+            Text("Participating campsites: ${lottery.participatingCampsiteIds().joinToString()}")
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -501,7 +531,7 @@ class LotteryView (
                 }
 
                 // AI Citation [AI-39]
-                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the Bhav Saluja entry in README.md.
+                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the team AI Documentation Google Doc.
                 Button(
                     onClick = { onNotifyClick?.invoke() },
                     enabled = onNotifyClick != null,

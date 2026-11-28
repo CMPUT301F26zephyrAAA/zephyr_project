@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 // OpenAI, ChatGPT assisted with reservation offer
 // status display and decline confirmation UI.
 // AI usage and citation documented in the GitHub Wiki.
+// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
 
 import android.content.Intent
 import androidx.compose.foundation.Image
@@ -78,6 +79,8 @@ class CampsiteDetailView {
      * @param codeGenerator Function that generates the campsite QR code.
      * @param onBack Returns to the previous screen.
      * @param onManageLottery Opens lottery management for this campsite.
+     * @param onReservationMessages Opens replies for reservations at this campsite.
+     * @param onBookingCalendar Opens the selected campsite's booking calendar.
      * @param ratingController Controller used to check rating eligibility.
      * @param onRateCampsite Opens the rating screen for an eligible entrant.
      * @param onRemoved Returns to browsing after successful removal.
@@ -96,12 +99,16 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         reservationOfferController: ReservationOfferController? = null,
+        lotteryCampsiteNames: Map<String, String> = emptyMap(),
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
         onRemoved: () -> Unit = onBack,
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
+        onReservationMessages: (() -> Unit)? = null,
+        onBookingCalendar: (() -> Unit)? = null,
         adminRatingGateway: AdminRatingGateway? = null,
+        ratingRemovalEnabled: Boolean = true,
     ) {
         var removing by remember(campsiteId) { mutableStateOf(false) }
         var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
@@ -161,6 +168,7 @@ class CampsiteDetailView {
             showEntrantActions = showEntrantActions,
             showAdminActions = showAdminActions,
             adminRatingGateway = adminRatingGateway,
+            ratingRemovalEnabled = ratingRemovalEnabled,
             imageUrl = imageUrl,
             ownerName = ownerName,
             isLoading = model.isLoading,
@@ -172,9 +180,12 @@ class CampsiteDetailView {
             },
             onManageLottery = onManageLottery,
             onEdit = onEdit,
+            onReservationMessages = onReservationMessages,
+            onBookingCalendar = onBookingCalendar,
             lottery = lottery,
             waitingListController = waitingListController,
             reservationOfferController = reservationOfferController,
+            lotteryCampsiteNames = lotteryCampsiteNames,
             ratingController = ratingController,
             onRateCampsite = onRateCampsite,
             removing = removing,
@@ -216,6 +227,8 @@ class CampsiteDetailView {
      * @param ownerName Owner's display name, falling back to the stored owner ID.
      * @param statusText Message displayed when the campsite is unavailable.
      * @param onManageLottery Called when the owner opens lottery management.
+     * @param onReservationMessages Called when the owner opens reservation messages.
+     * @param onBookingCalendar Called when the owner opens the booking calendar.
      * @param ratingController Controller used to offer ratings only after a completed stay.
      * @param onRateCampsite Opens the rating screen for this campsite.
      * @param removing Whether removal is pending.
@@ -240,6 +253,7 @@ class CampsiteDetailView {
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
         reservationOfferController: ReservationOfferController? = null,
+        lotteryCampsiteNames: Map<String, String> = emptyMap(),
         previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
@@ -248,7 +262,10 @@ class CampsiteDetailView {
         onRemove: () -> Unit = {},
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
+        onReservationMessages: (() -> Unit)? = null,
+        onBookingCalendar: (() -> Unit)? = null,
         adminRatingGateway: AdminRatingGateway? = null,
+        ratingRemovalEnabled: Boolean = true,
     ) {
 
         val canRemoveCampsite = showAdminActions && account?.userType?.contains("admin") == true
@@ -296,6 +313,7 @@ class CampsiteDetailView {
                 campsiteName = campsite.name,
                 ratings = ratingRows.orEmpty(),
                 loadError = ratingLoadError,
+                ratingRemovalEnabled = ratingRemovalEnabled,
                 removeRating = { selected, onResult, onError ->
                     moderationModel.removeAdminRating(
                         campsiteId = ratingsCampsiteId,
@@ -351,6 +369,7 @@ class CampsiteDetailView {
         var drawStatusError by remember(lottery?.id, accountId) { mutableStateOf("") }
         var checkingReservations by remember(lottery?.id, accountId) { mutableStateOf(true) }
         var hasExistingReservation by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var justConfirmed by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var reservationCheckError by remember(lottery?.id, accountId) { mutableStateOf("") }
         val reservationsModel = remember { ReservationsModel() }
 
@@ -413,7 +432,7 @@ class CampsiteDetailView {
                                 accountId = accountId,
                                 onSuccess = { existing ->
                                     hasExistingReservation = existing.any {
-                                        it.campsiteId == lottery.campsiteId && !it.cancelled
+                                        it.usesLotteryOffer(lottery)
                                     }
                                     checkingReservations = false
                                 },
@@ -626,9 +645,21 @@ class CampsiteDetailView {
                                         text = reservationCheckError,
                                         color = MaterialTheme.colorScheme.error
                                     )
+                                } else if (justConfirmed) {
+                                    Text("Reservation confirmed. View it in My Trips.")
                                 } else if (hasExistingReservation) {
-                                    Text("Reservation already created. Use Cancel Reservation in My Trips.")
+                                    Text("This lottery offer has already been used. See My Trips.")
                                 } else if (reservationOfferController != null) {
+                                    if (System.currentTimeMillis() < lottery.bookingEnd) {
+                                        LotteryBookingPicker(
+                                            lottery = lottery,
+                                            campsiteNames = lotteryCampsiteNames +
+                                                (campsite.id to campsite.name),
+                                            initialCampsiteId = campsite.id,
+                                            controller = reservationOfferController,
+                                            onConfirmed = { justConfirmed = true }
+                                        )
+                                    }
                                     var showDeclineConfirmation by remember(lottery.id, accountId) {
                                         mutableStateOf(false)
                                     }
@@ -811,7 +842,32 @@ class CampsiteDetailView {
                                 onEdit = onEdit,
                                 onManageLottery = onManageLottery
                             )
-
+                            if (onReservationMessages != null) {
+                                Button(onClick = onReservationMessages, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Reservation Messages")
+                                }
+                            }
+                            onBookingCalendar?.let { openBookingCalendar ->
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Booking Management",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                OutlinedButton(
+                                    onClick = openBookingCalendar,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("ViewBookingCalendar")
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text("View Booking Calendar")
+                                        Text(
+                                            text = "View booked and available dates",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }

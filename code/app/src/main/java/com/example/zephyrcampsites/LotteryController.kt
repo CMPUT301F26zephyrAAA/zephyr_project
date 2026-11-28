@@ -29,7 +29,7 @@ class LotteryController(
      */
     fun createLottery(
         lotteryName: String,
-        campsiteId: String,
+        campsiteIds: List<String>, // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
         registrationStart: Long,
         registrationEnd: Long,
         bookingStart: Long,
@@ -41,7 +41,7 @@ class LotteryController(
     ): String {
         return lotteryModel.createLottery(
             lotteryName = lotteryName,
-            campsiteId = campsiteId,
+            campsiteIds = campsiteIds,
             registrationStart = registrationStart,
             registrationEnd = registrationEnd,
             bookingStart = bookingStart,
@@ -61,7 +61,7 @@ class LotteryController(
      */
     fun getLotteryByCampsiteId(campsiteId: String): Lottery? {
         return lotteryModel.lotteries.find {
-            it.campsiteId == campsiteId
+            campsiteId in it.participatingCampsiteIds()
         }
     }
 

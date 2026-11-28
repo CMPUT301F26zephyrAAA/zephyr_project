@@ -25,4 +25,24 @@ class AccountTest {
         val account = Account("testDevice123")
         assertEquals("testDevice123", account.id)
     }
+
+    @Test
+    fun missingAdminClaimOverridesSavedAdminRole() {
+        val saved = Account("auth_user", listOf("entrant", "owner", "admin"), name = "Taylor")
+
+        assertEquals(
+            saved.copy(userType = listOf("entrant", "owner")),
+            saved.withVerifiedAdminRole(false)
+        )
+    }
+
+    @Test
+    fun verifiedAdminClaimGrantsAdminRoleWithoutSavedAdminRole() {
+        val saved = Account("auth_user")
+
+        assertEquals(
+            saved.copy(userType = listOf("entrant", "owner", "admin")),
+            saved.withVerifiedAdminRole(true)
+        )
+    }
 }

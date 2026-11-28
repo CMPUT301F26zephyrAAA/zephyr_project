@@ -1,7 +1,7 @@
 // Verifies notification callables and client access on local Firebase.
 // AI Citation [AI-39]
 // OpenAI, Codex, US 02.10.01 integration tests, 2026-11-27.
-// See the Bhav Saluja entry in README.md.
+// See the team AI Documentation Google Doc.
 const assert = require("node:assert/strict");
 const {randomUUID} = require("node:crypto");
 const {before, test} = require("node:test");
@@ -9,6 +9,7 @@ const {initializeApp} = require("firebase-admin/app");
 const {getAuth} = require("firebase-admin/auth");
 const {getFirestore, Timestamp} = require("firebase-admin/firestore");
 const {getStorage} = require("firebase-admin/storage");
+const lotteryNotifications = require("../lotteryNotifications");
 
 const projectId = "demo-zephyr-notifications";
 const auth = "http://127.0.0.1:9099";
@@ -468,6 +469,24 @@ test("owner booking scope and server-time cancellation", async () => {
       ).result.reservations.map((row) => row.id),
       [other.id],
   );
+  // AI Citation [AI-43] (Bhav Saluja)
+  // OpenAI, Codex, November 27, 2026. Verified owner chat's campsite scope.
+  // See the team AI Documentation Google Doc.
+  const scopedList = (
+    await call("listOwnerReservations", owner, {campsiteId})
+  ).result.reservations;
+  assert.deepEqual(
+      new Set(scopedList.map((row) => row.id)),
+      new Set([future.id, checkedIn.id]),
+  );
+  assert.ok(scopedList.every(
+      (row) => row.entrantAccountId === reviewer.accountId,
+  ));
+  assert.equal(
+      (await call("listOwnerReservations", outsider, {campsiteId}))
+          .error.status,
+      "PERMISSION_DENIED",
+  );
   assert.equal((await read(owner, other.path)).status, 403);
   assert.equal((await read(owner, future.path)).status, 200);
   const cancel = (actor, booking) => {
@@ -493,7 +512,7 @@ test("owner booking scope and server-time cancellation", async () => {
   assert.equal((await cancel(owner, future)).status, 403);
 });
 
-test("moderation checks the version and updates the average", async () => {
+test("moderation preserves reviews and updates the average", async () => {
   const {reviewer, outsider, admin} = accounts;
   const campsiteId = "rated-site-" + suffix;
   const reservationId = "completed-" + suffix;
@@ -504,6 +523,9 @@ test("moderation checks the version and updates the average", async () => {
     rating: [4],
     averageRating: 4,
   });
+  const scoreOnly = site.collection("ratings").doc(outsider.accountId);
+  const scoreOnlyVersion = Timestamp.now();
+  await scoreOnly.set({score: 4, updatedAt: scoreOnlyVersion});
   await reservation.set({
     ...validBooking,
     accountId: reviewer.accountId,
@@ -576,7 +598,33 @@ test("moderation checks the version and updates the average", async () => {
   );
   assert.deepEqual((await site.get()).get("rating"), [4]);
   assert.equal((await site.get()).get("averageRating"), 4);
-  assert.equal((await score.get()).exists, false);
+  const remaining = await score.get();
+  assert.equal(remaining.get("score"), undefined);
+  assert.equal(remaining.get("review"), "Edited review.");
+  assert.equal(remaining.get("reservationId"), reservationId);
+  assert.equal((await read(reviewer, score.path)).status, 200);
+  assert.equal(
+      (await call("removeCampsiteFeedback", admin, removal)).error.status,
+      "FAILED_PRECONDITION",
+  );
+  assert.equal((await score.get()).get("review"), "Edited review.");
+  assert.equal((await site.get()).get("averageRating"), 4);
+
+  assert.deepEqual(
+      (await call("removeCampsiteFeedback", admin, {
+        ...removal,
+        accountId: outsider.accountId,
+        updatedAt: {
+          seconds: scoreOnlyVersion.seconds,
+          nanoseconds: scoreOnlyVersion.nanoseconds,
+        },
+      })).result,
+      {},
+  );
+  assert.equal((await scoreOnly.get()).exists, false);
+  const unrated = await site.get();
+  assert.deepEqual(unrated.get("rating"), []);
+  assert.equal(unrated.get("averageRating"), undefined);
 });
 
 test("verified admin can moderate managed campsite images", async () => {
@@ -961,3 +1009,272 @@ test("everyone uses current membership and honors opt-outs", async () => {
   );
   assert.deepEqual((await inbox(late)).result, []);
 });
+
+// AI Citation [AI-40]
+// OpenAI, Codex, US 02.10.02, 2026-11-27. Generated history emulator tests.
+// See Bhav's entry in the team's AI Documentation Google Doc.
+test("sent history returns only the owner's records in newest-first order",
+    async () => {
+      const {owner, allowed, optedOut, outsider, admin} = accounts;
+      const saved = db.collection("lotteryNotifications");
+      const history = "listSentLotteryNotifications";
+      const details = "getSentLotteryNotification";
+      const newest = {
+        senderAccountId: owner.accountId,
+        lotteryId,
+        lotteryName: "Whispering Pines",
+        campsiteId,
+        message: "Check the updated arrival instructions.",
+        allEntrants: true,
+        intendedRecipientIds: [
+          allowed.accountId, optedOut.accountId, `auth_deleted-${suffix}`,
+        ],
+        deliveredRecipientIds: [allowed.accountId],
+        sentAt: new Timestamp(2, 2000),
+      };
+      const newestId = `history-z-new-${suffix}`;
+      const oldestId = `history-a-old-${suffix}`;
+      const privateId = `history-private-${suffix}`;
+      await saved.doc(newestId).set(newest);
+      await saved.doc(oldestId).set({
+        ...newest,
+        message: "The south gate is closed.",
+        sentAt: new Timestamp(2, 1000),
+      });
+      await saved.doc(privateId).set({
+        ...newest,
+        senderAccountId: outsider.accountId,
+      });
+
+      const summary = {
+        id: newestId,
+        lotteryName: newest.lotteryName,
+        message: newest.message,
+        sentAtMillis: 2000,
+        intended: 3,
+        delivered: 1,
+      };
+      const {result: sent} = await call(history, owner, {});
+      const ids = sent.map((notification) => notification.id);
+      assert.deepEqual(ids.slice(-2), [newestId, oldestId]);
+      assert.equal(ids.includes(privateId), false);
+      assert.deepEqual(sent.at(-2), summary);
+      assert.deepEqual(await call(details, owner, {notificationId: newestId}), {
+        result: {
+          ...summary,
+          recipients: [
+            {name: "allowed", delivered: true},
+            {name: "optedOut", delivered: false},
+            {name: "Unnamed entrant", delivered: false},
+          ],
+        },
+      });
+
+      assert.deepEqual(await call(history, admin, {}), {result: []});
+      assert.equal((await call(history, null, {})).error.status,
+          "UNAUTHENTICATED");
+      assert.equal((await call(history, outsider, {
+        accountId: owner.accountId,
+      })).error.status, "PERMISSION_DENIED");
+      for (const account of [outsider, admin]) {
+        assert.equal((await call(details, account, {
+          notificationId: newestId,
+        })).error.status, "NOT_FOUND");
+        assert.equal((await read(account,
+            `lotteryNotifications/${newestId}`)).status, 403);
+      }
+      assert.equal((await read(owner, `lotteryNotifications/${newestId}`))
+          .status, 403);
+    });
+
+// AI Citation [AI-41]
+// OpenAI, Codex, US 02.10.02, 2026-11-27. Generated failure and retry tests.
+// See Bhav's entry in the team's AI Documentation Google Doc.
+test("records a failed send without delivering or exposing unrelated profiles",
+    async () => {
+      const {owner, allowed, outsider} = accounts;
+      const id = `history-lottery-${suffix}`;
+      const message = "Please use the marked parking bays.";
+      const draft = {
+        lotteryId: id,
+        message,
+        requestId: randomUUID(),
+        allEntrants: false,
+        recipientIds: [allowed.accountId, outsider.accountId],
+      };
+      await db.doc(`lottery/${id}`).set({
+        lotteryName: "North Pines",
+        campsiteId,
+      });
+      await db.doc(`waitingList/${id}_${allowed.accountId}`).set({
+        lotteryId: id,
+        accountId: allowed.accountId,
+      });
+      const previousInbox = await inbox(allowed);
+
+      const {error} = await send(owner, draft);
+      assert.equal(error.status, "FAILED_PRECONDITION");
+      assert.equal(error.details.recordedFailure, true);
+      assert.deepEqual(await send(owner, draft), {error});
+      assert.equal((await send(owner, {...draft, message: "Changed"}))
+          .error.status, "ALREADY_EXISTS");
+
+      const history = "listSentLotteryNotifications";
+      const {result} = await call(history, owner, {});
+      const entries = result.filter((row) => row.message === message);
+      assert.equal(entries.length, 1);
+      const [failure] = entries;
+      assert.equal(failure.failureReason, error.message);
+      assert.equal(failure.delivered, 0);
+      const details = "getSentLotteryNotification";
+      const detail = await call(details, owner, {notificationId: failure.id});
+      assert.deepEqual(detail.result.recipients, [
+        {name: "allowed", delivered: false},
+      ]);
+      assert.deepEqual(await inbox(allowed), previousInbox);
+      assert.equal((await call(details, outsider, {
+        notificationId: failure.id,
+      })).error.status, "NOT_FOUND");
+
+      await db.doc(`waitingList/${id}_${outsider.accountId}`).set({
+        lotteryId: id,
+        accountId: outsider.accountId,
+      });
+      const delivered = {result: {intended: 2, delivered: 2}};
+      assert.deepEqual(await send(owner, draft), delivered);
+      assert.deepEqual(await send(owner, draft), delivered);
+      const updated = (await call(history, owner, {})).result
+          .filter((row) => row.message === message);
+      assert.equal(updated.length, 2);
+      assert.equal(updated[0].delivered, 2);
+      assert.deepEqual(updated[1], failure);
+    });
+
+test("recovers failed transactions and preserves sends with a lost response",
+    async () => {
+      const {owner, allowed} = accounts;
+      const id = `recovery-lottery-${suffix}`;
+      await db.doc(`lottery/${id}`).set({
+        lotteryName: "West Pines",
+        campsiteId,
+      });
+      await db.doc(`waitingList/${id}_${allowed.accountId}`).set({
+        lotteryId: id,
+        accountId: allowed.accountId,
+      });
+      for (const committed of [false, true]) {
+        let first = true;
+        const client = {
+          collection: (path) => db.collection(path),
+          runTransaction: async (action) => {
+            if (!first) {
+              return db.runTransaction(action);
+            }
+            first = false;
+            if (committed) {
+              await db.runTransaction(action);
+            }
+            throw new Error("Simulated loss of the transaction response");
+          },
+        };
+        const message = committed ? "Bring a flashlight." : "Pack out trash.";
+        const request = {
+          auth: {uid: owner.localId},
+          data: {
+            accountId: owner.accountId,
+            lotteryId: id,
+            message,
+            requestId: randomUUID(),
+            allEntrants: true,
+            recipientIds: [],
+          },
+        };
+        const {sendLotteryNotification: sendAttempt} =
+          lotteryNotifications(client);
+        if (committed) {
+          assert.deepEqual(await sendAttempt.run(request), {
+            intended: 1, delivered: 1,
+          });
+        } else {
+          await assert.rejects(sendAttempt.run(request), {
+            code: "failed-precondition",
+            details: {recordedFailure: true},
+          });
+        }
+        const history = await call("listSentLotteryNotifications", owner, {});
+        const entries = history.result.filter((row) => row.message === message);
+        assert.equal(entries.length, 1);
+        assert.equal(Boolean(entries[0].failureReason), !committed);
+        assert.equal(entries[0].delivered, committed ? 1 : 0);
+      }
+    });
+
+// AI Citation [AI-42]
+// OpenAI, Codex, US 02.10.02, 2026-11-27. Tested new and legacy history names.
+// See Bhav's entry in the team's AI Documentation Google Doc.
+test("sent names survive profile changes and older records still look them up",
+    async () => {
+      const {owner, allowed, optedOut} = accounts;
+      const id = `history-names-${suffix}`;
+      const message = "The gate opens at noon.";
+      const allowedRef = db.doc(`accounts/${allowed.accountId}`);
+      const optedOutRef = db.doc(`accounts/${optedOut.accountId}`);
+      const originalProfiles = await db.getAll(allowedRef, optedOutRef);
+      await db.doc(`lottery/${id}`).set({
+        lotteryName: "East Pines",
+        campsiteId,
+      });
+      for (const {accountId} of [allowed, optedOut]) {
+        await db.doc(`waitingList/${id}_${accountId}`).set({
+          lotteryId: id,
+          accountId,
+        });
+      }
+
+      try {
+        await allowedRef.update({
+          name: " Taylor North ",
+          notificationsEnabled: true,
+        });
+        await optedOutRef.update({
+          name: "Morgan Lake",
+          notificationsEnabled: false,
+        });
+        assert.deepEqual(await send(owner, {lotteryId: id, message}), {
+          result: {intended: 2, delivered: 1},
+        });
+        const history = await call("listSentLotteryNotifications", owner, {});
+        const notification = history.result.find(
+            (row) => row.message === message,
+        );
+        const saved = await db.collection("lotteryNotifications")
+            .doc(notification.id).get();
+        const {recipientNames, ...legacyRecord} = saved.data();
+        assert.deepEqual(recipientNames, {
+          [allowed.accountId]: "Taylor North",
+          [optedOut.accountId]: "Morgan Lake",
+        });
+        const legacyId = `legacy-names-${suffix}`;
+        await db.doc(`lotteryNotifications/${legacyId}`).set(legacyRecord);
+
+        await allowedRef.update({name: "Taylor West"});
+        await optedOutRef.delete();
+        const details = "getSentLotteryNotification";
+        const current = await call(details, owner, {
+          notificationId: notification.id,
+        });
+        const legacy = await call(details, owner, {notificationId: legacyId});
+        assert.deepEqual(new Set(current.result.recipients), new Set([
+          {name: "Taylor North", delivered: true},
+          {name: "Morgan Lake", delivered: false},
+        ]));
+        assert.deepEqual(new Set(legacy.result.recipients), new Set([
+          {name: "Taylor West", delivered: true},
+          {name: "Unnamed entrant", delivered: false},
+        ]));
+      } finally {
+        for (const profile of originalProfiles) {
+          await profile.ref.set(profile.data());
+        }
+      }
+    });

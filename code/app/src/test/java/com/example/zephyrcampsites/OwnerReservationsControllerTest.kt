@@ -309,4 +309,46 @@ class OwnerReservationsControllerTest {
 
         assertEquals(listOf(current, upcoming), result)
     }
+
+    @Test
+    fun pastReservationsIncludeCompletedBookingsInReverseCheckoutOrder() {
+        val recent = OwnerReservation(
+            id = "recent",
+            campsiteName = "Pine Ridge Campground",
+            entrantName = "Taylor",
+            startMillis = 50_000L,
+            endMillis = 90_000L,
+            cancelled = false
+        )
+        val older = recent.copy(id = "older", endMillis = 70_000L)
+        val active = recent.copy(id = "active", endMillis = 150_000L)
+        val cancelled = recent.copy(id = "cancelled", cancelled = true)
+        val invalid = recent.copy(id = "invalid", endMillis = 50_000L)
+
+        val result = controller.filterPastOwnerReservations(
+            reservations = listOf(older, active, cancelled, invalid, recent),
+            currentTimeMillis = currentTime.time
+        )
+
+        assertEquals(listOf(recent, older), result)
+    }
+
+    @Test
+    fun pastReservationEndingAtTheCurrentTimeIsCompleted() {
+        val reservation = OwnerReservation(
+            id = "completed-now",
+            campsiteName = "Lakeview Retreat",
+            entrantName = "Avery",
+            startMillis = 50_000L,
+            endMillis = currentTime.time,
+            cancelled = false
+        )
+
+        val result = controller.filterPastOwnerReservations(
+            reservations = listOf(reservation),
+            currentTimeMillis = currentTime.time
+        )
+
+        assertEquals(listOf(reservation), result)
+    }
 }

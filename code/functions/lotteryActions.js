@@ -6,6 +6,7 @@
 // Saves run in one Admin SDK transaction, so the overlap query and the
 // write happen together, and the edit cutoff uses the server's clock.
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
+const {FieldValue} = require("firebase-admin/firestore");
 
 /**
  * Builds the lottery save endpoints used by the Android app.
@@ -15,6 +16,17 @@ const {onCall, HttpsError} = require("firebase-functions/v2/https");
 module.exports = (db) => {
   const campsites = db.collection("campsite");
   const lotteries = db.collection("lottery");
+  const bookingLocks = db.collection("lotteryBookingLocks");
+
+  /**
+   * Lists the campsites of a shared or legacy lottery.
+   * @param {FirebaseFirestore.DocumentSnapshot} lottery Saved lottery.
+   * @return {string[]} Participating campsite IDs.
+   */
+  function participatingSites(lottery) {
+    const linked = lottery.get("campsiteIds");
+    return Array.isArray(linked) && linked.length ? linked : [lottery.get("campsiteId")];
+  }
 
   /**
    * Validates a Firestore document ID supplied by the caller.
@@ -124,19 +136,20 @@ module.exports = (db) => {
   /**
    * Rejects a booking period that overlaps another lottery for the campsite.
    *
-   * The query runs inside the save transaction, so two overlapping saves for
-   * the same campsite cannot both commit. Shared endpoints count as overlap.
+   * The per-site locks match shared lottery publishing. Touching periods conflict.
    *
    * @param {FirebaseFirestore.Transaction} transaction Save transaction.
-   * @param {string} campsiteId Campsite in the lottery.
+   * @param {string[]} campsiteIds Campsites in the lottery.
    * @param {string} lotteryId Lottery being saved, skipped in the check.
    * @param {number} bookingStart Booking period start.
    * @param {number} bookingEnd Booking period end.
    */
   async function requireNoOverlap(
-      transaction, campsiteId, lotteryId, bookingStart, bookingEnd) {
+      transaction, campsiteIds, lotteryId, bookingStart, bookingEnd) {
+    const locks = [...new Set(campsiteIds)].sort().map((id) => bookingLocks.doc(id));
+    await transaction.getAll(...locks);
     const others = await transaction.get(
-        lotteries.where("campsiteId", "==", campsiteId),
+        lotteries.where("bookingEnd", ">=", bookingStart),
     );
     for (const other of others.docs) {
       const otherStart = other.get("bookingStart");
@@ -145,7 +158,8 @@ module.exports = (db) => {
       if (
         other.id === lotteryId ||
         !Number.isFinite(otherStart) ||
-        !Number.isFinite(otherEnd)
+        !Number.isFinite(otherEnd) ||
+        !participatingSites(other).some((id) => campsiteIds.includes(id))
       ) {
         continue;
       }
@@ -155,6 +169,9 @@ module.exports = (db) => {
             "Booking period overlaps with another lottery for this campsite.",
         );
       }
+    }
+    for (const lock of locks) {
+      transaction.set(lock, {updatedAt: FieldValue.serverTimestamp()});
     }
   }
 
@@ -191,7 +208,7 @@ module.exports = (db) => {
       }
       await requireNoOverlap(
           transaction,
-          campsiteId,
+          [campsiteId],
           lotteryId,
           values.bookingStart,
           values.bookingEnd,
@@ -219,8 +236,10 @@ module.exports = (db) => {
       if (!lottery.exists) {
         throw new HttpsError("not-found", "Lottery not found.");
       }
-      const campsiteId = lottery.get("campsiteId");
-      await requireOwner(transaction, id(campsiteId), auth);
+      const campsiteIds = [...new Set(participatingSites(lottery))];
+      for (const campsiteId of campsiteIds) {
+        await requireOwner(transaction, id(campsiteId), auth);
+      }
       if (
         lottery.get("drawCompleted") === true ||
         (lottery.get("drawStatus") ?? "PENDING") !== "PENDING"
@@ -302,8 +321,8 @@ module.exports = (db) => {
 
       await requireNoOverlap(
           transaction,
-          campsiteId,
-          lotteryRef.id,
+          campsiteIds,
+          lottery.id,
           values.bookingStart,
           values.bookingEnd,
       );

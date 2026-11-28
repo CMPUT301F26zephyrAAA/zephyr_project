@@ -44,8 +44,11 @@ With these rules, private profile and booking reads require the owning Firebase 
 or an authorized administrator. Campsite and lottery browsing, authenticated rating
 and waitlist reads, and the campsite owner display-name lookup remain available after
 the legacy cutoff. The reservation reader queries by the entrant's preserved account ID.
-Booking creation is a trusted writer operation. The app's existing chat rules remain
-scoped to the separately approved participants.
+Booking creation is a trusted writer operation. Reservation chat uses the entrant on
+the saved booking and the owner on its campsite. The first open creates the
+conversation, and both parties can use it after checkout while the booking remains
+uncancelled. Deploy the chat rules, unread-message index, and updated
+`listOwnerReservations` callable with the chat-enabled Android build.
 
 Profile deletion commits the profile, bookings, registrations, and rating changes in one
 transaction. An unsuccessful transaction leaves the account usable and supports retry.
@@ -55,6 +58,9 @@ as the verified owner. If cleanup reports an invalid rating aggregate, an operat
 needs to reconcile that campsite's saved ratings before retrying.
 
 The Auth callable and rules regression suite uses `firebase.notifications.test.json`.
+For `ReservationChatModelTest`, use that configuration with
+`--project demo-zephyr-notifications`, reverse ports 8082 and 9099, and pass
+`chatFirestoreEmulator=true` to the Android runner.
 The Android rating and decline model suites use the demo fixture rules under
 `firebase.test.json`. Start the Auth, Firestore, and Functions emulators with
 `--project demo-zephyr`, reverse ports 8082, 9099, and 5001, and select the
