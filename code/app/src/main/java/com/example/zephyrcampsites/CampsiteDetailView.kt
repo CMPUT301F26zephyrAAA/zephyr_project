@@ -326,6 +326,15 @@ class CampsiteDetailView {
                         onError = onError,
                     )
                 },
+                removeReview = { selected, onResult, onError ->
+                    moderationModel.removeAdminReview(
+                        campsiteId = ratingsCampsiteId,
+                        adminAccountId = requireNotNull(moderationAccountId),
+                        selected = selected,
+                        onResult = onResult,
+                        onError = onError,
+                    )
+                },
                 onBack = { showingRatings = false },
             )
             return
@@ -819,7 +828,7 @@ class CampsiteDetailView {
                                     enabled = !removing,
                                     modifier = Modifier.fillMaxWidth().testTag("ViewCampsiteRatings"),
                                 ) {
-                                    Text("View Ratings")
+                                    Text("View Ratings and Reviews")
                                 }
                             }
                             Button(

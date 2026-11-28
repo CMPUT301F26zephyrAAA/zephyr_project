@@ -258,6 +258,43 @@ class RatingModel(
             .addOnFailureListener { onError(it.message ?: "Unable to remove campsite feedback.") }
     }
 
+    // OpenAI, Codex, US 03.10.01 review moderation, 2026-11-28.
+    /**
+     * Removes the selected written review through the admin-only callable.
+     *
+     * @param campsiteId Campsite containing the review.
+     * @param adminAccountId Profile ID of the current administrator.
+     * @param selected Review and version the administrator confirmed.
+     * @param onResult Called after the server removes the review.
+     * @param onError Receives a readable removal error.
+     */
+    override fun removeAdminReview(
+        campsiteId: String,
+        adminAccountId: String,
+        selected: CampsiteRating,
+        onResult: (Boolean) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val accountId = selected.accountId
+        if (accountId.isNullOrBlank() || selected.review.isBlank()) {
+            onError("Select a written review to remove.")
+            return
+        }
+
+        val data = mutableMapOf<String, Any>(
+            "campsiteId" to campsiteId,
+            "accountId" to accountId,
+            "adminAccountId" to adminAccountId,
+            "review" to selected.review
+        )
+        selected.updatedAt?.let { version ->
+            data["updatedAt"] = mapOf("seconds" to version.seconds, "nanoseconds" to version.nanoseconds)
+        }
+        callables.getHttpsCallable("removeCampsiteReview").call(data)
+            .addOnSuccessListener { onResult(true) }
+            .addOnFailureListener { onError(it.message ?: "Unable to remove the campsite review.") }
+    }
+
     // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
     private fun DocumentSnapshot.toCampsiteRating(
         eligibleReservationId: String? = null,

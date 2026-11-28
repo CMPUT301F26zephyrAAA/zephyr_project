@@ -12,6 +12,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.SnapshotMetadata
 import com.google.firebase.Timestamp
@@ -237,6 +238,50 @@ class RatingModerationModelTest {
 
         assertEquals("This entry has no valid rating to remove.", error)
         verifyNoInteractions(functions)
+    }
+
+    @Test
+    fun sendsSelectedReviewAndVersionToTheReviewCallable() {
+        val endpoint = mock(HttpsCallableReference::class.java)
+        val selected = selectedRating.copy(score = 0, updatedAt = Timestamp(12, 345))
+        val payload = mapOf(
+            "campsiteId" to campsiteId,
+            "adminAccountId" to adminAccountId,
+            "accountId" to selected.accountId,
+            "review" to selected.review,
+            "updatedAt" to mapOf<String, Number>("seconds" to 12L, "nanoseconds" to 345)
+        )
+        `when`(functions.getHttpsCallable("removeCampsiteReview")).thenReturn(endpoint)
+        val request = successfulTask(mock(HttpsCallableResult::class.java))
+        `when`(endpoint.call(payload)).thenReturn(request)
+
+        var removed = false
+        model.removeAdminReview(campsiteId, adminAccountId, selected, { removed = it }, { fail(it) })
+
+        assertTrue(removed)
+        verify(endpoint).call(payload)
+    }
+
+    @Test
+    fun campsiteReviewListUpdatesWhenTheSelectedReviewIsRemoved() {
+        val query = mock(Query::class.java)
+        lateinit var reviewListener: EventListener<QuerySnapshot>
+        `when`(ratings.whereGreaterThan("review", "")).thenReturn(query)
+        `when`(query.addSnapshotListener(any<EventListener<QuerySnapshot>>())).thenAnswer {
+            reviewListener = it.getArgument(0)
+            registration
+        }
+        val results = mutableListOf<List<String>>()
+        model.observeReviews(campsiteId, { results.add(it) }, { fail(it) })
+
+        reviewListener.onEvent(snapshot, null)
+        `when`(snapshot.documents).thenReturn(listOf(otherRatingDocument))
+        reviewListener.onEvent(snapshot, null)
+
+        assertEquals(
+            listOf(listOf(selectedRating.review, otherRating.review), listOf(otherRating.review)),
+            results
+        )
     }
 
     private fun configureRatingDocument(

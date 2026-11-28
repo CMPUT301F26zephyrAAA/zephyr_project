@@ -62,6 +62,45 @@ class RatingModerationUITest {
         listOf(flaggedRating, validRating)
     )
 
+    @Test
+    fun adminCancelsThenConfirmsRemovalOfOnlyTheSelectedReview() {
+        showDetails()
+        openRatings()
+
+        compose.onNodeWithTag("RemoveReview_entrant-1").performClick()
+        compose.onNodeWithText("Remove Review?").assertIsDisplayed()
+        compose.onNodeWithText("No, Cancel").performClick()
+        compose.onNodeWithText("Policy violation").assertIsDisplayed()
+        assertNull(gateway.removedReview)
+
+        compose.onNodeWithTag("RemoveReview_entrant-1").performClick()
+        compose.onNodeWithText("Yes, remove").performClick()
+
+        compose.onNodeWithText("Policy violation").assertDoesNotExist()
+        compose.onNodeWithText("Lovely campsite").assertIsDisplayed()
+        compose.onNodeWithText("1 / 5").assertIsDisplayed()
+        compose.onNodeWithText("Review Removed").assertIsDisplayed()
+        assertEquals(flaggedRating, gateway.removedReview)
+
+        compose.onNodeWithTag("AdminRatingsBack").performClick()
+        openRatings()
+        compose.onNodeWithText("Policy violation").assertDoesNotExist()
+    }
+
+    @Test
+    fun adminCanRemoveAReviewWithoutAStarRating() {
+        gateway.rows = listOf(flaggedRating.copy(score = 0), validRating)
+        showDetails()
+        openRatings()
+
+        compose.onNodeWithTag("RemoveRating_entrant-1").assertDoesNotExist()
+        compose.onNodeWithTag("RemoveReview_entrant-1").performClick()
+        compose.onNodeWithText("Yes, remove").performClick()
+
+        compose.onNodeWithText("Policy violation").assertDoesNotExist()
+        compose.onNodeWithText("Lovely campsite").assertIsDisplayed()
+    }
+
     /**
      * AC1:
      * Admin selects a campsite from the browse list
@@ -891,6 +930,7 @@ class RatingModerationUITest {
         var requests = 0
         var observations = 0
         var removedRating: CampsiteRating? = null
+        var removedReview: CampsiteRating? = null
         var removedByAdminAccountId: String? = null
         var shouldFail = false
 
@@ -952,6 +992,25 @@ class RatingModerationUITest {
 
             listener?.invoke(rows)
 
+            onResult(true)
+        }
+
+        override fun removeAdminReview(
+            campsiteId: String,
+            adminAccountId: String,
+            selected: CampsiteRating,
+            onResult: (Boolean) -> Unit,
+            onError: (String) -> Unit
+        ) {
+            removedReview = selected
+            rows = rows.mapNotNull { row ->
+                when {
+                    row != selected -> row
+                    row.score in 1..5 -> row.copy(review = "")
+                    else -> null
+                }
+            }
+            listener?.invoke(rows)
             onResult(true)
         }
     }

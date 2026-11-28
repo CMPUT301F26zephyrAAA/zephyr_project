@@ -1,3 +1,4 @@
+// Shows campsite feedback and confirms admin moderation actions.
 package com.example.zephyrcampsites
 
 import androidx.activity.compose.BackHandler
@@ -16,12 +17,13 @@ import kotlinx.coroutines.delay
 
 // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
 /**
- * Displays a list of ratings for a campsite.
+ * Displays a list of ratings and reviews for a campsite.
  *
  * @param campsiteName Name of the campsite.
  * @param ratings List of ratings.
  * @param loadError Error message, if any.
  * @param removeRating Called when a rating is removed.
+ * @param removeReview Called after the admin confirms removal of a written review.
  * @param onBack Called when BACK is selected.
  * @param ratingRemovalEnabled Whether the current admin check permits confirmation.
  */
@@ -31,13 +33,16 @@ internal fun AdminRatingsScreen(
     ratings: List<CampsiteRating>,
     loadError: String?,
     removeRating: (CampsiteRating, (Boolean) -> Unit, (String) -> Unit) -> Unit,
+    removeReview: (CampsiteRating, (Boolean) -> Unit, (String) -> Unit) -> Unit,
     onBack: () -> Unit,
     ratingRemovalEnabled: Boolean = true,
 ) {
     var selected by remember { mutableStateOf<CampsiteRating?>(null) }
+    var removingReview by remember { mutableStateOf(false) }
     var deleting by remember { mutableStateOf(false) }
     var deleteError by remember { mutableStateOf<String?>(null) }
     var successCount by remember { mutableIntStateOf(0) }
+    var successMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(successCount) {
         if (successCount > 0) {
@@ -58,7 +63,7 @@ internal fun AdminRatingsScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (successCount > 0) {
-                    Text("Rating Deleted", style = MaterialTheme.typography.bodySmall)
+                    Text(successMessage, style = MaterialTheme.typography.bodySmall)
                 }
 
                 OutlinedButton(
@@ -75,13 +80,15 @@ internal fun AdminRatingsScreen(
             modifier = Modifier.fillMaxSize().padding(padding).padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Campsite ratings", style = MaterialTheme.typography.headlineMedium)
+            Text("Campsite ratings and reviews", style = MaterialTheme.typography.headlineMedium)
             Text(campsiteName)
 
             (loadError ?: deleteError)?.let { message ->
                 Text(message, color = MaterialTheme.colorScheme.error)
             }
-            if (deleting) Text("Deleting rating…")
+            if (deleting) {
+                Text(if (removingReview) "Removing review…" else "Deleting rating…")
+            }
             if (ratings.isEmpty() && loadError == null) {
                 Text(
                     "No ratings available for this campsite.",
@@ -106,12 +113,28 @@ internal fun AdminRatingsScreen(
                         // Hiral - [AI-07] OpenAI, ChatGPT, Making changes for Admin Rating deletion and granting auth admin access to a specific user.
                         if (rating.score in 1..5) {
                             IconButton(
-                                onClick = { selected = rating },
+                                onClick = {
+                                    removingReview = false
+                                    selected = rating
+                                },
                                 enabled = !deleting && loadError == null,
                                 modifier = Modifier.testTag("RemoveRating_${rating.accountId}"),
                             ) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Remove Rating")
                             }
+                        }
+                    }
+                    // OpenAI, Codex, US 03.10.01 review moderation, 2026-11-28.
+                    if (rating.review.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                removingReview = true
+                                selected = rating
+                            },
+                            enabled = ratingRemovalEnabled && !deleting && loadError == null,
+                            modifier = Modifier.testTag("RemoveReview_${rating.accountId}"),
+                        ) {
+                            Text("Remove Review")
                         }
                     }
                     HorizontalDivider()
@@ -123,10 +146,12 @@ internal fun AdminRatingsScreen(
     selected?.let { rating ->
         AlertDialog(
             onDismissRequest = { selected = null },
-            title = { Text("Remove Rating?") },
+            title = { Text(if (removingReview) "Remove Review?" else "Remove Rating?") },
             text = {
                 Text(
-                    if (rating.review.isNotBlank()) {
+                    if (removingReview) {
+                        "Remove this written review from the campsite?"
+                    } else if (rating.review.isNotBlank()) {
                         "Remove the star rating? The written review will stay visible."
                     } else {
                         "Are you sure you want to delete this rating?"
@@ -145,14 +170,17 @@ internal fun AdminRatingsScreen(
                         selected = null
                         deleting = true
                         deleteError = null
-                        removeRating(
+                        val remove = if (removingReview) removeReview else removeRating
+                        val item = if (removingReview) "review" else "rating"
+                        remove(
                             rating,
                             { removed ->
                                 deleting = false
                                 if (removed) {
+                                    successMessage = if (item == "review") "Review Removed" else "Rating Deleted"
                                     successCount++
                                 } else {
-                                    deleteError = "This rating has already been removed."
+                                    deleteError = "This $item has already been removed."
                                 }
                             },
                             { message ->
@@ -162,7 +190,7 @@ internal fun AdminRatingsScreen(
                         )
                     },
                 ) {
-                    Text("Yes, delete")
+                    Text(if (removingReview) "Yes, remove" else "Yes, delete")
                 }
             },
         )

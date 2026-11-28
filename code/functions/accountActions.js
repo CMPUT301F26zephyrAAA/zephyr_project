@@ -468,6 +468,55 @@ module.exports = (db) => {
     return {};
   });
 
+  // OpenAI, Codex, US 03.10.01 review moderation, 2026-11-28.
+  /** Removes the selected written review for a verified admin. */
+  const removeCampsiteReview = authenticated(async (data, auth) => {
+    if (auth.token.admin !== true) {
+      throw new HttpsError(
+          "permission-denied",
+          "Administrator access is required.",
+      );
+    }
+    verify(auth, id(data.adminAccountId));
+    if (typeof data.review !== "string" || !data.review.trim()) {
+      throw new HttpsError("invalid-argument", "Select a written review.");
+    }
+
+    const campsite = campsites.doc(id(data.campsiteId));
+    const rating = campsite.collection("ratings").doc(id(data.accountId));
+    await db.runTransaction(async (transaction) => {
+      const [site, previous] = await transaction.getAll(campsite, rating);
+      if (!site.exists || !previous.exists) {
+        throw new HttpsError(
+            "failed-precondition",
+            "This review is no longer available.",
+        );
+      }
+      const saved = previous.get("updatedAt");
+      // Older feedback can lack a timestamp. Match its exact text as well.
+      if (
+        previous.get("review") !== data.review ||
+        saved?.seconds !== data.updatedAt?.seconds ||
+        saved?.nanoseconds !== data.updatedAt?.nanoseconds
+      ) {
+        throw new HttpsError(
+            "failed-precondition",
+            "This review has changed. Review it again.",
+        );
+      }
+      const score = previous.get("score");
+      if (Number.isInteger(score) && score >= 1 && score <= 5) {
+        transaction.update(rating, {
+          review: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+      } else {
+        transaction.delete(rating);
+      }
+    });
+    return {};
+  });
+
   /** Deletes the profile and its references in one transaction. */
   const deleteProfile = authenticated(async (data, auth) => {
     const accountId = id(data.accountId);
@@ -578,6 +627,7 @@ module.exports = (db) => {
     declineLotteryOffer,
     saveCampsiteFeedback,
     removeCampsiteFeedback,
+    removeCampsiteReview,
     deleteProfile,
   };
 };
