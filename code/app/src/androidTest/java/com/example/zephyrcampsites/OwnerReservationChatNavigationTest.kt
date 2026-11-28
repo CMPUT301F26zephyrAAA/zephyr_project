@@ -2,6 +2,7 @@
 package com.example.zephyrcampsites
 
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -59,6 +60,7 @@ class OwnerReservationChatNavigationTest {
         val campsiteId = (UUID.randomUUID().hashCode() and Int.MAX_VALUE).toString()
         val campsiteName = "Whispering Pines $suffix"
         val bookingId = "confirmed-$suffix"
+        val pastBookingId = "completed-$suffix"
         val ownerName = "Casey Morgan"
         val entrantName = "Taylor North"
         val ownerId = createProfile(auth, firestore, ownerEmail, ownerName)
@@ -68,14 +70,16 @@ class OwnerReservationChatNavigationTest {
         }
         await(firestore.document("campsite/$campsiteId").set(campsite))
         val entrantId = createProfile(auth, firestore, entrantEmail, entrantName)
-        seedConfirmedBooking(bookingId, campsiteId, entrantId)
+        val now = Instant.now()
+        seedConfirmedBooking(bookingId, campsiteId, entrantId, now.plusSeconds(TimeUnit.DAYS.toSeconds(7)))
+        seedConfirmedBooking(pastBookingId, campsiteId, entrantId, now.minusSeconds(TimeUnit.DAYS.toSeconds(7)))
 
         val firstMessage = "The north gate will be open when you arrive."
         val reply = "Thanks, we expect to arrive at four."
         await(auth.signInWithEmailAndPassword(ownerEmail, TEST_PASSWORD))
         val ownerBookings = await(functions.getHttpsCallable("listOwnerReservations").call()).data as Map<*, *>
-        val ownerBooking = (ownerBookings["reservations"] as List<*>).single() as Map<*, *>
-        assertEquals(bookingId, ownerBooking["id"])
+        val ownerBooking = (ownerBookings["reservations"] as List<*>)
+            .filterIsInstance<Map<*, *>>().single { it["id"] == bookingId }
         assertEquals(campsiteId, ownerBooking["campsiteId"])
         assertEquals(entrantId, ownerBooking["entrantAccountId"])
         ActivityScenario.launch(MainActivity::class.java).use {
@@ -91,7 +95,7 @@ class OwnerReservationChatNavigationTest {
             waitFor("Reservation Details")
             waitFor(bookingId)
             pressBack()
-            waitFor("Active Reservations")
+            compose.onNodeWithText("Active").assertIsSelected()
             waitFor(campsiteName)
         }
 
@@ -121,6 +125,24 @@ class OwnerReservationChatNavigationTest {
             waitFor("You ·", substring = true)
             compose.onNodeWithText("BACK").performClick()
             waitFor(bookingId)
+            pressBack()
+            compose.onNodeWithText("Past").performClick()
+            waitFor(campsiteName)
+            compose.onNodeWithText(campsiteName).performClick()
+            waitFor(pastBookingId)
+            waitFor("Completed")
+            compose.onNodeWithText("Cancel reservation").assertDoesNotExist()
+            compose.onNodeWithText("Message Entrant").performScrollTo().performClick()
+            waitFor("MESSAGES")
+            compose.onNodeWithText(firstMessage).assertDoesNotExist()
+            val pastMessage = "Thank you for staying at Whispering Pines."
+            sendMessage(pastMessage)
+            waitFor(pastMessage)
+            pressBack()
+            waitFor(pastBookingId)
+            pressBack()
+            compose.onNodeWithText("Past").assertIsSelected()
+            waitFor(campsiteName)
         }
 
         val conversation = firestore.document("reservationChat/$bookingId")
@@ -174,11 +196,11 @@ class OwnerReservationChatNavigationTest {
     private fun seedConfirmedBooking(
         bookingId: String,
         campsiteId: String,
-        entrantId: String
+        entrantId: String,
+        checkIn: Instant
     ) {
         val path = "projects/demo-zephyr-notifications/databases/(default)/documents"
         val uri = URI("http://127.0.0.1:8082/v1/$path/reservation/$bookingId")
-        val checkIn = Instant.now().plusSeconds(TimeUnit.DAYS.toSeconds(7))
         val checkOut = checkIn.plusSeconds(TimeUnit.DAYS.toSeconds(2))
         val fields = JSONObject()
             .put("accountId", JSONObject().put("stringValue", entrantId))

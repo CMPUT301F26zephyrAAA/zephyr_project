@@ -1,4 +1,4 @@
-// Coordinates the owner's active reservations, details, chat, and cancellation.
+// Coordinates the owner's active and past reservations, details, chat, and cancellation.
 package com.example.zephyrcampsites
 
 import android.os.SystemClock
@@ -20,6 +20,11 @@ import kotlinx.coroutines.isActive
 private const val OWNER_RESERVATION_REFRESH_INTERVAL_MS = 30_000L
 private const val OWNER_RESERVATION_CLOCK_TICK_MS = 60_000L
 
+internal enum class OwnerReservationTab {
+    ACTIVE,
+    PAST
+}
+
 // AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, generated owner reservation confirmation.
 // AI Citation [AI-49] (Bhav Saluja)
 // OpenAI, Codex, November 27, 2026. Connected owner reservation details to the shared chat.
@@ -32,7 +37,8 @@ internal fun OwnerReservationsScreen(
     onBack: () -> Unit
 ) {
     val chatModel = remember { ReservationChatModel() }
-    val listState = rememberLazyListState()
+    val activeListState = rememberLazyListState()
+    val pastListState = rememberLazyListState()
     var bookings by remember(owner.id) { mutableStateOf<OwnerReservationList?>(null) }
     var loadedAt by remember(owner.id) { mutableLongStateOf(0L) }
     var serverNowMillis by remember(owner.id) { mutableLongStateOf(0L) }
@@ -42,6 +48,7 @@ internal fun OwnerReservationsScreen(
     var selectedReservationId by remember(owner.id) { mutableStateOf<String?>(null) }
     var showChat by remember(owner.id, selectedReservationId) { mutableStateOf(false) }
     var cancellationTarget by remember(owner.id) { mutableStateOf<OwnerReservation?>(null) }
+    var selectedTab by remember(owner.id) { mutableStateOf(OwnerReservationTab.ACTIVE) }
 
     fun serverNow(): Long {
         val currentBookings = bookings ?: return 0L
@@ -64,7 +71,7 @@ internal fun OwnerReservationsScreen(
                 isRefreshing = false
             },
             onError = {
-                errorMessage = "Unable to load your active reservations."
+                errorMessage = "Unable to load reservations."
                 isLoading = false
                 isRefreshing = false
             }
@@ -90,8 +97,18 @@ internal fun OwnerReservationsScreen(
         reservations = bookings?.reservations.orEmpty(),
         currentTimeMillis = serverNowMillis
     )
+    val pastReservations = controller.filterPastOwnerReservations(
+        reservations = bookings?.reservations.orEmpty(),
+        currentTimeMillis = serverNowMillis
+    )
+    val isPast = selectedTab == OwnerReservationTab.PAST
+    val displayedReservations = if (isPast) {
+        pastReservations
+    } else {
+        activeReservations
+    }
 
-    val reservation = activeReservations.firstOrNull { it.id == selectedReservationId }
+    val reservation = displayedReservations.firstOrNull { it.id == selectedReservationId }
     LaunchedEffect(selectedReservationId, reservation) {
         if (selectedReservationId != null && reservation == null) {
             selectedReservationId = null
@@ -119,25 +136,31 @@ internal fun OwnerReservationsScreen(
             entrantName = reservation.entrantName
         )
     } else if (reservation == null) {
-        OwnerActiveReservationsView(
-            reservations = activeReservations,
+        OwnerReservationsListView(
+            reservations = displayedReservations,
             currentTimeMillis = serverNowMillis,
+            selectedTab = selectedTab,
             isLoading = isLoading,
             isRefreshing = isRefreshing,
-            errorMessage = errorMessage?.takeIf { bookings == null },
+            errorMessage = errorMessage,
             onRefresh = ::loadReservations,
             onRetry = ::loadReservations,
+            onSelectTab = { tab ->
+                selectedTab = tab
+                selectedReservationId = null
+            },
             onViewDetails = { selectedReservationId = it.id },
             onBack = onBack,
-            listState = listState
+            listState = if (isPast) pastListState else activeListState
         )
     } else {
         OwnerReservationDetailsView(
             reservation = reservation,
             currentTimeMillis = serverNowMillis,
+            isPast = isPast,
             errorMessage = errorMessage,
             onMessageEntrant = if (chatReservation != null) { { showChat = true } } else { null },
-            onCancel = if (reservation.startMillis > serverNowMillis) {
+            onCancel = if (!isPast && reservation.startMillis > serverNowMillis) {
                 { cancellationTarget = reservation }
             } else {
                 null
