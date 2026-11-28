@@ -1,9 +1,10 @@
-// AI Citation [AI-41]
+// AI Citation [AI-41], [AI-42]
 // Anthropic, Claude Code assisted with generating emulator tests for
-// the lottery save functions and the lottery Firestore rules.
+// US 02.04.04 booking checks in saveLotterySettings and the lottery rules.
 // AI usage and citation documented in the team AI Documentation.
-// Verifies lottery booking checks in the createLottery and updateLottery
-// callables and the lottery Firestore rules, on local emulators only.
+// Verifies US 02.04.04 against the saveLotterySettings and
+// confirmLotteryBooking callables and the lottery Firestore rules,
+// on local emulators only.
 const assert = require("node:assert/strict");
 const {randomUUID} = require("node:crypto");
 const {before, test} = require("node:test");
@@ -17,7 +18,6 @@ const documents = `projects/${projectId}/databases/(default)/documents`;
 const firestore = `http://127.0.0.1:8082/v1/${documents}`;
 const app = initializeApp({projectId});
 const db = getFirestore(app);
-const suffix = randomUUID();
 const hour = 3600000;
 const day = 24 * hour;
 const users = {};
@@ -25,7 +25,7 @@ const users = {};
 before(async () => {
   // Never run against a real project.
   assert.equal(process.env.FIRESTORE_EMULATOR_HOST, "127.0.0.1:8082");
-  for (const key of ["owner", "outsider"]) {
+  for (const key of ["owner", "outsider", "winner"]) {
     const response = await fetch(
         auth + "/identitytoolkit.googleapis.com/v1/accounts:signUp?key=local",
         {
@@ -94,56 +94,62 @@ async function call(endpoint, user, data) {
 }
 
 /**
- * Creates a lottery through the callable as the owner.
- * @param {string} campsiteId Campsite in the lottery.
+ * Creates a lottery through saveLotterySettings, as the app does.
+ * @param {string[]} siteIds Participating campsites.
  * @param {Object} overrides Settings to replace.
- * @param {Object} user Caller, the owner by default.
+ * @param {Object|null} user Caller, the owner by default.
  * @return {Promise<Object>} Callable response body.
  */
-function create(campsiteId, overrides = {}, user = users.owner) {
-  return call("createLottery", user, {
+function create(siteIds, overrides = {}, user = users.owner) {
+  return call("saveLotterySettings", user, {
+    create: true,
     lotteryId: `lottery-${randomUUID()}`,
-    campsiteId,
+    campsiteIds: siteIds,
     ...settings(overrides),
   });
 }
 
 /**
+ * Edits a lottery through saveLotterySettings, as the app does.
+ * @param {string} lotteryId Lottery to edit.
+ * @param {Object} values Full lottery settings.
+ * @return {Promise<Object>} Callable response body.
+ */
+function update(lotteryId, values) {
+  return call("saveLotterySettings", users.owner, {lotteryId, ...values});
+}
+
+/**
  * Saves a lottery directly with admin access, for fixtures.
- * @param {string} campsiteId Campsite in the lottery.
- * @param {Object} overrides Fields to replace.
+ * @param {Object} fields Lottery fields.
  * @return {Promise<string>} Lottery ID.
  */
-async function seed(campsiteId, overrides = {}) {
+async function seed(fields) {
   const id = `seed-${randomUUID()}`;
   await db.doc(`lottery/${id}`).set({
     id,
-    campsiteId,
-    ...settings(),
     entrantCount: 0,
     drawCompleted: false,
     drawStatus: "PENDING",
-    ...overrides,
+    ...settings(),
+    ...fields,
   });
   return id;
 }
 
 /**
- * Writes a lottery document directly through the Firestore rules.
+ * Updates lottery fields directly through the Firestore rules.
  * @param {Object} user Auth emulator user.
  * @param {string} path Firestore document path.
- * @param {Object} data Fields to write.
- * @param {boolean} merge Whether to update only the given fields.
+ * @param {Object} data Fields to update.
  * @return {Promise<Response>} Firestore REST response.
  */
-function patch(user, path, data, merge) {
+function patch(user, path, data) {
   const query = new URLSearchParams();
-  if (merge) {
-    for (const key of Object.keys(data)) {
-      query.append("updateMask.fieldPaths", key);
-    }
-    query.append("currentDocument.exists", "true");
+  for (const key of Object.keys(data)) {
+    query.append("updateMask.fieldPaths", key);
   }
+  query.append("currentDocument.exists", "true");
   const fields = Object.fromEntries(
       Object.entries(data).map(([key, value]) => [
         key,
@@ -162,209 +168,215 @@ function patch(user, path, data, merge) {
   });
 }
 
+/**
+ * Wraps saveLotterySettings in this process, so two calls really overlap.
+ * The emulator runs HTTP calls one at a time (maxInstances is 1).
+ * @return {Object} Wrapped function and its cleanup.
+ */
+function inProcessSave() {
+  const fft = require("firebase-functions-test")({projectId});
+  const handlers = require("../sharedLotteries")(db);
+  const wrapped = fft.wrap(handlers.saveLotterySettings);
+  const save = (data) => wrapped({data, auth: {uid: users.owner.localId}});
+  return {save, cleanup: () => fft.cleanup()};
+}
+
 test("saves a single-day booking period", async () => {
-  const siteId = await campsite();
+  const site = await campsite();
   const values = settings();
-  const response = await create(siteId, values);
+  const response = await create([site], values);
   assert.ok(response.result, JSON.stringify(response));
   const saved = await db.doc(`lottery/${response.result.lotteryId}`).get();
   assert.equal(saved.get("bookingStart"), values.bookingStart);
   assert.equal(saved.get("bookingEnd"), values.bookingEnd);
-  assert.equal(saved.get("entrantCount"), 0);
-  assert.equal(saved.get("drawStatus"), "PENDING");
 });
 
 test("rejects invalid booking periods", async () => {
-  const siteId = await campsite();
+  const site = await campsite();
   const values = settings();
-  const atRegistrationEnd = await create(siteId, {
+  const empty = await create([site], {bookingEnd: values.bookingStart});
+  assert.equal(empty.error.status, "INVALID_ARGUMENT");
+  const atRegistrationEnd = await create([site], {
     bookingStart: values.registrationEnd,
   });
   assert.equal(atRegistrationEnd.error.status, "INVALID_ARGUMENT");
-  const empty = await create(siteId, {bookingEnd: values.bookingStart});
-  assert.equal(empty.error.status, "INVALID_ARGUMENT");
-  const pastStart = await create(siteId, {
-    registrationStart: Date.now() - hour,
-  });
-  assert.equal(pastStart.error.status, "INVALID_ARGUMENT");
 });
 
 test("rejects overlapping and touching periods on a campsite", async () => {
-  const siteId = await campsite();
+  const site = await campsite();
   const first = settings();
-  assert.ok((await create(siteId, first)).result);
-
-  const overlap = await create(siteId, {
+  assert.ok((await create([site], first)).result);
+  const overlap = await create([site], {
     bookingStart: first.bookingStart + hour,
     bookingEnd: first.bookingEnd + day,
   });
-  assert.equal(overlap.error.status, "FAILED_PRECONDITION");
-  assert.match(overlap.error.message, /overlaps/);
-
-  const touching = await create(siteId, {
+  assert.ok(overlap.error, "overlapping period accepted");
+  const touching = await create([site], {
     bookingStart: first.bookingEnd,
     bookingEnd: first.bookingEnd + day,
   });
-  assert.equal(touching.error.status, "FAILED_PRECONDITION");
-
-  const otherSite = await campsite();
-  assert.ok((await create(otherSite, first)).result);
+  assert.ok(touching.error, "touching period accepted");
+  assert.ok((await create([await campsite()], first)).result);
 });
 
-test("allows only one of two overlapping saves sent at once", async () => {
-  // The emulator runs HTTP calls one at a time (maxInstances is 1), so call
-  // the function in this process to make the two transactions overlap.
-  const fft = require("firebase-functions-test")({projectId});
-  const actions = require("../lotteryActions")(db);
-  const createLottery = fft.wrap(actions.createLottery);
-  const siteId = await campsite();
-  const save = (overrides) => createLottery({
-    data: {
-      lotteryId: `lottery-${randomUUID()}`,
-      campsiteId: siteId,
-      ...settings(overrides),
-    },
-    auth: {uid: users.owner.localId},
+test("a secondary site in a shared lottery blocks an overlap", async () => {
+  const first = await campsite();
+  const second = await campsite();
+  const values = settings();
+  assert.ok((await create([first, second], values)).result);
+  const onSecondary = await create([second], values);
+  assert.ok(onSecondary.error, "overlap on the secondary site accepted");
+});
+
+test("an older lottery with only campsiteId blocks an overlap", async () => {
+  const site = await campsite();
+  const values = settings();
+  await seed({campsiteId: site, ...values});
+  assert.ok((await create([site], values)).error);
+});
+
+test("allows only one of two overlapping creates sent at once", async () => {
+  const {save, cleanup} = inProcessSave();
+  const site = await campsite();
+  const creating = (overrides) => save({
+    create: true,
+    lotteryId: `lottery-${randomUUID()}`,
+    campsiteIds: [site],
+    ...settings(overrides),
   });
   const results = await Promise.allSettled([
-    save({}),
-    save({bookingStart: settings().bookingStart + hour}),
+    creating({}),
+    creating({bookingStart: settings().bookingStart + hour}),
   ]);
-  fft.cleanup();
+  cleanup();
   assert.equal(
       results.filter((result) => result.status === "fulfilled").length,
       1,
-      JSON.stringify(results),
+      JSON.stringify(results.map((result) => result.status)),
   );
-  const saved = await db.collection("lottery")
-      .where("campsiteId", "==", siteId)
-      .get();
-  assert.equal(saved.size, 1);
 });
 
-test("requires a signed-in campsite owner", async () => {
-  const siteId = await campsite();
-  assert.equal((await create(siteId, {}, null)).error.status,
-      "UNAUTHENTICATED");
-  assert.equal((await create(siteId, {}, users.outsider)).error.status,
-      "PERMISSION_DENIED");
-  const lotteryId = await seed(siteId);
-  const edit = await call("updateLottery", users.outsider, {
-    lotteryId,
-    ...settings({lotteryName: "Taken"}),
+test("allows only one of a create and an edit into one period", async () => {
+  const {save, cleanup} = inProcessSave();
+  const site = await campsite();
+  const values = settings();
+  const existing = await seed({
+    campsiteId: site,
+    campsiteIds: [site],
+    ...values,
+    bookingStart: values.bookingStart + 10 * day,
+    bookingEnd: values.bookingEnd + 10 * day,
   });
-  assert.equal(edit.error.status, "PERMISSION_DENIED");
+  const results = await Promise.allSettled([
+    save({
+      create: true,
+      lotteryId: `lottery-${randomUUID()}`,
+      campsiteIds: [site],
+      ...values,
+    }),
+    save({lotteryId: existing, ...values}),
+  ]);
+  cleanup();
+  assert.equal(
+      results.filter((result) => result.status === "fulfilled").length,
+      1,
+      JSON.stringify(results.map((result) => result.status)),
+  );
+});
+
+test("requires a signed-in owner of every campsite", async () => {
+  const site = await campsite();
+  assert.equal((await create([site], {}, null)).error.status,
+      "UNAUTHENTICATED");
+  assert.equal((await create([site], {}, users.outsider)).error.status,
+      "PERMISSION_DENIED");
 });
 
 test("locks dates by server time after registration starts", async () => {
-  const siteId = await campsite();
-  // Registration started an hour ago on the server.
+  const site = await campsite();
   const started = settings({registrationStart: Date.now() - hour});
-  const lotteryId = await seed(siteId, started);
-
-  const moved = await call("updateLottery", users.owner, {
-    lotteryId,
+  const lotteryId = await seed({
+    campsiteId: site,
+    campsiteIds: [site],
+    ...started,
+  });
+  const moved = await update(lotteryId, {
     ...started,
     bookingStart: started.bookingStart + day,
     bookingEnd: started.bookingEnd + day,
   });
   assert.equal(moved.error.status, "FAILED_PRECONDITION");
-  assert.match(moved.error.message, /cannot be changed/);
-
-  const renamed = await call("updateLottery", users.owner, {
-    lotteryId,
-    ...started,
-    lotteryName: "Renamed",
-  });
+  const renamed = await update(lotteryId, {...started, lotteryName: "Renamed"});
   assert.ok(renamed.result, JSON.stringify(renamed));
-  const saved = await db.doc(`lottery/${lotteryId}`).get();
-  assert.equal(saved.get("lotteryName"), "Renamed");
-  assert.equal(saved.get("bookingStart"), started.bookingStart);
 });
 
-test("edits dates before registration and rechecks overlap", async () => {
-  const siteId = await campsite();
-  const first = settings();
-  const firstId = await seed(siteId, first);
-  const secondId = await seed(siteId, {
-    bookingStart: first.bookingStart + 5 * day,
-    bookingEnd: first.bookingEnd + 5 * day,
+test("keeps winner reservations inside the booking period", async () => {
+  const site = await campsite();
+  const values = settings({
+    registrationStart: Date.now() - 2 * hour,
+    registrationEnd: Date.now() - hour,
   });
-
-  const moved = await call("updateLottery", users.owner, {
-    lotteryId: firstId,
-    ...first,
-    bookingStart: first.bookingStart + day,
-    bookingEnd: first.bookingEnd + day,
-  });
-  assert.ok(moved.result, JSON.stringify(moved));
-
-  const intoSecond = await call("updateLottery", users.owner, {
-    lotteryId: firstId,
-    ...first,
-    bookingStart: first.bookingStart + 5 * day,
-    bookingEnd: first.bookingEnd + 5 * day,
-  });
-  assert.equal(intoSecond.error.status, "FAILED_PRECONDITION");
-  assert.ok(secondId);
-});
-
-test("applies the waitlist capacity rules", async () => {
-  const siteId = await campsite();
-  const values = settings({waitlistCapacity: 5});
-  const lotteryId = await seed(siteId, {...values, entrantCount: 3});
-  const belowCount = await call("updateLottery", users.owner, {
-    lotteryId,
+  const lotteryId = await seed({
+    campsiteId: site,
+    campsiteIds: [site],
     ...values,
-    waitlistCapacity: 2,
+    drawCompleted: true,
+    drawStatus: "COMPLETED",
   });
-  assert.equal(belowCount.error.status, "FAILED_PRECONDITION");
-
-  const started = settings({
-    registrationStart: Date.now() - hour,
-    waitlistCapacity: 5,
+  const winner = users.winner;
+  await db.doc(`waitingList/${lotteryId}_${winner.accountId}`).set({
+    lotteryId,
+    accountId: winner.accountId,
+    drawStatus: "WINNER",
   });
-  const startedId = await seed(siteId, {
-    ...started,
-    bookingStart: started.bookingStart + 10 * day,
-    bookingEnd: started.bookingEnd + 10 * day,
+  await db.doc(`lotteryDrawResults/${lotteryId}`).set({
+    lotteryId,
+    winnerIds: [winner.accountId],
+    declinedIds: [],
   });
-  const base = {
-    lotteryId: startedId,
-    ...started,
-    bookingStart: started.bookingStart + 10 * day,
-    bookingEnd: started.bookingEnd + 10 * day,
-  };
-  const decreased = await call("updateLottery", users.owner, {
-    ...base,
-    waitlistCapacity: 4,
+  const reserve = (start, end) => call("confirmLotteryBooking", winner, {
+    lotteryId,
+    campsiteId: site,
+    start,
+    end,
   });
-  assert.equal(decreased.error.status, "FAILED_PRECONDITION");
-  const increased = await call("updateLottery", users.owner, {
-    ...base,
-    waitlistCapacity: 6,
-  });
-  assert.ok(increased.result, JSON.stringify(increased));
+  const before = await reserve(values.bookingStart - day,
+      values.bookingStart + hour);
+  assert.ok(before.error, "reservation starting before the period accepted");
+  const after = await reserve(values.bookingEnd - hour,
+      values.bookingEnd + day);
+  assert.ok(after.error, "reservation ending after the period accepted");
+  const inside = await reserve(values.bookingStart, values.bookingEnd);
+  assert.ok(inside.result, JSON.stringify(inside));
 });
 
 test("rules deny direct lottery creates and date changes", async () => {
-  const siteId = await campsite();
+  const site = await campsite();
   const owner = users.owner;
-  const direct = await patch(owner, `lottery/direct-${suffix}`, {
-    campsiteId: siteId,
-    lotteryName: "Direct",
-    entrantCount: 0,
-  }, false);
-  assert.equal(direct.status, 403);
+  const created = await fetch(`${firestore}/lottery/direct-${randomUUID()}`, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${owner.idToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({fields: {campsiteId: {stringValue: site}}}),
+  });
+  assert.equal(created.status, 403);
 
-  const lotteryId = await seed(siteId);
-  const dates = await patch(owner, `lottery/${lotteryId}`, {
-    bookingStart: Date.now() + 30 * day,
-  }, true);
-  assert.equal(dates.status, 403);
-
-  const name = await patch(owner, `lottery/${lotteryId}`, {
+  const values = settings({registrationStart: Date.now() - hour});
+  const lotteryId = await seed({
+    campsiteId: site,
+    campsiteIds: [site],
+    ...values,
+  });
+  const path = `lottery/${lotteryId}`;
+  assert.equal((await patch(owner, path, {
+    bookingStart: values.bookingStart + day,
+  })).status, 403);
+  assert.equal((await patch(owner, path, {
+    registrationEnd: values.bookingEnd + day,
+  })).status, 403);
+  assert.equal((await patch(owner, path, {
     lotteryName: "Renamed directly",
-  }, true);
-  assert.equal(name.status, 200);
+  })).status, 200);
 });

@@ -117,7 +117,7 @@ before(async () => {
       200,
   );
   const now = Date.now();
-  // Only the createLottery function creates lotteries, so use admin access.
+  // The rules block client lottery creates, so fixtures use admin access.
   for (const id of [lotteryId, emptyLotteryId]) {
     await db.doc(`lottery/${id}`).set({
       campsiteId,

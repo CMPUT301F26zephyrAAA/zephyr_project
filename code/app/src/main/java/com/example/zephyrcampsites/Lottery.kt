@@ -15,7 +15,8 @@ package com.example.zephyrcampsites
  * as numbers, so changing the type needs a coordinated migration.
  *
  * @property lotteryName Name shown for the lottery.
- * @property campsiteId ID of the campsite in the lottery.
+ * @property campsiteId ID of the first campsite in the lottery, kept for older records.
+ * @property campsiteIds IDs of every campsite in a shared lottery, or empty for older records.
  * @property registrationStart Registration start in epoch milliseconds.
  * @property registrationEnd Registration end in epoch milliseconds.
  * @property bookingStart Booking period start in epoch milliseconds.

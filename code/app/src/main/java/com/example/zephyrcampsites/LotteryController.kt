@@ -15,7 +15,7 @@ class LotteryController(
      * Creates a lottery for a campsite.
      *
      * @param lotteryName Name shown for the lottery.
-     * @param campsiteId ID of the campsite in the lottery.
+     * @param campsiteIds IDs of every campsite in the lottery. All must belong to the owner.
      * @param registrationStart Registration start in epoch milliseconds.
      * @param registrationEnd Registration end in epoch milliseconds.
      * @param bookingStart Booking period start in epoch milliseconds.

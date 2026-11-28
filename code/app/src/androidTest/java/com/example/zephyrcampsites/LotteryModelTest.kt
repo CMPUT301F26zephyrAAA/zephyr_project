@@ -1,4 +1,4 @@
-// AI Citation [AI-40], [AI-41]
+// AI Citation [AI-40], [AI-41], [AI-42]
 // Anthropic, Claude Code assisted with generating emulator tests for
 // booking periods, server-side overlap checks, and the edit cutoff.
 // AI usage and citation documented in the team AI Documentation.
@@ -30,9 +30,14 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Verifies US 02.04.04 booking rules through the real LotteryModel and lottery functions. */
+/** Verifies US 02.04.04 booking rules through the real LotteryModel and saveLotterySettings. */
 @RunWith(AndroidJUnit4::class)
 class LotteryModelTest {
+    private companion object {
+        // Error saveLotterySettings returns for an overlapping booking period.
+        const val OVERLAP_MESSAGE = "already has a lottery in that period"
+    }
+
     private lateinit var firestore: FirebaseFirestore
     private lateinit var model: LotteryModel
     private val suffix = UUID.randomUUID().toString()
@@ -45,6 +50,7 @@ class LotteryModelTest {
     // emulator's clock can be a day off. Future dates use the later clock and started
     // registrations use the earlier one, so both sides agree.
     private var futureBase = 0L
+    private var ownerId = ""
     private var startedTime = 0L
 
     // Registration runs from tomorrow to the day after, so booking can start on day 3.
@@ -67,6 +73,10 @@ class LotteryModelTest {
         val auth = FirebaseAuth.getInstance(session)
         auth.signOut()
         val ownerId = "auth_${checkNotNull(await(auth.signInAnonymously()).user).uid}"
+
+        // saveLotterySettings requires a saved account for the signed-in owner.
+        await(firestore.document("accounts/$ownerId").set(mapOf("id" to ownerId)))
+        this.ownerId = ownerId
 
         // Both campsites belong to the signed-in owner, so the functions accept the saves.
         for (id in listOf(campsiteId, otherCampsiteId)) {
@@ -91,6 +101,7 @@ class LotteryModelTest {
             saved.documents.forEach { await(it.reference.delete()) }
             await(firestore.document("campsite/$id").delete())
         }
+        await(firestore.document("accounts/$ownerId").delete())
     }
 
     @Test
@@ -121,20 +132,29 @@ class LotteryModelTest {
     @Test
     fun overlappingAndTouchingPeriodsAreRejectedForSameCampsite() {
         seedLottery("existing-$suffix", campsiteId, bookingDayStart, bookingDayStart + day)
-        waitForLottery("existing-$suffix")
 
-        assertThrows(IllegalArgumentException::class.java) {
-            create(bookingDayStart + hour, bookingDayStart + 2 * day)
-        }
-        assertThrows(IllegalArgumentException::class.java) {
-            create(bookingDayStart + day, bookingDayStart + 2 * day)
-        }
+        val overlap = awaitFailure(create(bookingDayStart + hour, bookingDayStart + 2 * day))
+        assertMessage(overlap, OVERLAP_MESSAGE)
+        val touching = awaitFailure(create(bookingDayStart + day, bookingDayStart + 2 * day))
+        assertMessage(touching, OVERLAP_MESSAGE)
+    }
+
+    @Test
+    fun secondarySiteInSharedLotteryBlocksOverlap() {
+        await(
+            create(bookingDayStart, bookingDayStart + day, listOf(campsiteId, otherCampsiteId))
+        )
+
+        val error = awaitFailure(
+            create(bookingDayStart, bookingDayStart + day, listOf(otherCampsiteId))
+        )
+
+        assertMessage(error, OVERLAP_MESSAGE)
     }
 
     @Test
     fun samePeriodOnAnotherCampsiteIsAllowed() {
         seedLottery("other-$suffix", otherCampsiteId, bookingDayStart, bookingDayStart + day)
-        waitForLottery("other-$suffix")
 
         await(create(bookingDayStart, bookingDayStart + day))
     }
@@ -147,7 +167,7 @@ class LotteryModelTest {
 
         val error = awaitFailure(create(bookingDayStart, bookingDayStart + day))
 
-        assertMessage(error, "overlaps")
+        assertMessage(error, OVERLAP_MESSAGE)
     }
 
     @Test
@@ -209,7 +229,7 @@ class LotteryModelTest {
             update("stale-$suffix", bookingDayStart + day, bookingDayStart + 2 * day)
         )
 
-        assertMessage(error, "cannot be changed after registration starts")
+        assertMessage(error, "locked after registration opens")
     }
 
     private fun seedLottery(
@@ -239,11 +259,15 @@ class LotteryModelTest {
         )
     }
 
-    private fun create(bookingStart: Long, bookingEnd: Long): Task<String> {
+    private fun create(
+        bookingStart: Long,
+        bookingEnd: Long,
+        campsiteIds: List<String> = listOf(campsiteId)
+    ): Task<String> {
         val result = TaskCompletionSource<String>()
         model.createLottery(
             lotteryName = "Test lottery",
-            campsiteId = campsiteId,
+            campsiteIds = campsiteIds,
             registrationStart = registrationStart,
             registrationEnd = registrationEnd,
             bookingStart = bookingStart,
