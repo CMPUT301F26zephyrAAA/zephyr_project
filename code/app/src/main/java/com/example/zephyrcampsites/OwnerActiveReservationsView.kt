@@ -20,6 +20,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -32,16 +34,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Displays active reservations belonging to the current owner. */
+/** Displays the selected active or past reservation list for the current owner. */
 @Composable
-internal fun OwnerActiveReservationsView(
+internal fun OwnerReservationsListView(
     reservations: List<OwnerReservation>,
     currentTimeMillis: Long,
+    selectedTab: OwnerReservationTab,
     isLoading: Boolean,
     isRefreshing: Boolean,
     errorMessage: String?,
     onRefresh: () -> Unit,
     onRetry: () -> Unit,
+    onSelectTab: (OwnerReservationTab) -> Unit,
     onViewDetails: (OwnerReservation) -> Unit,
     onBack: () -> Unit
 ) {
@@ -59,7 +63,7 @@ internal fun OwnerActiveReservationsView(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Active Reservations",
+                text = "Reservations",
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
@@ -71,6 +75,29 @@ internal fun OwnerActiveReservationsView(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        PrimaryTabRow(selectedTabIndex = selectedTab.ordinal) {
+            Tab(
+                selected = selectedTab == OwnerReservationTab.ACTIVE,
+                onClick = { onSelectTab(OwnerReservationTab.ACTIVE) },
+                text = { Text("Active") }
+            )
+            Tab(
+                selected = selectedTab == OwnerReservationTab.PAST,
+                onClick = { onSelectTab(OwnerReservationTab.PAST) },
+                text = { Text("Past") }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (errorMessage != null && !isLoading && reservations.isNotEmpty()) {
+            Text(
+                text = errorMessage,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
         when {
             isLoading -> {
                 Box(
@@ -81,7 +108,7 @@ internal fun OwnerActiveReservationsView(
                 }
             }
 
-            errorMessage != null -> {
+            errorMessage != null && reservations.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -106,13 +133,23 @@ internal fun OwnerActiveReservationsView(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("No active reservations.")
+                    Text(
+                        if (selectedTab == OwnerReservationTab.ACTIVE) {
+                            "No active reservations."
+                        } else {
+                            "No past reservations."
+                        }
+                    )
                 }
             }
 
             else -> {
                 Text(
-                    text = "${reservations.size} active reservations",
+                    text = if (selectedTab == OwnerReservationTab.ACTIVE) {
+                        "${reservations.size} active reservations"
+                    } else {
+                        "${reservations.size} completed reservations"
+                    },
                     style = MaterialTheme.typography.bodyMedium
                 )
 
@@ -123,6 +160,7 @@ internal fun OwnerActiveReservationsView(
                         OwnerReservationCard(
                             reservation = reservation,
                             currentTimeMillis = currentTimeMillis,
+                            isPast = selectedTab == OwnerReservationTab.PAST,
                             onClick = { onViewDetails(reservation) }
                         )
                     }
@@ -132,17 +170,20 @@ internal fun OwnerActiveReservationsView(
     }
 }
 
-/** Displays a selectable summary of an active reservation. */
+/** Displays a selectable summary of an owner reservation. */
 @Composable
 private fun OwnerReservationCard(
     reservation: OwnerReservation,
     currentTimeMillis: Long,
+    isPast: Boolean,
     onClick: () -> Unit
 ) {
     val dateFormat = remember {
         SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
     }
-    val status = if (reservation.startMillis > currentTimeMillis) {
+    val status = if (isPast) {
+        "Completed"
+    } else if (reservation.startMillis > currentTimeMillis) {
         "Confirmed · Upcoming"
     } else {
         "Confirmed · Current stay"

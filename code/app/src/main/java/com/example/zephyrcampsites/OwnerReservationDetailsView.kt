@@ -1,4 +1,4 @@
-// Renders details for an active owner reservation selected from the owner list.
+// Renders details for an owner reservation selected from the active or past list.
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.layout.Arrangement
@@ -25,11 +25,12 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-/** Displays detailed information for an active reservation owned by the current owner. */
+/** Displays detailed information for an owner reservation. */
 @Composable
 internal fun OwnerReservationDetailsView(
     reservation: OwnerReservation,
     currentTimeMillis: Long,
+    isPast: Boolean,
     errorMessage: String?,
     onCancel: (() -> Unit)?,
     onBack: () -> Unit
@@ -39,7 +40,9 @@ internal fun OwnerReservationDetailsView(
     }
     val startDate = remember(reservation.startMillis) { Date(reservation.startMillis) }
     val endDate = remember(reservation.endMillis) { Date(reservation.endMillis) }
-    val status = if (reservation.startMillis > currentTimeMillis) {
+    val status = if (isPast) {
+        "Completed"
+    } else if (reservation.startMillis > currentTimeMillis) {
         "Confirmed · Upcoming"
     } else {
         "Confirmed · Current stay"
