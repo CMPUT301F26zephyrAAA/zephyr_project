@@ -2,7 +2,6 @@
 package com.example.zephyrcampsites
 
 import java.util.Date
-import com.google.firebase.firestore.ListenerRegistration
 
 // AI Citation [AI-15], [AI-16]
 // OpenAI, ChatGPT assisted with reservation filtering,
@@ -40,6 +39,26 @@ class ReservationsController(
     internal fun cancelOwnerReservation(
         reservation: OwnerReservation, owner: Account, onSuccess: () -> Unit, onError: (Exception) -> Unit
     ) = model.cancelOwnerReservation(reservation.id, owner.id, onSuccess, onError)
+
+    /**
+     * Filters the owner-scoped reservations returned by the callable to active stays.
+     *
+     * @param reservations Reservations already scoped to the signed-in owner's campsites.
+     * @param currentTimeMillis Server-aligned current time in milliseconds.
+     * @return Confirmed, non-cancelled reservations whose checkout has not passed.
+     */
+    internal fun filterActiveOwnerReservations(
+        reservations: List<OwnerReservation>,
+        currentTimeMillis: Long
+    ): List<OwnerReservation> {
+        return reservations
+            .filter { reservation ->
+                !reservation.cancelled &&
+                    reservation.startMillis < reservation.endMillis &&
+                    reservation.endMillis > currentTimeMillis
+            }
+            .sortedBy { it.startMillis }
+    }
 
     /**
      * Retrieves all reservations for an entrant in a single request.
@@ -165,87 +184,6 @@ class ReservationsController(
             ownerReservations,
             currentTime
         )
-    }
-
-    /**
-     * Listens for active reservations across all campsites
-     * belonging to the specified owner.
-     *
-     * @param ownerId Current owner's account ID.
-     * @param campsites Available campsites.
-     * @param onSuccess Called with the combined active reservations.
-     * @param onError Called when reservation retrieval fails.
-     * @return Listener registrations used to stop listening.
-     */
-    fun listenToOwnerActiveReservations(
-        ownerId: String,
-        campsites: List<Campsite>,
-        onSuccess: (List<ReservedUser>) -> Unit,
-        onError: (Exception) -> Unit
-    ): List<ListenerRegistration> {
-
-        val ownerCampsites = filterOwnerCampsites(
-            campsites,
-            ownerId
-        ).distinctBy { it.id }
-
-        if (ownerCampsites.isEmpty()) {
-            onSuccess(emptyList())
-            return emptyList()
-        }
-
-        val reservationsByCampsite =
-            mutableMapOf<String, List<ReservedUser>>()
-
-        var hasFailed = false
-
-        return ownerCampsites.map { campsite ->
-
-            model.listenToCampsiteReservations(
-                campsiteId = campsite.id,
-
-                onSuccess = { reservations ->
-
-                    reservationsByCampsite[campsite.id] =
-                        reservations
-
-                    if (!hasFailed &&
-                        reservationsByCampsite.size ==
-                        ownerCampsites.size
-                    ) {
-                        val allReservations =
-                            reservationsByCampsite.values.flatten()
-
-                        val activeReservations =
-                            filterOwnerActiveReservations(
-                                reservations = allReservations,
-                                campsites = ownerCampsites,
-                                ownerId = ownerId
-                            )
-
-                        onSuccess(activeReservations)
-                    }
-                },
-
-                onError = { exception ->
-                    hasFailed = true
-                    onError(exception)
-                }
-            )
-        }
-    }
-
-    /**
-     * Stops listening for reservation changes.
-     *
-     * @param listeners Active Firebase listener registrations.
-     */
-    fun stopReservationListeners(
-        listeners: List<ListenerRegistration>
-    ) {
-        listeners.forEach { listener ->
-            listener.remove()
-        }
     }
 
     /**

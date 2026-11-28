@@ -8,7 +8,6 @@ import com.google.firebase.firestore.firestore
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
-import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.functions.FirebaseFunctions
 
 internal data class OwnerReservation(
@@ -149,50 +148,6 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
             }
             .addOnFailureListener { exception ->
                 onError(exception)
-            }
-    }
-    /**
-     * Listens for real-time reservation changes for a campsite.
-     *
-     * @param campsiteId ID of the campsite.
-     * @param onSuccess Called when reservation records change.
-     * @param onError Called when retrieval fails.
-     * @return Listener registration used to stop listening.
-     */
-    fun listenToCampsiteReservations(
-        campsiteId: String,
-        onSuccess: (List<ReservedUser>) -> Unit,
-        onError: (Exception) -> Unit
-    ): ListenerRegistration {
-
-        return reservations
-            .whereEqualTo("campsiteId", campsiteId)
-            .addSnapshotListener { snapshot, error ->
-
-                if (error != null) {
-                    onError(error)
-                    return@addSnapshotListener
-                }
-
-                if (snapshot == null) {
-                    onError(
-                        IllegalStateException(
-                            "Unable to load reservations."
-                        )
-                    )
-                    return@addSnapshotListener
-                }
-
-                try {
-                    val results = snapshot.documents.mapNotNull { document ->
-                        parseReservation(document)
-                    }
-
-                    onSuccess(results)
-
-                } catch (exception: Exception) {
-                    onError(exception)
-                }
             }
     }
 }

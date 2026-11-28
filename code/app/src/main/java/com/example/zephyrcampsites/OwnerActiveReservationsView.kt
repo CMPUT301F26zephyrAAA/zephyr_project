@@ -1,12 +1,29 @@
-
+// Renders the active reservations returned by the authenticated owner-booking callable.
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -15,18 +32,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Displays active reservations belonging to an owner.
- */
+/** Displays active reservations belonging to the current owner. */
 @Composable
-fun OwnerActiveReservationsView(
-    reservations: List<ReservedUser>,
-    campsiteForId: (String) -> Campsite?,
-    accountForId: (String) -> Account?,
+internal fun OwnerActiveReservationsView(
+    reservations: List<OwnerReservation>,
+    currentTimeMillis: Long,
     isLoading: Boolean,
+    isRefreshing: Boolean,
     errorMessage: String?,
+    onRefresh: () -> Unit,
     onRetry: () -> Unit,
-    onViewDetails: (ReservedUser) -> Unit,
+    onViewDetails: (OwnerReservation) -> Unit,
     onBack: () -> Unit
 ) {
     Column(
@@ -38,11 +54,20 @@ fun OwnerActiveReservationsView(
             Text("‹ Back")
         }
 
-        Text(
-            text = "Active Reservations",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Active Reservations",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold
+            )
+            TextButton(onClick = onRefresh, enabled = !isRefreshing) {
+                Text(if (isRefreshing) "Updating…" else "Refresh")
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -69,7 +94,6 @@ fun OwnerActiveReservationsView(
                             text = errorMessage,
                             color = MaterialTheme.colorScheme.error
                         )
-
                         Button(onClick = onRetry) {
                             Text("Retry")
                         }
@@ -94,26 +118,12 @@ fun OwnerActiveReservationsView(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    items(reservations) { reservation ->
-
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    items(reservations, key = { it.id }) { reservation ->
                         OwnerReservationCard(
                             reservation = reservation,
-                            campsiteName = campsiteForId(
-                                reservation.campsiteId
-                            )?.name?.takeIf { it.isNotBlank() }
-                                ?: "Unknown campsite",
-
-                            entrantName = accountForId(
-                                reservation.accountId
-                            )?.name?.takeIf { it.isNotBlank() }
-                                ?: "Unknown entrant",
-
-                            onClick = {
-                                onViewDetails(reservation)
-                            }
+                            currentTimeMillis = currentTimeMillis,
+                            onClick = { onViewDetails(reservation) }
                         )
                     }
                 }
@@ -122,37 +132,20 @@ fun OwnerActiveReservationsView(
     }
 }
 
-
-/**
- * Displays a selectable summary of an active reservation.
- */
+/** Displays a selectable summary of an active reservation. */
 @Composable
 private fun OwnerReservationCard(
-    reservation: ReservedUser,
-    campsiteName: String,
-    entrantName: String,
+    reservation: OwnerReservation,
+    currentTimeMillis: Long,
     onClick: () -> Unit
 ) {
     val dateFormat = remember {
         SimpleDateFormat("MMM d, yyyy", Locale.getDefault())
     }
-
-    val startDate = reservation.bookedPeriodStart
-    val endDate = reservation.bookedPeriodEnd
-
-    val status = when {
-        reservation.cancelled -> "Cancelled"
-
-        startDate == null || endDate == null ->
-            "Unavailable"
-
-        !endDate.after(Date()) ->
-            "Completed"
-
-        startDate.after(Date()) ->
-            "Confirmed · Upcoming"
-
-        else -> "Confirmed · Current stay"
+    val status = if (reservation.startMillis > currentTimeMillis) {
+        "Confirmed · Upcoming"
+    } else {
+        "Confirmed · Current stay"
     }
 
     Card(
@@ -160,8 +153,7 @@ private fun OwnerReservationCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
-            containerColor =
-                MaterialTheme.colorScheme.surfaceVariant
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
         Row(
@@ -175,38 +167,22 @@ private fun OwnerReservationCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = campsiteName,
+                    text = reservation.campsiteName.ifBlank { "Campsite" },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-
                 Text(
                     text = status,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Medium
                 )
-
                 HorizontalDivider()
-
-                Text("Entrant: $entrantName")
-
-                Text(
-                    text = "Check-in: ${
-                        startDate?.let { dateFormat.format(it) }
-                            ?: "Unavailable"
-                    }"
-                )
-
-                Text(
-                    text = "Check-out: ${
-                        endDate?.let { dateFormat.format(it) }
-                            ?: "Unavailable"
-                    }"
-                )
+                Text("Entrant: ${reservation.entrantName.ifBlank { "Entrant name unavailable" }}")
+                Text("Check-in: ${dateFormat.format(Date(reservation.startMillis))}")
+                Text("Check-out: ${dateFormat.format(Date(reservation.endMillis))}")
             }
 
             Spacer(modifier = Modifier.width(12.dp))
-
             Text(
                 text = "›",
                 style = MaterialTheme.typography.headlineMedium
@@ -214,4 +190,3 @@ private fun OwnerReservationCard(
         }
     }
 }
-

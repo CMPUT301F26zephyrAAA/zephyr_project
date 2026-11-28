@@ -1,28 +1,23 @@
-// Displays an owner's bookings and requests confirmation before cancellation.
+// Coordinates the owner's active reservations list, details screen, and safe cancellation flow.
 package com.example.zephyrcampsites
 
 import android.os.SystemClock
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import java.text.DateFormat
-import java.util.Date
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
+private const val OWNER_RESERVATION_REFRESH_INTERVAL_MS = 30_000L
+private const val OWNER_RESERVATION_CLOCK_TICK_MS = 60_000L
 
 // AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, owner cancellation, 2026-11-27.
 // See the team AI Documentation Google Doc.
@@ -33,108 +28,132 @@ internal fun OwnerReservationsScreen(
     onBack: () -> Unit
 ) {
     var bookings by remember(owner.id) { mutableStateOf<OwnerReservationList?>(null) }
-    var loadedAt by remember(owner.id) { mutableStateOf(0L) }
-    var error by remember(owner.id) { mutableStateOf<String?>(null) }
-    var selected by remember(owner.id) { mutableStateOf<OwnerReservation?>(null) }
-    var busy by remember(owner.id) { mutableStateOf(false) }
-    val format = remember { DateFormat.getDateInstance(DateFormat.MEDIUM) }
+    var loadedAt by remember(owner.id) { mutableLongStateOf(0L) }
+    var serverNowMillis by remember(owner.id) { mutableLongStateOf(0L) }
+    var isLoading by remember(owner.id) { mutableStateOf(true) }
+    var isRefreshing by remember(owner.id) { mutableStateOf(false) }
+    var errorMessage by remember(owner.id) { mutableStateOf<String?>(null) }
+    var selectedReservation by remember(owner.id) { mutableStateOf<OwnerReservation?>(null) }
+    var cancellationTarget by remember(owner.id) { mutableStateOf<OwnerReservation?>(null) }
 
-    fun reload() {
-        busy = true
-        error = null
+    fun serverNow(): Long {
+        val currentBookings = bookings ?: return 0L
+        return currentBookings.serverMillis + SystemClock.elapsedRealtime() - loadedAt
+    }
+
+    fun loadReservations() {
+        if (isRefreshing) {
+            return
+        }
+
+        isRefreshing = true
+        errorMessage = null
         controller.loadOwnerReservations(
-            onSuccess = {
-                bookings = it
+            onSuccess = { result ->
+                bookings = result
                 loadedAt = SystemClock.elapsedRealtime()
-                busy = false
+                serverNowMillis = result.serverMillis
+                isLoading = false
+                isRefreshing = false
             },
             onError = {
-                error = "Unable to load your reservations."
-                busy = false
+                errorMessage = "Unable to load your active reservations."
+                isLoading = false
+                isRefreshing = false
             }
         )
     }
 
-    fun serverNow(): Long =
-        (bookings?.serverMillis ?: 0L) + SystemClock.elapsedRealtime() - loadedAt
-
-    LaunchedEffect(owner.id) { reload() }
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        TextButton(onClick = onBack) { Text("Back") }
-        Text("Reservations", style = MaterialTheme.typography.headlineMedium)
-        TextButton(onClick = ::reload, enabled = !busy) { Text("Refresh") }
-        if (busy) {
-            CircularProgressIndicator()
-        }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        val rows = bookings?.reservations.orEmpty().sortedBy { it.startMillis }
-        if (bookings != null && rows.isEmpty()) {
-            Text("No reservations for your campsites.")
-        }
-        val now = serverNow()
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(rows, key = { it.id }) { reservation ->
-                val status = when {
-                    reservation.cancelled -> "Cancelled"
-                    reservation.endMillis <= now -> "Completed"
-                    reservation.startMillis <= now -> "Checked in"
-                    else -> "Upcoming"
-                }
-                Column {
-                    Text(
-                        reservation.campsiteName.ifBlank { "Campsite" },
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(reservation.entrantName.ifBlank { "Entrant name unavailable" })
-                    Text(
-                        "${format.format(Date(reservation.startMillis))} – " +
-                            format.format(Date(reservation.endMillis))
-                    )
-                    Text(status)
-                    if (!reservation.cancelled && reservation.startMillis > now) {
-                        TextButton(
-                            onClick = { selected = reservation },
-                            enabled = !busy
-                        ) {
-                            Text("Cancel reservation")
-                        }
-                    }
-                }
-            }
+    LaunchedEffect(owner.id) {
+        loadReservations()
+        while (isActive) {
+            delay(OWNER_RESERVATION_REFRESH_INTERVAL_MS)
+            loadReservations()
         }
     }
 
-    selected?.let { reservation ->
+    LaunchedEffect(bookings?.serverMillis, loadedAt) {
+        while (bookings != null && isActive) {
+            serverNowMillis = serverNow()
+            delay(OWNER_RESERVATION_CLOCK_TICK_MS)
+        }
+    }
+
+    val activeReservations = controller.filterActiveOwnerReservations(
+        reservations = bookings?.reservations.orEmpty(),
+        currentTimeMillis = serverNowMillis
+    )
+
+    LaunchedEffect(activeReservations, selectedReservation?.id) {
+        if (selectedReservation != null &&
+            activeReservations.none { it.id == selectedReservation?.id }
+        ) {
+            selectedReservation = null
+        }
+    }
+
+    BackHandler(enabled = selectedReservation != null) {
+        selectedReservation = null
+    }
+
+    val reservation = selectedReservation
+    if (reservation == null) {
+        OwnerActiveReservationsView(
+            reservations = activeReservations,
+            currentTimeMillis = serverNowMillis,
+            isLoading = isLoading,
+            isRefreshing = isRefreshing,
+            errorMessage = errorMessage?.takeIf { bookings == null },
+            onRefresh = ::loadReservations,
+            onRetry = ::loadReservations,
+            onViewDetails = { selectedReservation = it },
+            onBack = onBack
+        )
+    } else {
+        OwnerReservationDetailsView(
+            reservation = reservation,
+            currentTimeMillis = serverNowMillis,
+            errorMessage = errorMessage,
+            onCancel = if (reservation.startMillis > serverNowMillis) {
+                { cancellationTarget = reservation }
+            } else {
+                null
+            },
+            onBack = { selectedReservation = null }
+        )
+    }
+
+    cancellationTarget?.let { target ->
         AlertDialog(
-            onDismissRequest = { selected = null },
+            onDismissRequest = { cancellationTarget = null },
             title = { Text("Cancel this reservation?") },
             text = {
                 Text("The booking will stay in the reservation history as cancelled.")
             },
             dismissButton = {
-                TextButton(onClick = { selected = null }) { Text("Keep reservation") }
+                TextButton(onClick = { cancellationTarget = null }) {
+                    Text("Keep reservation")
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        selected = null
-                        if (reservation.startMillis <= serverNow()) {
-                            error = "This booking has reached check-in and can no longer be cancelled."
+                        cancellationTarget = null
+                        if (target.startMillis <= serverNow()) {
+                            errorMessage =
+                                "This booking has reached check-in and can no longer be cancelled."
                         } else {
-                            busy = true
-                            error = null
+                            errorMessage = null
                             controller.cancelOwnerReservation(
-                                reservation = reservation,
+                                reservation = target,
                                 owner = owner,
-                                onSuccess = { reload() },
+                                onSuccess = {
+                                    selectedReservation = null
+                                    loadReservations()
+                                },
                                 onError = {
-                                    busy = false
-                                    error = "Unable to cancel. Refresh to check the booking's current status."
+                                    errorMessage =
+                                        "Unable to cancel. Refresh to check the booking's current status."
                                 }
                             )
                         }

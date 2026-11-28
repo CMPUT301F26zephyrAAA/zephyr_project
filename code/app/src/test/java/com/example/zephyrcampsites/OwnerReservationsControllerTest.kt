@@ -279,4 +279,34 @@ class OwnerReservationsControllerTest {
 
         assertEquals(listOf(reservation), result)
     }
+
+    @Test
+    fun callableReservationsExcludeCancelledAndCompletedBookings() {
+        val current = OwnerReservation(
+            id = "current",
+            campsiteName = "Pine Ridge Campground",
+            entrantName = "Taylor",
+            startMillis = 50_000L,
+            endMillis = 150_000L,
+            cancelled = false
+        )
+        val upcoming = OwnerReservation(
+            id = "upcoming",
+            campsiteName = "Lakeview Retreat",
+            entrantName = "Avery",
+            startMillis = 200_000L,
+            endMillis = 300_000L,
+            cancelled = false
+        )
+        val completed = current.copy(id = "completed", endMillis = 90_000L)
+        val cancelled = upcoming.copy(id = "cancelled", cancelled = true)
+        val invalid = upcoming.copy(id = "invalid", endMillis = 200_000L)
+
+        val result = controller.filterActiveOwnerReservations(
+            reservations = listOf(upcoming, completed, cancelled, invalid, current),
+            currentTimeMillis = currentTime.time
+        )
+
+        assertEquals(listOf(current, upcoming), result)
+    }
 }
