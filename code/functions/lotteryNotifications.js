@@ -4,10 +4,13 @@
 // Generated the delivery and authorization code.
 // See the team's AI documentation.
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
+const {error: logError} = require("firebase-functions/logger");
 const {FieldValue} = require("firebase-admin/firestore");
 const {createHash} = require("node:crypto");
 
 const MAX_MESSAGE_LENGTH = 2000;
+const WAITLIST_CHANGED = "The waitlist changed. Reload and try again.";
+const DELIVERY_FAILED = "Delivery could not be completed. Try again.";
 
 /**
  * Creates the notification endpoints using the application's Firestore.
@@ -112,13 +115,10 @@ function lotteryNotifications(db) {
               transaction, request.data.lotteryId, owner.id,
           );
           const recipients = await waitlistAccounts(lottery, transaction);
-          return recipients.map((profile) => {
-            const displayName = profile.get("name");
-            return {
-              accountId: profile.id,
-              name: typeof displayName === "string" ? displayName.trim() : "",
-            };
-          });
+          return recipients.map((profile) => ({
+            accountId: profile.id,
+            name: recipientDisplayName(profile),
+          }));
         }, {readOnly: true},
     ),
   );
@@ -140,7 +140,14 @@ function lotteryNotifications(db) {
       );
     }
 
-    return db.runTransaction(async (transaction) => {
+    // AI Citation [AI-41]
+    // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated failed-send history.
+    // See Bhav's entry in the team's AI Documentation Google Doc.
+    const selectedIds = new Set(selected);
+    const selectionKey = createHash("sha256")
+        .update(JSON.stringify([...selectedIds].sort())).digest("hex");
+
+    const saveAttempt = async (transaction, recovering = false) => {
       const owner = await verifyAccount(request, transaction);
       const lottery = await verifyLotteryOwner(
           transaction, data.lotteryId, owner.id,
@@ -148,34 +155,43 @@ function lotteryNotifications(db) {
       const notificationId = createHash("sha256")
           .update(JSON.stringify([owner.id, data.requestId])).digest("hex");
       const notification = notifications.doc(notificationId);
-      const existing = await transaction.get(notification);
+      // Keep the failed attempt when an older app retries with the same ID.
+      const failure = notifications.doc(notificationId + "-failed");
+      const [committed, failed] = await transaction.getAll(
+          notification, failure,
+      );
+      const existing = committed.exists ? committed : failed;
       if (existing.exists) {
-        const sameSelection = data.allEntrants ||
-          sameRecipients(existing.get("intendedRecipientIds"), selected);
-        if (existing.get("lotteryId") !== lottery.id ||
-            existing.get("message") !== message ||
-            existing.get("allEntrants") !== data.allEntrants ||
+        const saved = existing.data();
+        const sameSelection = data.allEntrants || (saved.failureReason ?
+          saved.selectionKey === selectionKey :
+          sameRecipients(saved.intendedRecipientIds, selected));
+        if (saved.lotteryId !== lottery.id || saved.message !== message ||
+            saved.allEntrants !== data.allEntrants ||
             !sameSelection) {
           throw new HttpsError(
               "already-exists", "This send ID was used for another message.",
           );
         }
-        return deliveryCounts(existing.data());
+        if (committed.exists || recovering) {
+          return saved;
+        }
       }
 
-      const waitlist = await waitlistAccounts(lottery, transaction);
-      const selectedIds = new Set(selected);
+      const waitlist = recovering ? [] :
+        await waitlistAccounts(lottery, transaction);
       const intended = data.allEntrants ? waitlist : waitlist.filter(
           (profile) => selectedIds.has(profile.id),
       );
-      if (intended.length === 0 ||
-          (!data.allEntrants && intended.length !== selectedIds.size)) {
-        throw new HttpsError(
-            "failed-precondition",
-            "The waitlist changed. Reload and try again.",
-        );
+      const waitlistChanged = intended.length === 0 ||
+        (!data.allEntrants && intended.length !== selectedIds.size);
+      const failureReason = recovering ? DELIVERY_FAILED :
+        (waitlistChanged ? WAITLIST_CHANGED : null);
+      if (failureReason && failed.exists) {
+        return failed.data();
       }
-      const enabled = intended.filter(notificationsEnabled);
+      const enabled = failureReason ? [] :
+        intended.filter(notificationsEnabled);
       const lotteryName = lottery.get("lotteryName");
       const record = {
         lotteryId: lottery.id,
@@ -186,12 +202,41 @@ function lotteryNotifications(db) {
         message,
         allEntrants: data.allEntrants,
         intendedRecipientIds: intended.map((profile) => profile.id),
+        // AI Citation [AI-42]
+        // OpenAI, Codex, US 02.10.02, 2026-11-27. Saved names at send time.
+        // See Bhav's entry in the team's AI Documentation Google Doc.
+        recipientNames: Object.fromEntries(intended.map((profile) => [
+          profile.id, recipientDisplayName(profile) || "Unnamed entrant",
+        ])),
         deliveredRecipientIds: enabled.map((profile) => profile.id),
         sentAt: FieldValue.serverTimestamp(),
+        ...(failureReason ? {failureReason, selectionKey} : {}),
       };
-      transaction.create(notification, record);
-      return deliveryCounts(record);
-    });
+      transaction.create(failureReason ? failure : notification, record);
+      return record;
+    };
+
+    let attempt;
+    try {
+      attempt = await db.runTransaction((transaction) =>
+        saveAttempt(transaction),
+      );
+    } catch (error) {
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      logError("Notification send transaction failed.", {code: error.code});
+      // Check the same ID because the commit may have succeeded.
+      attempt = await db.runTransaction(
+          (transaction) => saveAttempt(transaction, true),
+      );
+    }
+    if (attempt.failureReason) {
+      throw new HttpsError("failed-precondition", attempt.failureReason, {
+        recordedFailure: true,
+      });
+    }
+    return deliveryCounts(attempt);
   });
 
   const listReceivedLotteryNotifications = onCall((request) =>
@@ -214,10 +259,103 @@ function lotteryNotifications(db) {
     ),
   );
 
+  // AI Citation [AI-40]
+  // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated history reads.
+  // See Bhav's entry in the team's AI Documentation Google Doc.
+  const listSentLotteryNotifications = onCall((request) =>
+    db.runTransaction(async (transaction) => {
+      const owner = await verifyHistoryOwner(request, transaction);
+      const sent = await transaction.get(notifications.where(
+          "senderAccountId", "==", owner.id,
+      ));
+      return sent.docs.sort((first, second) => {
+        const firstTime = first.get("sentAt");
+        const secondTime = second.get("sentAt");
+        return secondTime.seconds - firstTime.seconds ||
+          secondTime.nanoseconds - firstTime.nanoseconds;
+      }).map(sentNotificationSummary);
+    }, {readOnly: true}),
+  );
+
+  const getSentLotteryNotification = onCall((request) =>
+    db.runTransaction(async (transaction) => {
+      const owner = await verifyHistoryOwner(request, transaction);
+      const notificationId = request.data.notificationId;
+      if (!validId(notificationId)) {
+        throw new HttpsError("invalid-argument", "Invalid notification.");
+      }
+      const notification = await transaction.get(
+          notifications.doc(notificationId),
+      );
+      if (notification.get("senderAccountId") !== owner.id) {
+        throw new HttpsError("not-found", "Notification unavailable.");
+      }
+
+      const intended = notification.get("intendedRecipientIds");
+      const delivered = new Set(notification.get("deliveredRecipientIds"));
+      // AI Citation [AI-42]
+      // OpenAI, Codex, US 02.10.02, 2026-11-27. Kept legacy name lookup.
+      // See Bhav's entry in the team's AI Documentation Google Doc.
+      const names = new Map(
+          Object.entries(notification.get("recipientNames") || {}).filter(
+              ([, value]) => typeof value === "string" && value.trim(),
+          ),
+      );
+      const missing = intended.filter((id) => !names.has(id));
+      if (missing.length > 0) {
+        const profiles = await transaction.getAll(
+            ...missing.map((id) => accounts.doc(id)),
+        );
+        for (const profile of profiles) {
+          names.set(profile.id, recipientDisplayName(profile));
+        }
+      }
+      const recipients = intended.map((id) => ({
+        name: names.get(id) || "Unnamed entrant",
+        delivered: delivered.has(id),
+      }));
+      return {...sentNotificationSummary(notification), recipients};
+    }, {readOnly: true}),
+  );
+
+  /**
+   * Verifies the caller's account and owner role before reading history.
+   * @param {Object} request Callable request.
+   * @param {Object} transaction Current read transaction.
+   * @return {Promise<Object>} Verified owner profile.
+   */
+  async function verifyHistoryOwner(request, transaction) {
+    const account = await verifyAccount(request, transaction);
+    const roles = account.get("userType");
+    if (!Array.isArray(roles) || !roles.includes("owner")) {
+      throw new HttpsError("permission-denied", "Owner access is required.");
+    }
+    return account;
+  }
+
   return {
     listLotteryNotificationRecipients,
     sendLotteryNotification,
     listReceivedLotteryNotifications,
+    listSentLotteryNotifications,
+    getSentLotteryNotification,
+  };
+}
+
+/**
+ * Builds a history row from the record saved by the owner send transaction.
+ * @param {Object} notification Saved notification snapshot.
+ * @return {Object} Message, lottery, timestamp and delivery counts.
+ */
+function sentNotificationSummary(notification) {
+  const record = notification.data();
+  return {
+    id: notification.id,
+    lotteryName: record.lotteryName,
+    message: record.message,
+    sentAtMillis: record.sentAt.toMillis(),
+    ...(record.failureReason ? {failureReason: record.failureReason} : {}),
+    ...deliveryCounts(record),
   };
 }
 
@@ -242,6 +380,16 @@ function sameRecipients(saved, selected) {
   const requestedIds = new Set(selected);
   return saved.length === requestedIds.size &&
     saved.every((id) => requestedIds.has(id));
+}
+
+/**
+ * Reads the display name from a recipient profile, if set.
+ * @param {Object} profile Recipient account snapshot.
+ * @return {string} Trimmed name or an empty string.
+ */
+function recipientDisplayName(profile) {
+  const displayName = profile.get("name");
+  return typeof displayName === "string" ? displayName.trim() : "";
 }
 
 /**

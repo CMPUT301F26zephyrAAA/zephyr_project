@@ -3,9 +3,9 @@
 // accounts/{accountId}: auth_<Firebase UID>. Preferences are booleans.
 // lottery/{lotteryId}: campsiteId, registration millis, entrantCount and waitlistChangeAccountId.
 // waitingList/{lotteryId}_{accountId}: paired entry for the lottery's counter transaction.
-// Admin-managed reservationChatAccess/{reservationId}: entrantAccountId, ownerAccountId, campsiteId.
+// campsite/{campsiteId}: ownerID supplies the owner account for the reservation.
 // reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
-// reservationChat/{reservationId}: same participant fields, immutable after creation.
+// reservationChat/{reservationId}: entrantAccountId, ownerAccountId, campsiteId. Immutable.
 // messages/{messageId}: senderUid, senderAccountId, text (1 to 2,000 characters), sentAt (server timestamp).
 // readReceipts/{accountId}: readAt (newest incoming message timestamp seen).
 rules_version = '2';
@@ -213,38 +213,44 @@ service cloud.firestore {
         value.matches('[^/]+') && !(value in ['.', '..']);
     }
 
-    function approvedReservation(reservationId) {
-      return get(/databases/$(database)/documents/reservationChatAccess/$(reservationId)).data;
+    // AI Citation [AI-43] (Bhav Saluja)
+    // OpenAI, Codex, November 27, 2026. Derives chat access from the saved booking and campsite.
+    // See the team AI Documentation Google Doc.
+    function chatBooking(reservationId) {
+      let reservation = get(/databases/$(database)/documents/reservation/$(reservationId));
+      return reservation == null ? {} : reservation.data;
     }
 
-    function isParticipant(booking) {
-      return verifiedAccount(booking.entrantAccountId) || verifiedAccount(booking.ownerAccountId);
+    function chatOwner(campsiteId) {
+      let campsite = validId(campsiteId) ? get(campsiteRecord(campsiteId)) : null;
+      return campsite == null ? '' : campsite.data.get('ownerID', '');
     }
 
-    function canOpenChat(reservationId, booking) {
-      let reservation = get(/databases/$(database)/documents/reservation/$(reservationId)).data;
-      return isParticipant(booking) &&
-        reservation.accountId == booking.entrantAccountId && reservation.campsiteId == booking.campsiteId &&
-        reservation.cancelled == false &&
-        reservation.bookedPeriodStart is timestamp && reservation.bookedPeriodEnd is timestamp &&
-        reservation.bookedPeriodStart < reservation.bookedPeriodEnd;
+    function canOpenChat(booking, ownerId) {
+      let entrantId = booking.get('accountId', '');
+      return request.auth != null &&
+        booking.get('cancelled', true) == false &&
+        booking.get('bookedPeriodStart', null) is timestamp &&
+        booking.get('bookedPeriodEnd', null) is timestamp &&
+        booking.bookedPeriodStart < booking.bookedPeriodEnd &&
+        (verifiedAccount(entrantId) || verifiedAccount(ownerId)) &&
+        validId(entrantId) && entrantId.matches('auth_.+') && accountActive(entrantId) &&
+        validId(ownerId) && ownerId.matches('auth_.+') && accountActive(ownerId);
     }
 
-    function sameBooking(data, booking) {
-      return data.entrantAccountId == booking.entrantAccountId &&
-        data.ownerAccountId == booking.ownerAccountId && data.campsiteId == booking.campsiteId;
+    function sameBooking(data, booking, ownerId) {
+      return data.entrantAccountId == booking.accountId &&
+        data.ownerAccountId == ownerId && data.campsiteId == booking.campsiteId;
     }
 
-    function isValidConversation(data, booking) {
+    function isValidConversation(data, booking, ownerId) {
       return data.keys().hasOnly(['entrantAccountId', 'ownerAccountId', 'campsiteId']) &&
-        validId(data.entrantAccountId) && validId(data.ownerAccountId) && validId(data.campsiteId) &&
-        sameBooking(data, booking) &&
-        exists(accountRecord(booking.entrantAccountId)) && exists(accountRecord(booking.ownerAccountId));
+        sameBooking(data, booking, ownerId);
     }
 
-    function isValidMessage(data, booking) {
+    function isValidMessage(data, booking, ownerId) {
       return data.keys().hasOnly(['senderUid', 'senderAccountId', 'text', 'sentAt']) &&
-        data.senderUid == request.auth.uid && data.senderAccountId in [booking.entrantAccountId, booking.ownerAccountId] &&
+        data.senderUid == request.auth.uid && data.senderAccountId in [booking.accountId, ownerId] &&
         verifiedAccount(data.senderAccountId) &&
         data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
         data.text.matches('(?s).*\\S.*') &&
@@ -252,34 +258,56 @@ service cloud.firestore {
     }
 
     match /reservationChat/{reservationId} {
-      allow get: if canOpenChat(reservationId, approvedReservation(reservationId));
-      allow create: if canOpenChat(reservationId, approvedReservation(reservationId)) &&
-        isValidConversation(request.resource.data, approvedReservation(reservationId));
+      function canReadConversation(booking, data) {
+        let ownerId = chatOwner(booking.get('campsiteId', ''));
+        return canOpenChat(booking, ownerId) &&
+          (data == null || sameBooking(data, booking, ownerId));
+      }
 
-      function canAccessChat(booking) {
-        let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId)).data;
-        return canOpenChat(reservationId, booking) && sameBooking(conversation, booking);
+      function canCreateConversation(booking) {
+        let ownerId = chatOwner(booking.get('campsiteId', ''));
+        return canOpenChat(booking, ownerId) &&
+          isValidConversation(request.resource.data, booking, ownerId);
+      }
+
+      allow get: if canReadConversation(chatBooking(reservationId), resource == null ? null : resource.data);
+      allow create: if canCreateConversation(chatBooking(reservationId));
+
+      function canAccessChat(booking, ownerId) {
+        let conversation = get(/databases/$(database)/documents/reservationChat/$(reservationId));
+        return canOpenChat(booking, ownerId) && conversation != null &&
+          sameBooking(conversation.data, booking, ownerId);
       }
 
       match /messages/{messageId} {
-        allow read: if canAccessChat(approvedReservation(reservationId));
-        allow create: if canAccessChat(approvedReservation(reservationId)) &&
-          isValidMessage(request.resource.data, approvedReservation(reservationId));
+        function canReadMessages(booking) {
+          return canAccessChat(booking, chatOwner(booking.get('campsiteId', '')));
+        }
+
+        function canSendMessage(booking) {
+          let ownerId = chatOwner(booking.get('campsiteId', ''));
+          return canAccessChat(booking, ownerId) &&
+            isValidMessage(request.resource.data, booking, ownerId);
+        }
+
+        allow read: if canReadMessages(chatBooking(reservationId));
+        allow create: if canSendMessage(chatBooking(reservationId));
       }
 
       match /readReceipts/{accountId} {
         function ownsReceipt(booking) {
-          return accountId in [booking.entrantAccountId, booking.ownerAccountId] &&
-            verifiedAccount(accountId) && canAccessChat(booking);
+          let ownerId = chatOwner(booking.get('campsiteId', ''));
+          return verifiedAccount(accountId) && accountId in [booking.get('accountId', ''), ownerId] &&
+            canAccessChat(booking, ownerId);
         }
 
         function validReceipt(data) {
           return data.keys().hasOnly(['readAt']) && data.readAt is timestamp && data.readAt <= request.time;
         }
 
-        allow get: if ownsReceipt(approvedReservation(reservationId));
-        allow create: if ownsReceipt(approvedReservation(reservationId)) && validReceipt(request.resource.data);
-        allow update: if ownsReceipt(approvedReservation(reservationId)) &&
+        allow get: if ownsReceipt(chatBooking(reservationId));
+        allow create: if ownsReceipt(chatBooking(reservationId)) && validReceipt(request.resource.data);
+        allow update: if ownsReceipt(chatBooking(reservationId)) &&
           validReceipt(request.resource.data) && request.resource.data.readAt >= resource.data.readAt;
       }
     }

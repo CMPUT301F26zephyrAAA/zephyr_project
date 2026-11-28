@@ -48,6 +48,7 @@ internal fun CampsitesNavigation(
     currentAccount: MutableState<Account?>,
     accountLoading: State<Boolean>,
     profileDeletionInProgress: MutableState<Boolean>,
+    adminRefreshInProgress: State<Boolean>,
     onRetryAccount: () -> Unit,
     onFinishActivity: () -> Unit
 ) {
@@ -96,6 +97,13 @@ internal fun CampsitesNavigation(
     val account = currentAccount.value
     val isLoading = accountLoading.value
     val isAdmin = !isLoading && account?.userType?.contains(ADMIN) == true
+
+    fun updateCurrentProfile(updated: Account) {
+        val latestAccount = currentAccount.value ?: return
+        if (latestAccount.id == updated.id) {
+            currentAccount.value = updated.copy(userType = latestAccount.userType)
+        }
+    }
 
     fun ownsCampsite(campsiteId: String?): Boolean {
         val owner = currentAccount.value ?: return false
@@ -330,6 +338,7 @@ internal fun CampsitesNavigation(
             showOwnerView = role == OWNER,
             showEntrantActions = role == ENTRANT,
             showAdminActions = role == ADMIN,
+            ratingRemovalEnabled = !adminRefreshInProgress.value,
             codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
             onBack = onBack,
             onEdit = if (canManage) {
@@ -345,6 +354,11 @@ internal fun CampsitesNavigation(
                         "${GeneralScreen.LotterySettings.route}/$id"
                     )
                 }
+            } else {
+                null
+            },
+            onReservationMessages = if (canManage) {
+                { navHostController.navigate(GeneralScreen.ReservationReplies.createRoute(campsiteId.toString())) }
             } else {
                 null
             },
@@ -455,9 +469,7 @@ internal fun CampsitesNavigation(
                             AccountsView().ProfileView(
                                 account = profileAccount,
                                 accountsController = accountsController,
-                                onSaved = { updated ->
-                                    currentAccount.value = updated
-                                },
+                                onSaved = ::updateCurrentProfile,
                                 onBack = onBack
                             )
                         }
@@ -538,7 +550,7 @@ internal fun CampsitesNavigation(
                         }
 
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(
                             route = "$OWNER/notifyEntrants/{lotteryId}",
                             arguments = listOf(navArgument("lotteryId") { type = NavType.StringType })
@@ -554,7 +566,10 @@ internal fun CampsitesNavigation(
                                         accountId = owner.id,
                                         lottery = lottery,
                                         controller = notificationController,
-                                        onBack = onBack
+                                        onBack = onBack,
+                                        onViewSent = {
+                                            navHostController.navigate(GeneralScreen.SentNotifications.route)
+                                        }
                                     )
                                 } else {
                                     FeaturePage("Only the campsite owner can notify entrants.", onBack)
@@ -569,6 +584,55 @@ internal fun CampsitesNavigation(
                                     controller = reservationsController,
                                     onBack = onBack
                                 )
+                            }
+                        }
+
+                        // AI Citation [AI-40]
+                        // OpenAI, Codex, US 02.10.02, 2026-11-27. Generated the owner history routes.
+                        // See Bhav's entry in the team's AI Documentation Google Doc.
+                        composable(GeneralScreen.SentNotifications.route) {
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType) {
+                                    SentLotteryNotificationsScreen(owner.id, notificationController, onBack) { id ->
+                                        val route = GeneralScreen.SentNotifications.route
+                                        navHostController.navigate("$route/${Uri.encode(id)}")
+                                    }
+                                } else {
+                                    FeaturePage("Owner access required", onBack)
+                                }
+                            }
+                        }
+
+                        composable(
+                            route = GeneralScreen.SentNotificationDetails.route,
+                            arguments = listOf(navArgument("notificationId") { type = NavType.StringType })
+                        ) { entry ->
+                            val id = entry.arguments?.getString("notificationId") ?: return@composable
+                            AccountContent { owner ->
+                                if (OWNER in owner.userType) {
+                                    SentLotteryNotificationDetailsScreen(owner.id, id, notificationController, onBack)
+                                } else {
+                                    FeaturePage("Owner access required", onBack)
+                                }
+                            }
+                        }
+
+                        composable(
+                            route = GeneralScreen.ReservationReplies.route,
+                            arguments = listOf(navArgument("campsiteId") { type = NavType.StringType })
+                        ) { entry ->
+                            val campsiteId = entry.arguments?.getString("campsiteId") ?: return@composable
+                            AccountContent { owner ->
+                                val campsite = campsiteModel.campsites.firstOrNull {
+                                    it.id == campsiteId && it.ownerID == owner.id
+                                }
+                                if (campsite != null && OWNER in owner.userType) {
+                                    OwnerReservationReplies(
+                                        owner, campsite, reservationsController, accountsController, onBack
+                                    )
+                                } else {
+                                    FeaturePage("Only the campsite owner can open these reservations.", onBack)
+                                }
                             }
                         }
 
@@ -684,7 +748,7 @@ internal fun CampsitesNavigation(
                         }
                     } else {
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(GeneralScreen.LotteryNotifications.route) {
                             AccountContent { entrant ->
                                 LotteryNotificationsScreen(entrant, notificationController, onBack)
@@ -695,6 +759,7 @@ internal fun CampsitesNavigation(
                             AccountContent { entrant ->
                                 MyTripsNavigation(
                                     accountId = entrant.id,
+                                    accountsController = accountsController,
                                     reservationsController = reservationsController,
                                     campsiteForId = { id ->
                                         campsiteModel.campsites.firstOrNull { it.id == id }
@@ -947,7 +1012,7 @@ internal fun CampsitesNavigation(
                             AccountsView().ProfileView(
                                 account = profileAccount,
                                 accountsController = accountsController,
-                                onSaved = { updated -> currentAccount.value = updated },
+                                onSaved = ::updateCurrentProfile,
                                 onBack = onBack
                             )
                         }
