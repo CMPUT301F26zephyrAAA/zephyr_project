@@ -102,6 +102,7 @@ class CampsiteDetailView {
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
         adminRatingGateway: AdminRatingGateway? = null,
+        ratingRemovalEnabled: Boolean = true,
     ) {
         var removing by remember(campsiteId) { mutableStateOf(false) }
         var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
@@ -161,6 +162,7 @@ class CampsiteDetailView {
             showEntrantActions = showEntrantActions,
             showAdminActions = showAdminActions,
             adminRatingGateway = adminRatingGateway,
+            ratingRemovalEnabled = ratingRemovalEnabled,
             imageUrl = imageUrl,
             ownerName = ownerName,
             isLoading = model.isLoading,
@@ -249,6 +251,7 @@ class CampsiteDetailView {
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
         adminRatingGateway: AdminRatingGateway? = null,
+        ratingRemovalEnabled: Boolean = true,
     ) {
 
         val canRemoveCampsite = showAdminActions && account?.userType?.contains("admin") == true
@@ -296,6 +299,7 @@ class CampsiteDetailView {
                 campsiteName = campsite.name,
                 ratings = ratingRows.orEmpty(),
                 loadError = ratingLoadError,
+                ratingRemovalEnabled = ratingRemovalEnabled,
                 removeRating = { selected, onResult, onError ->
                     moderationModel.removeAdminRating(
                         campsiteId = ratingsCampsiteId,

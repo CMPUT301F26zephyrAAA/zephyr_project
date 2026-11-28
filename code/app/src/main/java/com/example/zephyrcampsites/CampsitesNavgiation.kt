@@ -46,6 +46,7 @@ internal fun CampsitesNavigation(
     currentAccount: MutableState<Account?>,
     accountLoading: State<Boolean>,
     profileDeletionInProgress: MutableState<Boolean>,
+    adminRefreshInProgress: State<Boolean>,
     onRetryAccount: () -> Unit,
     onFinishActivity: () -> Unit
 ) {
@@ -335,6 +336,7 @@ internal fun CampsitesNavigation(
             showOwnerView = role == OWNER,
             showEntrantActions = role == ENTRANT,
             showAdminActions = role == ADMIN,
+            ratingRemovalEnabled = !adminRefreshInProgress.value,
             codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
             onBack = onBack,
             onEdit = if (canManage) {

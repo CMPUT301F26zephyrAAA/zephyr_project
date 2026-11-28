@@ -682,6 +682,35 @@ class RatingModerationUITest {
     }
 
     @Test
+    fun pendingAdminRefreshKeepsConfirmationOpenAndDisablesRemoval() {
+        val adminRefreshInProgress = mutableStateOf(false)
+        compose.setContent {
+            CampsiteDetailView().DetailView(
+                campsite,
+                { _, _ -> ImageBitmap(1, 1) },
+                {},
+                account = admin,
+                showAdminActions = true,
+                adminRatingGateway = gateway,
+                ratingRemovalEnabled = !adminRefreshInProgress.value
+            )
+        }
+        openRatings()
+        selectFlaggedRating()
+
+        compose.runOnIdle { adminRefreshInProgress.value = true }
+
+        compose.onNodeWithText("Remove Rating?").assertIsDisplayed()
+        compose.onNodeWithText("Yes, delete").assertIsNotEnabled()
+
+        compose.runOnIdle { adminRefreshInProgress.value = false }
+
+        compose.onNodeWithText("Remove Rating?").assertIsDisplayed()
+        compose.onNodeWithText("Yes, delete").assertIsEnabled()
+        compose.runOnIdle { assertEquals(0, gateway.requests) }
+    }
+
+    @Test
     fun revokedAdminClaimClosesRatingConfirmation() {
         val signedInAccount = mutableStateOf(admin.withVerifiedAdminRole(true))
         compose.setContent {

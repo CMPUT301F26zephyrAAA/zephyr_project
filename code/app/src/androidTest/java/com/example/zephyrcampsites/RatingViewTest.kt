@@ -204,6 +204,21 @@ class RatingViewTest {
         composeTestRule.onNodeWithTag("RateCampsiteEntry").performScrollTo().performClick()
     }
 
+    @Test
+    fun scoreRemovalKeepsUnsavedReviewAndRequiresNewScore() {
+        model.rating = CampsiteRating("stay-1", 4, "Saved review")
+        showNavigation(startOnRating = true)
+        composeTestRule.onNodeWithTag("RatingReview").performTextInput(" with a draft edit")
+
+        composeTestRule.runOnIdle { model.emitDeletion(preserveReview = true) }
+
+        composeTestRule.onNodeWithTag("RatingReview").assertTextContains("with a draft edit", substring = true)
+        composeTestRule.onNodeWithTag("RatingStar1").assertIsOff()
+        composeTestRule.onNodeWithTag("SubmitRating").assertIsNotEnabled()
+        composeTestRule.onNodeWithTag("RatingStar3").performClick()
+        composeTestRule.onNodeWithTag("SubmitRating").assertIsEnabled()
+    }
+
     private fun showNavigation(startOnRating: Boolean = false, startOnList: Boolean = false) {
         composeTestRule.setContent {
             val nav = rememberNavController()
@@ -284,8 +299,12 @@ class RatingViewTest {
             return { ratingObserver = null }
         }
 
-        fun emitDeletion() {
-            rating = CampsiteRating(rating.reservationId)
+        fun emitDeletion(preserveReview: Boolean = false) {
+            rating = if (preserveReview) {
+                rating.copy(score = 0)
+            } else {
+                CampsiteRating(rating.reservationId)
+            }
             checkNotNull(ratingObserver).invoke(rating)
         }
 

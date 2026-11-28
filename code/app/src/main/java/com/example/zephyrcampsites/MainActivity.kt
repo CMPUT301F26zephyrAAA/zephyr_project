@@ -14,6 +14,7 @@ class MainActivity : ComponentActivity() {
     private val currentAccount = mutableStateOf<Account?>(null)
     private val accountLoading = mutableStateOf(true)
     private val profileDeletionInProgress = mutableStateOf(false)
+    private val adminRefreshInProgress = mutableStateOf(false)
     private var adminRefreshVersion = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,6 +34,7 @@ class MainActivity : ComponentActivity() {
                     currentAccount = currentAccount,
                     accountLoading = accountLoading,
                     profileDeletionInProgress = profileDeletionInProgress,
+                    adminRefreshInProgress = adminRefreshInProgress,
                     onRetryAccount = { initializeUser() },
                     onFinishActivity = { finish() }
                 )
@@ -48,15 +50,16 @@ class MainActivity : ComponentActivity() {
         }
 
         val version = ++adminRefreshVersion
-        currentAccount.value = account.withVerifiedAdminRole(false)
+        adminRefreshInProgress.value = true
         accountsController.refreshAdminAccess(account.id) { isAdmin ->
+            if (version != adminRefreshVersion) {
+                return@refreshAdminAccess
+            }
             val latestAccount = currentAccount.value
-            if (version == adminRefreshVersion &&
-                !profileDeletionInProgress.value &&
-                latestAccount?.id == account.id
-            ) {
+            if (!profileDeletionInProgress.value && latestAccount?.id == account.id) {
                 currentAccount.value = latestAccount.withVerifiedAdminRole(isAdmin)
             }
+            adminRefreshInProgress.value = false
         }
     }
 

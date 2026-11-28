@@ -29,6 +29,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -134,32 +135,35 @@ class RatingView {
                 stop()
             }
         }
-        RatingForm(
-            campsiteName = campsite?.name.orEmpty(), rating = rating, loading = loading, saving = saving,
-            error = error, onRetry = { retry++ }, onBack = onBack,
-            onSubmit = { score, review ->
-                val currentRating = rating
-                if (currentRating != null && !saving) {
-                    saving = true
-                    error = null
-                    controller.submitRating(campsite?.id.orEmpty(), account,
-                        currentRating.copy(score = score, review = review),
-                        onSuccess = {
-                            if (active) {
-                                saving = false
-                                onSaved()
+        key(campsite?.id, account?.id) {
+            RatingForm(
+                campsiteName = campsite?.name.orEmpty(), rating = rating, loading = loading, saving = saving,
+                error = error, onRetry = { retry++ }, onBack = onBack,
+                onSubmit = { score, review ->
+                    val currentRating = rating
+                    if (currentRating != null && !saving) {
+                        saving = true
+                        error = null
+                        controller.submitRating(
+                            campsite?.id.orEmpty(), account,
+                            currentRating.copy(score = score, review = review),
+                            onSuccess = {
+                                if (active) {
+                                    saving = false
+                                    onSaved()
+                                }
+                            },
+                            onError = { message ->
+                                if (active) {
+                                    saving = false
+                                    error = message
+                                }
                             }
-                        },
-                        onError = { message ->
-                            if (active) {
-                                saving = false
-                                error = message
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 
     /**
@@ -179,8 +183,10 @@ class RatingView {
         campsiteName: String, rating: CampsiteRating?, loading: Boolean = false, saving: Boolean = false,
         error: String? = null, onRetry: () -> Unit = {}, onSubmit: (Int, String) -> Unit, onBack: () -> Unit
     ) {
-        var score by rememberSaveable(rating) { mutableStateOf(rating?.score ?: 0) }
-        var review by rememberSaveable(rating) { mutableStateOf(rating?.review.orEmpty()) }
+        var scoreDraft by rememberSaveable { mutableStateOf<Int?>(null) }
+        var reviewDraft by rememberSaveable { mutableStateOf<String?>(null) }
+        val score = scoreDraft ?: rating?.score ?: 0
+        val review = reviewDraft ?: rating?.review.orEmpty()
         Scaffold(
             bottomBar = {
                 Row(
@@ -226,7 +232,7 @@ class RatingView {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         for (value in 1..5) {
                             IconToggleButton(
-                                checked = value <= score, onCheckedChange = { score = value }, enabled = !saving,
+                                checked = value <= score, onCheckedChange = { scoreDraft = value }, enabled = !saving,
                                 modifier = Modifier.size(48.dp).testTag("RatingStar$value")
                             ) {
                                 Icon(if (value <= score) Icons.Filled.Star else Icons.Outlined.StarBorder,
@@ -238,7 +244,7 @@ class RatingView {
                     Spacer(modifier = Modifier.height(24.dp))
                     Text(stringResource(R.string.rating_review_label), color = Color(0xFF237B67), fontSize = 16.sp)
                     TextField(
-                        value = review, onValueChange = { review = it }, enabled = !saving,
+                        value = review, onValueChange = { reviewDraft = it }, enabled = !saving,
                         placeholder = { Text(stringResource(R.string.rating_review_placeholder), fontSize = 14.sp) },
                         modifier = Modifier.fillMaxWidth().height(120.dp).testTag("RatingReview"),
                         shape = RoundedCornerShape(4.dp),

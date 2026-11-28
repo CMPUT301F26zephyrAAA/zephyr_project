@@ -23,6 +23,7 @@ import kotlinx.coroutines.delay
  * @param loadError Error message, if any.
  * @param removeRating Called when a rating is removed.
  * @param onBack Called when BACK is selected.
+ * @param ratingRemovalEnabled Whether the current admin check permits confirmation.
  */
 @Composable
 internal fun AdminRatingsScreen(
@@ -31,6 +32,7 @@ internal fun AdminRatingsScreen(
     loadError: String?,
     removeRating: (CampsiteRating, (Boolean) -> Unit, (String) -> Unit) -> Unit,
     onBack: () -> Unit,
+    ratingRemovalEnabled: Boolean = true,
 ) {
     var selected by remember { mutableStateOf<CampsiteRating?>(null) }
     var deleting by remember { mutableStateOf(false) }
@@ -138,7 +140,7 @@ internal fun AdminRatingsScreen(
             },
             confirmButton = {
                 TextButton(
-                    enabled = !deleting && loadError == null,
+                    enabled = ratingRemovalEnabled && !deleting && loadError == null,
                     onClick = {
                         selected = null
                         deleting = true
