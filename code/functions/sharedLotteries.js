@@ -28,10 +28,11 @@ function usesLotteryOffer(booking, lotteryId, lottery) {
 
 const sitesFor = (lottery) => lottery.campsiteIds?.length ?
   lottery.campsiteIds : [lottery.campsiteId];
-/** Builds transaction handlers for shared lotteries.
- * @param {Object} db Firestore.
- * @param {Object} options Clock and Firebase overrides for tests.
- * @return {Object} Lottery handlers.
+/**
+ * Builds the shared lottery handlers.
+ * @param {Object} db Firestore database.
+ * @param {Object} dependencies Clock and Firebase dependencies.
+ * @return {Object} Shared lottery handlers.
  */
 function sharedLotteryHandlers(db, {
   now = Date.now,
