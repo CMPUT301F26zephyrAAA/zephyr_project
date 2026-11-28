@@ -660,6 +660,50 @@ class RatingModerationUITest {
             .assertIsEnabled()
     }
 
+    @Test
+    fun revokedAdminClaimHidesAdminRoleOption() {
+        val signedInAccount = mutableStateOf(admin.withVerifiedAdminRole(true))
+        compose.setContent {
+            RoleSelectionMenu(
+                isLoading = false,
+                hasAccount = true,
+                isAdmin = ADMIN in signedInAccount.value.userType,
+                onSelectRole = {},
+                onRetryAccount = {}
+            )
+        }
+        compose.onNodeWithText("Admin").assertExists()
+
+        compose.runOnIdle { signedInAccount.value = admin.withVerifiedAdminRole(false) }
+
+        compose.onNodeWithText("Admin").assertDoesNotExist()
+        compose.onNodeWithText("Entrant").assertIsEnabled()
+        compose.onNodeWithText("Owner").assertIsEnabled()
+    }
+
+    @Test
+    fun revokedAdminClaimClosesRatingConfirmation() {
+        val signedInAccount = mutableStateOf(admin.withVerifiedAdminRole(true))
+        compose.setContent {
+            CampsiteDetailView().DetailView(
+                campsite,
+                { _, _ -> ImageBitmap(1, 1) },
+                {},
+                account = signedInAccount.value,
+                showAdminActions = true,
+                adminRatingGateway = gateway
+            )
+        }
+        openRatings()
+        selectFlaggedRating()
+
+        compose.runOnIdle { signedInAccount.value = admin.withVerifiedAdminRole(false) }
+
+        compose.onNodeWithText("Remove Rating?").assertDoesNotExist()
+        compose.onNodeWithTag("ViewCampsiteRatings").assertDoesNotExist()
+        compose.runOnIdle { assertEquals(0, gateway.requests) }
+    }
+
     /**
      * Admin moderation is unavailable when admin actions
      * are disabled for the current navigation context.
