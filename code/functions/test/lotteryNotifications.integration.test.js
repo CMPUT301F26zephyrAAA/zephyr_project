@@ -473,6 +473,24 @@ test("owner booking scope and server-time cancellation", async () => {
       ).result.reservations.map((row) => row.id),
       [other.id],
   );
+  // AI Citation [AI-43] (Bhav Saluja)
+  // OpenAI, Codex, November 27, 2026. Verified owner chat's campsite scope.
+  // See the team AI Documentation Google Doc.
+  const scopedList = (
+    await call("listOwnerReservations", owner, {campsiteId})
+  ).result.reservations;
+  assert.deepEqual(
+      new Set(scopedList.map((row) => row.id)),
+      new Set([future.id, checkedIn.id]),
+  );
+  assert.ok(scopedList.every(
+      (row) => row.entrantAccountId === reviewer.accountId,
+  ));
+  assert.equal(
+      (await call("listOwnerReservations", outsider, {campsiteId}))
+          .error.status,
+      "PERMISSION_DENIED",
+  );
   assert.equal((await read(owner, other.path)).status, 403);
   assert.equal((await read(owner, future.path)).status, 200);
   const cancel = (actor, booking) => {

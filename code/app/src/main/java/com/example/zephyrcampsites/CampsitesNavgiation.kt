@@ -346,6 +346,11 @@ internal fun CampsitesNavigation(
             } else {
                 null
             },
+            onReservationMessages = if (canManage) {
+                { navHostController.navigate(GeneralScreen.ReservationReplies.createRoute(campsiteId.toString())) }
+            } else {
+                null
+            },
             lottery = campsiteLottery,
             waitingListController = waitingListController,
             reservationOfferController = reservationOfferController,
@@ -596,6 +601,25 @@ internal fun CampsitesNavigation(
                             }
                         }
 
+                        composable(
+                            route = GeneralScreen.ReservationReplies.route,
+                            arguments = listOf(navArgument("campsiteId") { type = NavType.StringType })
+                        ) { entry ->
+                            val campsiteId = entry.arguments?.getString("campsiteId") ?: return@composable
+                            AccountContent { owner ->
+                                val campsite = campsiteModel.campsites.firstOrNull {
+                                    it.id == campsiteId && it.ownerID == owner.id
+                                }
+                                if (campsite != null && OWNER in owner.userType) {
+                                    OwnerReservationReplies(
+                                        owner, campsite, reservationsController, accountsController, onBack
+                                    )
+                                } else {
+                                    FeaturePage("Only the campsite owner can open these reservations.", onBack)
+                                }
+                            }
+                        }
+
                         composable(GeneralScreen.RegisterCampsite.route) {
                             AccountContent { owner ->
                                 CampsiteFormView(
@@ -713,6 +737,7 @@ internal fun CampsitesNavigation(
                             AccountContent { entrant ->
                                 MyTripsNavigation(
                                     accountId = entrant.id,
+                                    accountsController = accountsController,
                                     reservationsController = reservationsController,
                                     campsiteForId = { id ->
                                         campsiteModel.campsites.firstOrNull { it.id == id }

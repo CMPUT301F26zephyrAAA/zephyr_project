@@ -1,4 +1,4 @@
-
+// Coordinates loading and filtering reservations for entrant and owner screens.
 package com.example.zephyrcampsites
 
 import java.util.Date
@@ -74,6 +74,35 @@ class ReservationsController(
             accountId = accountId,
             onSuccess = onSuccess,
             onError = onError
+        )
+    }
+
+    /**
+     * Loads uncancelled bookings at the selected campsite for the owner's chat list.
+     * @param owner Current owner account.
+     * @param campsiteId The campsite selected in owner mode.
+     * @param onSuccess Receives the bookings, including completed stays.
+     * @param onError Called when the bookings cannot be loaded for this owner.
+     */
+    internal fun getCampsiteReservations(
+        owner: Account,
+        campsiteId: String,
+        onSuccess: (List<OwnerReservation>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        if (OWNER !in owner.userType || owner.id.isBlank()) {
+            onError(IllegalArgumentException("Only the campsite owner can open these reservations."))
+            return
+        }
+        model.getOwnerReservations(
+            onSuccess = { bookings ->
+                val chatBookings = bookings.reservations
+                    .filter { !it.cancelled && it.entrantAccountId.isNotBlank() }
+                    .sortedBy { it.startMillis }
+                onSuccess(chatBookings)
+            },
+            onError = onError,
+            campsiteId = campsiteId
         )
     }
 
