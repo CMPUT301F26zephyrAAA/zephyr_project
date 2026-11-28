@@ -4,7 +4,7 @@ import java.util.Date
 
 /**
  * Holds a confirmed reservation used to verify that an entrant has stayed at a campsite.
- * Reservation creation and the reservation screens are not implemented yet.
+ * New lottery reservations retain their originating lottery ID.
  *
  * @property id Reservation document ID.
  * @property accountId Account that reserved the campsite.
@@ -12,6 +12,7 @@ import java.util.Date
  * @property bookedPeriodStart Start of the stay, or null if not recorded.
  * @property bookedPeriodEnd End of the stay, or null if not recorded.
  * @property cancelled Whether the reservation was cancelled or rejected.
+ * @property lotteryId ID of the lottery that produced the reservation, if recorded.
  */
 data class ReservedUser(
     override val id: String = "",
@@ -19,5 +20,17 @@ data class ReservedUser(
     val campsiteId: String = "",
     val bookedPeriodStart: Date? = null,
     val bookedPeriodEnd: Date? = null,
-    val cancelled: Boolean = false
+    val cancelled: Boolean = false,
+    val lotteryId: String? = null
 ) : DataHolder(id)
+
+/** Matches an explicit offer link or an overlapping stay from a legacy reservation. */
+internal fun ReservedUser.usesLotteryOffer(lottery: Lottery): Boolean {
+    if (!lotteryId.isNullOrEmpty()) {
+        return lotteryId == lottery.id
+    }
+    val start = bookedPeriodStart?.time ?: return false
+    val end = bookedPeriodEnd?.time ?: return false
+    return !cancelled && campsiteId == lottery.campsiteId &&
+        start < end && start < lottery.bookingEnd && lottery.bookingStart < end
+}

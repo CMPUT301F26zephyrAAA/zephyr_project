@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="campsite_picker_title">Map location</string>
+    <string name="campsite_picker_select">Choose on map</string>
+    <string name="campsite_picker_change">Change map location</string>
+    <string name="campsite_picker_selected">Selected pin (%1$.5f, %2$.5f)</string>
+    <string name="campsite_picker_instruction">Tap or move the map to place the pin.</string>
+    <string name="campsite_picker_confirm">Use this location</string>
+    <string name="campsite_picker_cancel">Cancel</string>
+    <string name="campsite_picker_retry">Retry</string>
+    <string name="campsite_picker_attribution">© OpenMapTiles · © OpenStreetMap contributors</string>
+    <string name="campsite_picker_zoom_in">Zoom in</string>
+    <string name="campsite_picker_zoom_out">Zoom out</string>
+</resources>

@@ -107,7 +107,7 @@ class AdminBrowseProfileView {
                             modifier = Modifier.padding(8.dp).fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            AdminProfileImage(account.imagePath, loadImage)
+                            AdminProfileImage(account.imagePath, loadImage, account.compressedImage)
                             Text(
                                 text =
                                     if (account.name.isBlank()) {
@@ -183,7 +183,7 @@ class AdminBrowseProfileView {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            AdminProfileImage(targetAccount.imagePath, loadImage)
+            AdminProfileImage(targetAccount.imagePath, loadImage, targetAccount.compressedImage)
             Text(
                 text =
                     "Name: ${if(targetAccount.name.isBlank()) { "N/A" } else { targetAccount.name }}",
@@ -330,7 +330,16 @@ class AdminBrowseProfileView {
 
 /** Resolves an optional profile image and displays a fallback when it is absent or fails. */
 @Composable
-fun AdminProfileImage(path: String, loadImage: (String, (String?) -> Unit) -> Unit) {
+fun AdminProfileImage(path: String, loadImage: (String, (String?) -> Unit) -> Unit, compressedImage: String = "") {
+    if (compressedImage.isNotBlank()) {
+        AdminCompressedImage(
+            encodedImage = compressedImage,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 150.dp)
+        )
+        return
+    }
     var url by remember(path) { mutableStateOf<String?>(null) }
     DisposableEffect(path) {
         var active = true

@@ -1,9 +1,29 @@
 package com.example.zephyrcampsites
+
+// AI Citation [AI-40]
+// Anthropic, Claude Code assisted with documenting the
+// lottery fields and why dates stay in epoch milliseconds.
+// AI usage and citation documented in the team AI Documentation.
 /**
  * Represents a lottery listing for a campsite.
  *
- * Each lottery belongs to one campsite and has
+ * Each lottery links one or more campsites and has
  * its own registration and booking settings.
+ *
+ * Dates are stored as epoch milliseconds (UTC), not Firestore Timestamps. Firestore rules,
+ * the lottery draw Cloud Function, and existing lottery documents all compare these fields
+ * as numbers, so changing the type needs a coordinated migration.
+ *
+ * @property lotteryName Name shown for the lottery.
+ * @property campsiteId ID of the first campsite in the lottery, kept for older records.
+ * @property campsiteIds IDs of every campsite in a shared lottery, or empty for older records.
+ * @property registrationStart Registration start in epoch milliseconds.
+ * @property registrationEnd Registration end in epoch milliseconds.
+ * @property bookingStart Booking period start in epoch milliseconds.
+ * @property bookingEnd Booking period end in epoch milliseconds.
+ * @property numberOfWinners Number of winners to draw.
+ * @property waitlistCapacity Maximum entrants, or null for no limit.
+ * @property entrantCount Number of entrants on the waitlist.
  */
 data class Lottery(
     override val id: String = ""
@@ -11,6 +31,13 @@ data class Lottery(
 
     var lotteryName: String = ""
     var campsiteId: String = ""
+    var campsiteIds: List<String> = emptyList()
+
+    // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+    /** Returns all linked sites, including the original site for older records. */
+    fun participatingCampsiteIds(): List<String> = campsiteIds.ifEmpty {
+        listOf(campsiteId).filter { it.isNotBlank() }
+    }
     var registrationStart: Long = 0L
     var registrationEnd: Long = 0L
     var bookingStart: Long = 0L
@@ -27,5 +54,8 @@ data class Lottery(
 
     // Tracks whether the lottery draw is waiting, running, or finished.
     var drawStatus: String = "PENDING"
+
+    // Time when the current lottery draw started.
+    var drawStartedAt: Long = 0L
 
 }

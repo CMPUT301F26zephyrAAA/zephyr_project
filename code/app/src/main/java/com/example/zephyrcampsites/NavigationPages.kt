@@ -3,6 +3,7 @@ package com.example.zephyrcampsites
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -31,25 +32,40 @@ internal fun TripsScreen(
 internal fun LotteryListScreen(
     title: String,
     onBack: () -> Unit,
+    onCreateLottery: (() -> Unit)? = null,
     content: LazyListScope.() -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        TextButton(
-            onClick = onBack,
-            modifier = Modifier.padding(8.dp),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF2E7D32),
-                contentColor = Color.White
-            )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("Back")
+            LotteryListAction("Back", onBack)
+            if (onCreateLottery != null) {
+                LotteryListAction("Create Lottery", onCreateLottery)
+            }
         }
 
         Text(title, style = MaterialTheme.typography.headlineMedium)
         LazyColumn(modifier = Modifier.weight(1f), content = content)
     }
 }
+// Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+@Composable
+private fun LotteryListAction(label: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.padding(8.dp),
+        shape = RoundedCornerShape(10.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color(0xFF2E7D32),
+            contentColor = Color.White
+        )
+    ) {
+        Text(label)
+    }
+}
+
 @Composable
 internal fun LotteryListItem(label: String, onClick: () -> Unit) {
     Text(
@@ -59,11 +75,6 @@ internal fun LotteryListItem(label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick)
             .padding(12.dp)
     )
-}
-
-@Composable
-internal fun ReservationsScreen(onBack: () -> Unit) {
-    FeaturePage("View Reservations", onBack)
 }
 
 @Composable

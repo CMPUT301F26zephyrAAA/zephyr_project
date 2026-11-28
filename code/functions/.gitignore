@@ -1,0 +1,6 @@
+node_modules/
+*.localfirebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+firestore-debug.*.log
+firebase-debug.log

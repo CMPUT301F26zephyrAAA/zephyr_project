@@ -1,3 +1,4 @@
+// Displays lottery details and the forms for creating or editing a lottery.
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.layout.*
@@ -15,6 +16,7 @@ import java.util.TimeZone
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.graphics.Color
@@ -25,17 +27,24 @@ import java.util.Date
  * Displays the lottery settings for a campsite.
  */
 class LotteryView (
-    private val lotteryController: LotteryController
+    private val lotteryController: LotteryController,
+    private val reservationOfferController: ReservationOfferController
 ) {
     /**
      * Displays the lottery settings for the selected campsite.
      *
-     * @param campsiteId ID of the campsite being added to the lottery.
+     * @param campsiteId Initially selected campsite, if opened from its details.
      */
 
     @Composable
-    fun LotterySettingsView(campsiteId: String, onLotteryCreated: (String) -> Unit,
-                            onBackClick: () -> Unit) {
+    fun LotterySettingsView(
+        campsiteId: String?,
+        ownedCampsites: List<Campsite>,
+        onLotteryCreated: (String) -> Unit,
+        onBackClick: () -> Unit
+    ) {
+        var selectedIds by remember(campsiteId) { mutableStateOf(listOfNotNull(campsiteId)) }
+        var publishing by remember { mutableStateOf(false) }
 
         var lotteryName by remember { mutableStateOf("") }
 
@@ -69,6 +78,25 @@ class LotteryView (
 
 
             Spacer(modifier = Modifier.height(24.dp))
+            // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
+            Text("Participating campsites")
+            if (ownedCampsites.isEmpty()) {
+                Text("Register a campsite before creating a lottery.")
+            }
+            ownedCampsites.forEach { campsite ->
+                val id = campsite.id
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = id in selectedIds,
+                        enabled = !publishing,
+                        onCheckedChange = { checked ->
+                            selectedIds = if (checked) selectedIds + id else selectedIds - id
+                        }
+                    )
+                    Text(campsite.name)
+                }
+            }
+
             Text(
                 text = "Lottery Name:",
                 color = Color(0xFF2E8B75)
@@ -206,6 +234,7 @@ class LotteryView (
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Button(
+                    enabled = selectedIds.isNotEmpty() && !publishing,
                     onClick = {
                     try {
                         // Parse registration dates and times using a fixed format.
@@ -259,10 +288,11 @@ class LotteryView (
                         if (waitlistCapacity.isNotBlank() && (capacity == null || capacity <= 0)) {
                             message = "Waitlist capacity must be a positive whole number."
                         } else {
+                            publishing = true
                             lotteryController.createLottery(
                                 // Use the selected campsite ID instead of a fixed test ID.
                                 lotteryName = lotteryName,
-                                campsiteId = campsiteId,
+                                campsiteIds = selectedIds,
                                 registrationStart = start,
                                 registrationEnd = end,
                                 bookingStart = bookingStartTime,
@@ -271,11 +301,13 @@ class LotteryView (
                                 waitlistCapacity = capacity,
                                 // Navigate only after Firebase confirms the save.
                                 onSuccess = { lotteryId ->
+                                    publishing = false
                                     onLotteryCreated(lotteryId)
                                 },
 
                                 // Display an error if Firebase cannot save the lottery.
                                 onFailure = { exception ->
+                                    publishing = false
                                     message = "Failed to publish lottery: ${exception.message}"
                                 }
                             )
@@ -284,6 +316,7 @@ class LotteryView (
 
 
                     } catch (e: IllegalArgumentException) {
+                        publishing = false
                         message = e.message ?: "Invalid input."
                     } catch (e: java.text.ParseException) {
                         message = "Enter dates and times as YYYY-MM-DD HH:mm."
@@ -324,9 +357,41 @@ class LotteryView (
     fun LotteryDetailsView(
         lotteryId: String,
         onEditClick: (() -> Unit)?,
-        onBackClick: () -> Unit
+        onBackClick: () -> Unit,
+        onNotifyClick: (() -> Unit)? = null
     ) {
         val lottery = lotteryController.getLotteryById(lotteryId)
+        var declinedEntrants by remember(lotteryId) {
+            mutableStateOf<List<String>>(emptyList())
+        }
+
+        var loadingDeclines by remember(lotteryId) {
+            mutableStateOf(true)
+        }
+
+        var declineError by remember(lotteryId) {
+            mutableStateOf("")
+        }
+
+        LaunchedEffect(lotteryId) {
+            loadingDeclines = true
+            declineError = ""
+            // AI Citation [AI-28]
+            // OpenAI, ChatGPT assisted with owner-facing
+            // declined entrant retrieval and progress display.
+            // AI usage and citation documented in the GitHub Wiki.
+            reservationOfferController.getDeclinedEntrants(
+                lotteryId = lotteryId,
+                onSuccess = { entrants ->
+                    declinedEntrants = entrants
+                    loadingDeclines = false
+                },
+                onError = { error ->
+                    declineError = error
+                    loadingDeclines = false
+                }
+            )
+        }
 
         if (lottery == null) {
             Text("Lottery not found.")
@@ -362,7 +427,7 @@ class LotteryView (
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("Campsite ID: ${lottery.campsiteId}")
+            Text("Participating campsites: ${lottery.participatingCampsiteIds().joinToString()}")
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -425,7 +490,29 @@ class LotteryView (
             Text("Reserved: N/A")
             Spacer(modifier = Modifier.height(8.dp))
 
-            Text("Declined: N/A")
+            when {
+                loadingDeclines -> {
+                    Text("Declined: Loading...")
+                }
+
+                declineError.isNotEmpty() -> {
+                    Text(
+                        text = "Declined: Unable to load",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                else -> {
+                    Text("Declined: ${declinedEntrants.size}")
+
+                    declinedEntrants.forEach { entrantId ->
+                        Text(
+                            text = "Declined entrant: $entrantId",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(32.dp))
 
@@ -443,9 +530,11 @@ class LotteryView (
                     Text("VIEW WAITLIST")
                 }
 
+                // AI Citation [AI-39]
+                // OpenAI, Codex, US 02.10.01 notify action, 2026-11-27. See the team AI Documentation Google Doc.
                 Button(
-                    onClick = {},
-                    enabled = false,
+                    onClick = { onNotifyClick?.invoke() },
+                    enabled = onNotifyClick != null,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text("NOTIFY ENTRANTS")
@@ -509,21 +598,6 @@ class LotteryView (
         ).apply {
             isLenient = false
             timeZone = TimeZone.getTimeZone("America/Edmonton")
-        }
-
-        // Keep the original lottery settings to detect changes made elsewhere.
-        val originalLottery by remember(lotteryId) {
-            mutableStateOf(
-                mapOf(
-                    "lotteryName" to lottery.lotteryName,
-                    "registrationStart" to lottery.registrationStart,
-                    "registrationEnd" to lottery.registrationEnd,
-                    "bookingStart" to lottery.bookingStart,
-                    "bookingEnd" to lottery.bookingEnd,
-                    "numberOfWinners" to lottery.numberOfWinners,
-                    "waitlistCapacity" to lottery.waitlistCapacity
-                )
-            )
         }
 
         var lotteryName by remember(lotteryId) {
@@ -762,8 +836,6 @@ class LotteryView (
                                 bookingEnd = bookingEndTime,
                                 numberOfWinners = winners,
                                 waitlistCapacity = capacity,
-                                // Pass the original settings to check for changes in Firebase.
-                                originalLottery = originalLottery,
                                 // Firebase confirmed that the lottery was saved.
                                 onSuccess = {
                                     onSaveClick()

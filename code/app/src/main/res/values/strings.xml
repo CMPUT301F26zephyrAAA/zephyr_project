@@ -35,7 +35,14 @@
     <string name="rating_missing_campsite">Campsite unavailable</string>
     <string name="rating_retry">Retry</string>
     <string name="rating_star_description">%1$d out of 5 stars</string>
+    <string name="campsite_reviews">Reviews</string>
+    <string name="campsite_write_review">Write Review</string>
+    <string name="campsite_review_text">Your review</string>
+    <string name="campsite_submit_review">Submit Review</string>
+    <string name="campsite_review_saved">Review submitted.</string>
+    <string name="campsite_reviews_empty">No reviews yet.</string>
     <string name="campsite_map_description">Map of %1$s</string>
     <string name="campsite_map_missing">Map location not provided.</string>
     <string name="campsite_map_error">Unable to load map. Check your connection.</string>
+    <string name="campsite_map_retry">Retry map</string>
 </resources>

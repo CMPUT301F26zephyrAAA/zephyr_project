@@ -1,9 +1,8 @@
 package com.example.zephyrcampsites
 
 /**
- * Account data class for a device identified user ie. entrant, owner or admin
- * Stored in the "accounts" Firestore collection. DocumentID is the deviceID so the app identifies the user without a username or password.
- * @param id Device ID used as firestore document ID
+ * Profile for an entrant, owner, or administrator in the Firestore accounts collection.
+ * @param id Profile ID in the form auth_<Firebase UID>.
  * @property userType Account roles, defaulting to entrant and owner.
  * @property name Display name.
  * @property email Contact email address.
@@ -19,8 +18,13 @@ data class Account(
     var email: String = "",
     var phoneNumber: String = "",
     var notificationsEnabled: Boolean = true,
-    var imagePath: String = ""
+    var imagePath: String = "",
+    var compressedImage: String = ""
 ) : DataHolder(id)
+
+/** Returns a signed-in profile with admin access derived from its verified Auth claim. */
+internal fun Account.withVerifiedAdminRole(isAdmin: Boolean): Account =
+    copy(userType = accountRoles(if (isAdmin) "admin" else null))
 
 internal fun accountRoles(storedValue: Any?): List<String> {
     val hasAdminGrant = when (storedValue) {

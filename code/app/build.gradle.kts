@@ -49,7 +49,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.navigation.compose)
+    implementation("androidx.webkit:webkit:1.16.0")
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -58,11 +60,18 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.firestore)
+    implementation("com.google.firebase:firebase-auth") {
+        version { strictly("24.2.0") } // Firebase Auth 25 requires newer Kotlin metadata.
+    }
+    implementation("com.google.firebase:firebase-functions")
     implementation("io.github.g0dkar:qrcode-kotlin:4.5.0")
     implementation("io.github.kalinjul.easyqrscan:scanner:0.7.2")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.google.android.gms:play-services-location:21.4.0")
     implementation("com.google.firebase:firebase-storage")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.24.0")
+    implementation("org.maplibre.gl:android-sdk:13.5.4")
 
 }

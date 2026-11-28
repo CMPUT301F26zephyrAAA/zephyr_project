@@ -1,5 +1,7 @@
 package com.example.zephyrcampsites
 
+import com.google.firebase.firestore.ListenerRegistration
+
 /** Defines the rating operations shared by the Firestore model and local test models. */
 interface RatingGateway {
     /**
@@ -25,4 +27,26 @@ interface RatingGateway {
         campsiteId: String, accountId: String, rating: CampsiteRating,
         onSuccess: () -> Unit, onError: (String) -> Unit
     )
+
+    /** Observes the written reviews for this campsite. */
+    fun observeReviews(
+        campsiteId: String, onResult: (List<String>) -> Unit, onError: (String) -> Unit
+    ): ListenerRegistration
+
+    /** Saves required review text for a completed reservation without changing the star score. */
+    fun submitReview(
+        campsiteId: String, accountId: String, reservationId: String, review: String,
+        onSuccess: () -> Unit, onError: (String) -> Unit
+    )
+
+    // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+    fun observeRating(
+        campsiteId: String,
+        accountId: String,
+        onResult: (CampsiteRating?) -> Unit,
+        onError: (String) -> Unit,
+    ): () -> Unit {
+        loadRating(campsiteId, accountId, onResult, onError)
+        return {}
+    }
 }
