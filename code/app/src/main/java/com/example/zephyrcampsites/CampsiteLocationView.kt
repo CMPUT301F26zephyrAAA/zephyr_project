@@ -58,14 +58,19 @@ fun CampsiteLocationView(
     feedback: String? = null
 ) {
     var showMapPicker by rememberSaveable { mutableStateOf(false) }
-    var startDate by remember(campsite?.id) { mutableStateOf<Date?>(campsite?.bookingPeriodStart) }
-    var endDate by remember(campsite?.id) { mutableStateOf<Date?>(campsite?.bookingPeriodEnd) }
+    // AI Citation [AI-51]
+    // OpenAI, Codex, November 27, 2026. Kept booking dates and photo selections when going back.
+    // See Bhav Saluja's entry in the team's AI Documentation Google Doc.
+    var startDate by rememberSaveable(campsite?.id) { mutableStateOf(campsite?.bookingPeriodStart) }
+    var endDate by rememberSaveable(campsite?.id) { mutableStateOf(campsite?.bookingPeriodEnd) }
     var showCalendar by remember { mutableStateOf(false) }
-    var selectedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var selectedImages by rememberSaveable { mutableStateOf(arrayListOf<Uri>()) }
     val imagePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(5)
     ) { images ->
-        selectedImages = images
+        if (images.isNotEmpty()) {
+            selectedImages = ArrayList(images)
+        }
     }
     val start = startDate
     val end = endDate
@@ -128,7 +133,7 @@ fun CampsiteLocationView(
             TextButton(
                 enabled = !saving,
                 onClick = {
-                    selectedImages = emptyList()
+                    selectedImages = arrayListOf()
                 }
             ) {
                 Text("REMOVE PHOTOS")
