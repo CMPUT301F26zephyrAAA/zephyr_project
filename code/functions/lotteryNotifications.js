@@ -115,13 +115,10 @@ function lotteryNotifications(db) {
               transaction, request.data.lotteryId, owner.id,
           );
           const recipients = await waitlistAccounts(lottery, transaction);
-          return recipients.map((profile) => {
-            const displayName = profile.get("name");
-            return {
-              accountId: profile.id,
-              name: typeof displayName === "string" ? displayName.trim() : "",
-            };
-          });
+          return recipients.map((profile) => ({
+            accountId: profile.id,
+            name: recipientDisplayName(profile),
+          }));
         }, {readOnly: true},
     ),
   );
@@ -205,6 +202,12 @@ function lotteryNotifications(db) {
         message,
         allEntrants: data.allEntrants,
         intendedRecipientIds: intended.map((profile) => profile.id),
+        // AI Citation [AI-42]
+        // OpenAI, Codex, US 02.10.02, 2026-11-27. Saved names at send time.
+        // See Bhav's entry in the team's AI Documentation Google Doc.
+        recipientNames: Object.fromEntries(intended.map((profile) => [
+          profile.id, recipientDisplayName(profile) || "Unnamed entrant",
+        ])),
         deliveredRecipientIds: enabled.map((profile) => profile.id),
         sentAt: FieldValue.serverTimestamp(),
         ...(failureReason ? {failureReason, selectionKey} : {}),
@@ -290,17 +293,27 @@ function lotteryNotifications(db) {
 
       const intended = notification.get("intendedRecipientIds");
       const delivered = new Set(notification.get("deliveredRecipientIds"));
-      const profiles = intended.length === 0 ? [] : await transaction.getAll(
-          ...intended.map((id) => accounts.doc(id)),
+      // AI Citation [AI-42]
+      // OpenAI, Codex, US 02.10.02, 2026-11-27. Kept legacy name lookup.
+      // See Bhav's entry in the team's AI Documentation Google Doc.
+      const names = new Map(
+          Object.entries(notification.get("recipientNames") || {}).filter(
+              ([, value]) => typeof value === "string" && value.trim(),
+          ),
       );
-      const recipients = profiles.map((profile) => {
-        const displayName = profile.get("name");
-        const name = typeof displayName === "string" ? displayName.trim() : "";
-        return {
-          name: name || "Unnamed entrant",
-          delivered: delivered.has(profile.id),
-        };
-      });
+      const missing = intended.filter((id) => !names.has(id));
+      if (missing.length > 0) {
+        const profiles = await transaction.getAll(
+            ...missing.map((id) => accounts.doc(id)),
+        );
+        for (const profile of profiles) {
+          names.set(profile.id, recipientDisplayName(profile));
+        }
+      }
+      const recipients = intended.map((id) => ({
+        name: names.get(id) || "Unnamed entrant",
+        delivered: delivered.has(id),
+      }));
       return {...sentNotificationSummary(notification), recipients};
     }, {readOnly: true}),
   );
@@ -367,6 +380,16 @@ function sameRecipients(saved, selected) {
   const requestedIds = new Set(selected);
   return saved.length === requestedIds.size &&
     saved.every((id) => requestedIds.has(id));
+}
+
+/**
+ * Reads the display name from a recipient profile, if set.
+ * @param {Object} profile Recipient account snapshot.
+ * @return {string} Trimmed name or an empty string.
+ */
+function recipientDisplayName(profile) {
+  const displayName = profile.get("name");
+  return typeof displayName === "string" ? displayName.trim() : "";
 }
 
 /**

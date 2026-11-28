@@ -1165,3 +1165,73 @@ test("recovers failed transactions and preserves sends with a lost response",
         assert.equal(entries[0].delivered, committed ? 1 : 0);
       }
     });
+
+// AI Citation [AI-42]
+// OpenAI, Codex, US 02.10.02, 2026-11-27. Tested new and legacy history names.
+// See Bhav's entry in the team's AI Documentation Google Doc.
+test("sent names survive profile changes and older records still look them up",
+    async () => {
+      const {owner, allowed, optedOut} = accounts;
+      const id = `history-names-${suffix}`;
+      const message = "The gate opens at noon.";
+      const allowedRef = db.doc(`accounts/${allowed.accountId}`);
+      const optedOutRef = db.doc(`accounts/${optedOut.accountId}`);
+      const originalProfiles = await db.getAll(allowedRef, optedOutRef);
+      await db.doc(`lottery/${id}`).set({
+        lotteryName: "East Pines",
+        campsiteId,
+      });
+      for (const {accountId} of [allowed, optedOut]) {
+        await db.doc(`waitingList/${id}_${accountId}`).set({
+          lotteryId: id,
+          accountId,
+        });
+      }
+
+      try {
+        await allowedRef.update({
+          name: " Taylor North ",
+          notificationsEnabled: true,
+        });
+        await optedOutRef.update({
+          name: "Morgan Lake",
+          notificationsEnabled: false,
+        });
+        assert.deepEqual(await send(owner, {lotteryId: id, message}), {
+          result: {intended: 2, delivered: 1},
+        });
+        const history = await call("listSentLotteryNotifications", owner, {});
+        const notification = history.result.find(
+            (row) => row.message === message,
+        );
+        const saved = await db.collection("lotteryNotifications")
+            .doc(notification.id).get();
+        const {recipientNames, ...legacyRecord} = saved.data();
+        assert.deepEqual(recipientNames, {
+          [allowed.accountId]: "Taylor North",
+          [optedOut.accountId]: "Morgan Lake",
+        });
+        const legacyId = `legacy-names-${suffix}`;
+        await db.doc(`lotteryNotifications/${legacyId}`).set(legacyRecord);
+
+        await allowedRef.update({name: "Taylor West"});
+        await optedOutRef.delete();
+        const details = "getSentLotteryNotification";
+        const current = await call(details, owner, {
+          notificationId: notification.id,
+        });
+        const legacy = await call(details, owner, {notificationId: legacyId});
+        assert.deepEqual(new Set(current.result.recipients), new Set([
+          {name: "Taylor North", delivered: true},
+          {name: "Morgan Lake", delivered: false},
+        ]));
+        assert.deepEqual(new Set(legacy.result.recipients), new Set([
+          {name: "Taylor West", delivered: true},
+          {name: "Unnamed entrant", delivered: false},
+        ]));
+      } finally {
+        for (const profile of originalProfiles) {
+          await profile.ref.set(profile.data());
+        }
+      }
+    });
