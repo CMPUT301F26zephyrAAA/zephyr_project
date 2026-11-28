@@ -3,6 +3,7 @@
 // OpenAI, Codex, US 02.10.01 waitlist notifications, 2026-11-27.
 // Generated the delivery and authorization code.
 // See the team's AI documentation.
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 const {onCall, HttpsError} = require("firebase-functions/v2/https");
 const {error: logError} = require("firebase-functions/logger");
 const {FieldValue} = require("firebase-admin/firestore");
@@ -65,10 +66,11 @@ function lotteryNotifications(db) {
           "permission-denied", "This lottery is unavailable for notifications.",
       );
     }
-    const [campsite] = await reader.getAll(
+    const [campsite, revoked] = await reader.getAll(
         db.collection("campsite").doc(campsiteId),
+        db.collection("revokedCampsiteOwners").doc(ownerId),
     );
-    if (campsite.get("ownerID") !== ownerId) {
+    if (campsite.get("ownerID") !== ownerId || revoked.exists) {
       throw new HttpsError(
           "permission-denied", "Only the campsite owner can notify entrants.",
       );
@@ -327,7 +329,10 @@ function lotteryNotifications(db) {
   async function verifyHistoryOwner(request, transaction) {
     const account = await verifyAccount(request, transaction);
     const roles = account.get("userType");
-    if (!Array.isArray(roles) || !roles.includes("owner")) {
+    const revoked = await transaction.get(
+        db.collection("revokedCampsiteOwners").doc(account.id),
+    );
+    if (!Array.isArray(roles) || !roles.includes("owner") || revoked.exists) {
       throw new HttpsError("permission-denied", "Owner access is required.");
     }
     return account;

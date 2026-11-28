@@ -3,6 +3,8 @@
 // accounts/{accountId}: auth_<Firebase UID>. Preferences are booleans.
 // lottery/{lotteryId}: campsiteId, registration millis, entrantCount and waitlistChangeAccountId.
 // waitingList/{lotteryId}_{accountId}: paired entry for the lottery's counter transaction.
+// revokedCampsiteOwners/{accountId}: server-written catalogue visibility flag.
+// ownerRemovalAudit/{accountId}: server-written adminId, ownerId, reason, timestamp.
 // campsite/{campsiteId}: ownerID supplies the owner account for the reservation.
 // reservation/{reservationId}: accountId, campsiteId, bookedPeriodStart, bookedPeriodEnd, cancelled.
 // reservationChat/{reservationId}: entrantAccountId, ownerAccountId, campsiteId. Immutable.
@@ -53,6 +55,19 @@ service cloud.firestore {
       // Profile deletion and dependant writes are performed by deleteProfile.
     }
 
+    function ownerNotRevoked(accountId) {
+      return validId(accountId) &&
+        !exists(/databases/$(database)/documents/revokedCampsiteOwners/$(accountId));
+    }
+
+    match /revokedCampsiteOwners/{accountId} {
+      allow read: if request.auth != null;
+    }
+
+    match /ownerRemovalAudit/{accountId} {
+      allow read: if notificationAdmin();
+    }
+
     function campsiteRecord(campsiteId) {
       return /databases/$(database)/documents/campsite/$(campsiteId);
     }
@@ -61,10 +76,12 @@ service cloud.firestore {
       allow read: if true;
       allow create: if verifiedAccount(request.resource.data.get('ownerID', '')) &&
         accountActive(request.resource.data.ownerID) &&
+        ownerNotRevoked(request.resource.data.ownerID) &&
         request.resource.data.get('rating', []) == [] &&
         request.resource.data.get('averageRating', null) == null;
       allow update: if request.resource.data.get('ownerID', '') == resource.data.get('ownerID', '') &&
         ((verifiedAccount(resource.data.get('ownerID', '')) &&
+          ownerNotRevoked(resource.data.ownerID) &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating', 'averageRating'])) ||
           (notificationAdmin() &&
             request.resource.data.diff(resource.data).affectedKeys()
@@ -129,7 +146,8 @@ service cloud.firestore {
       // Callables enforce the registration cutoff and serialize booking periods.
       allow update: if request.resource.data.campsiteId == resource.data.campsiteId &&
         (validCountUpdate(lotteryId) ||
-          (verifiedAccount(lotteryOwner(resource.data)) && drawOpen(resource.data) &&
+          (verifiedAccount(lotteryOwner(resource.data)) &&
+            ownerNotRevoked(lotteryOwner(resource.data)) && drawOpen(resource.data) &&
             request.resource.data.diff(resource.data).affectedKeys().hasOnly([
               'lotteryName', 'numberOfWinners', 'waitlistCapacity'
             ])) ||
@@ -153,7 +171,8 @@ service cloud.firestore {
         entry.get('name', '') == '' &&
         entry.get('drawStatus', 'WAITING') == 'WAITING' &&
         entry.get('backupPosition', 0) == 0 && entry.joinedAt is int &&
-        joiningAllowed(before) && after.waitlistChangeAccountId == entry.accountId &&
+        joiningAllowed(before) && ownerNotRevoked(lotteryOwner(before)) &&
+        after.waitlistChangeAccountId == entry.accountId &&
         after.entrantCount == before.entrantCount + 1;
     }
 
@@ -183,9 +202,8 @@ service cloud.firestore {
     // AI Citation [AI-39] (Bhav Saluja). Owner cancellation uses the server write time.
     match /reservation/{reservationId} {
       function ownsReservedCampsite() {
-        let campsiteId = resource.data.get('campsiteId', '');
-        return validId(campsiteId) &&
-          verifiedAccount(get(campsiteRecord(campsiteId)).data.get('ownerID', ''));
+        let ownerId = chatOwner(resource.data.get('campsiteId', ''));
+        return verifiedAccount(ownerId) && ownerNotRevoked(ownerId);
       }
 
       function validCancellation() {
@@ -233,7 +251,8 @@ service cloud.firestore {
         booking.get('bookedPeriodStart', null) is timestamp &&
         booking.get('bookedPeriodEnd', null) is timestamp &&
         booking.bookedPeriodStart < booking.bookedPeriodEnd &&
-        (verifiedAccount(entrantId) || verifiedAccount(ownerId)) &&
+        (verifiedAccount(entrantId) ||
+          (verifiedAccount(ownerId) && ownerNotRevoked(ownerId))) &&
         validId(entrantId) && entrantId.matches('auth_.+') && accountActive(entrantId) &&
         validId(ownerId) && ownerId.matches('auth_.+') && accountActive(ownerId);
     }

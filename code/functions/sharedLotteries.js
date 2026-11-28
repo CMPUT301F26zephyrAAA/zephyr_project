@@ -1,13 +1,14 @@
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
-// Saves lottery periods and winning reservations in transactions.
-// OpenAI, Codex, US 02.04.02, shared lottery transactions, 2026-11-27.
+// Saves lottery periods and winning reservations in server transactions.
+// OpenAI, Codex, US 02.04.02 lottery and booking transactions, 2026-11-27.
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 const {createHash} = require("node:crypto");
 
 const validId = (value) => typeof value === "string" &&
   /^[^/]{1,128}$/.test(value) && !/^(__.*__|\.{1,2})$/.test(value);
 const overlaps = (start, end, otherStart, otherEnd) =>
   start < otherEnd && otherStart < end;
-/** Matches explicit offer links or overlapping legacy stays.
+/** Checks offer links and infers legacy links within the lottery period.
  * @param {Object} booking Reservation snapshot.
  * @param {string} lotteryId Lottery document ID.
  * @param {Object} lottery Lottery data.
@@ -45,11 +46,21 @@ function sharedLotteryHandlers(db, {
   const lotteries = db.collection("lottery");
   const campsites = db.collection("campsite");
   const reservations = db.collection("reservation");
+  const revokedOwners = db.collection("revokedCampsiteOwners");
 
-  /**
-   * Verifies the caller's active account.
-   * @param {Object} transaction Save transaction.
-   * @param {Object} request Callable request.
+  /** Checks owner eligibility in the same transaction as the write.
+   * @param {Object} transaction Active Firestore transaction.
+   * @param {string} ownerId Owner of the selected campsite.
+   * @return {Promise<boolean>} Whether owner privileges are unavailable.
+   */
+  async function ownerRevoked(transaction, ownerId) {
+    return !validId(ownerId) ||
+      (await transaction.get(revokedOwners.doc(ownerId))).exists;
+  }
+
+  /** Resolves the signed-in, active account.
+   * @param {Object} transaction Active Firestore transaction.
+   * @param {Object} request Firebase callable request.
    * @return {Promise<string>} Verified account ID.
    */
   async function verifyAccount(transaction, request) {
@@ -66,12 +77,10 @@ function sharedLotteryHandlers(db, {
     return accountId;
   }
 
-  // Site locks serialize transactions with empty availability queries.
-  /**
-   * Reads the site locks in a consistent order.
-   * @param {Object} transaction Save transaction.
-   * @param {string[]} ids Participating campsite IDs.
-   * @return {Promise<Object[]>} Site lock references.
+  /** Serializes overlapping writes even when the overlap query is empty.
+   * @param {Object} transaction Active Firestore transaction.
+   * @param {string[]} ids Campsite IDs to lock.
+   * @return {Promise<Object[]>} Lock references in sorted order.
    */
   async function lockSites(transaction, ids) {
     const refs = [...ids].sort().map((id) =>
@@ -80,10 +89,9 @@ function sharedLotteryHandlers(db, {
     return refs;
   }
 
-  /**
-   * Updates the site locks in the transaction.
-   * @param {Object} transaction Save transaction.
-   * @param {Object[]} refs Site lock references.
+  /** Updates lock records after validation completes.
+   * @param {Object} transaction Active Firestore transaction.
+   * @param {Object[]} refs Lock document references.
    */
   function touchLocks(transaction, refs) {
     for (const ref of refs) {
@@ -91,9 +99,8 @@ function sharedLotteryHandlers(db, {
     }
   }
 
-  /**
-   * Saves lottery settings and participating sites.
-   * @param {Object} request Callable request.
+  /** Creates or edits a shared lottery.
+   * @param {Object} request Firebase callable request.
    * @return {Promise<Object>} Saved lottery ID.
    */
   async function saveLotterySettings(request) {
@@ -135,15 +142,18 @@ function sharedLotteryHandlers(db, {
       const sites = await transaction.getAll(
           ...ids.map((id) => campsites.doc(id)),
       );
-      if (sites.some((site) => site.get("ownerID") !== accountId)) {
+      if (sites.some((site) => site.get("ownerID") !== accountId) ||
+          await ownerRevoked(transaction, accountId)) {
         fail("permission-denied", "You must own every participating campsite.");
       }
 
       if (data.create === true && current) {
-        const sameSites = JSON.stringify(ids) ===
-            JSON.stringify(sitesFor(current));
-        if (sameSites && Object.keys(settings)
-            .every((key) => settings[key] === current[key])) {
+        const sameSites =
+          JSON.stringify(ids) === JSON.stringify(sitesFor(current));
+        if (sameSites &&
+            Object.keys(settings).every(
+                (key) => settings[key] === current[key],
+            )) {
           return {lotteryId};
         }
         fail("already-exists", "This lottery already exists.");
@@ -156,20 +166,24 @@ function sharedLotteryHandlers(db, {
         }
         const started = now() >= current.registrationStart;
         if (started && ["registrationStart", "registrationEnd", "bookingStart",
-          "bookingEnd", "numberOfWinners"]
-            .some((key) => current[key] !== settings[key])) {
-          fail("failed-precondition",
-              "The dates and winner count are locked after registration " +
-              "opens.");
+          "bookingEnd", "numberOfWinners"].some(
+            (key) => current[key] !== settings[key],
+        )) {
+          fail(
+              "failed-precondition",
+              "The dates and winner count are locked after registration opens.",
+          );
         }
         const oldCapacity = current.waitlistCapacity ?? null;
         if (oldCapacity !== waitlistCapacity &&
             ((waitlistCapacity !== null &&
-                waitlistCapacity < current.entrantCount) ||
+              waitlistCapacity < current.entrantCount) ||
              (started && (oldCapacity === null || waitlistCapacity === null ||
                waitlistCapacity <= oldCapacity)))) {
-          fail("failed-precondition",
-              "The waitlist capacity cannot be changed to that value.");
+          fail(
+              "failed-precondition",
+              "The waitlist capacity cannot be changed to that value.",
+          );
         }
       }
       if (registrationStart !== current?.registrationStart &&
@@ -185,12 +199,14 @@ function sharedLotteryHandlers(db, {
         );
         for (const other of candidates.docs) {
           const period = other.data();
-          // Touching lottery periods also conflict.
+          // The lottery validator also treats touching periods as a conflict.
           if (other.id !== lotteryId && period.bookingStart <= bookingEnd &&
               sitesFor(period).some((id) => ids.includes(id))) {
-            fail("already-exists",
+            fail(
+                "already-exists",
                 "A participating campsite already has a lottery in that " +
-                "period.");
+                  "period.",
+            );
           }
         }
         touchLocks(transaction, locks);
@@ -208,18 +224,19 @@ function sharedLotteryHandlers(db, {
     });
   }
 
-  /**
-   * Checks availability or confirms a winning stay.
-   * @param {Object} request Callable request.
-   * @return {Promise<Object>} Availability or reservation ID.
+  /** Checks availability or creates a reservation for a winning offer.
+   * @param {Object} request Firebase callable request.
+   * @return {Promise<Object>} Availability or the saved reservation ID.
    */
   async function confirmLotteryBooking(request) {
     const {lotteryId, campsiteId, start, end} = request.data || {};
     if (!validId(lotteryId) || !validId(campsiteId) ||
         !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
-            start >= end) {
-      fail("invalid-argument",
-          "Select a campsite and valid check-in and checkout dates.");
+        start >= end) {
+      fail(
+          "invalid-argument",
+          "Select a campsite and valid check-in and checkout dates.",
+      );
     }
     return db.runTransaction(async (transaction) => {
       const accountId = await verifyAccount(transaction, request);
@@ -236,7 +253,7 @@ function sharedLotteryHandlers(db, {
       const lottery = lotteryDoc.data();
       if (!lottery?.drawCompleted || entry.get("drawStatus") !== "WINNER" ||
           entry.get("accountId") !== accountId ||
-              entry.get("lotteryId") !== lotteryId ||
+          entry.get("lotteryId") !== lotteryId ||
           !result.get("winnerIds")?.includes(accountId) ||
           result.get("declinedIds")?.includes(accountId)) {
         fail("permission-denied", "There is no winning offer to confirm.");
@@ -254,25 +271,36 @@ function sharedLotteryHandlers(db, {
       }
       if (!site.exists || !sitesFor(lottery).includes(campsiteId) ||
           start < lottery.bookingStart || end > lottery.bookingEnd ||
-              start < now()) {
-        fail("invalid-argument",
+          start < now()) {
+        fail(
+            "invalid-argument",
             "Choose a participating campsite and future dates within the " +
-            "lottery period.");
+              "lottery period.",
+        );
+      }
+
+      if (await ownerRevoked(transaction, site.get("ownerID"))) {
+        fail(
+            "failed-precondition",
+            "New bookings are closed for this campsite.",
+        );
       }
 
       const siteStart = site.get("bookingPeriodStart")?.toMillis?.();
       const siteEnd = site.get("bookingPeriodEnd")?.toMillis?.();
       if (siteStart > 1 && siteEnd > siteStart &&
           (start < siteStart || end > siteEnd)) {
-        fail("failed-precondition",
-            "Those dates are outside this campsite's available period.");
+        fail(
+            "failed-precondition",
+            "Those dates are outside this campsite's available period.",
+        );
       }
 
       const prior = await transaction.get(
           reservations.where("accountId", "==", accountId),
       );
-      if (prior.docs
-          .some((booking) => usesLotteryOffer(booking, lotteryId, lottery))) {
+      if (prior.docs.some((booking) =>
+        usesLotteryOffer(booking, lotteryId, lottery))) {
         fail("already-exists", "A reservation already exists for this offer.");
       }
 
@@ -283,9 +311,11 @@ function sharedLotteryHandlers(db, {
       if (bookings.docs.some((booking) => booking.get("cancelled") !== true &&
         overlaps(start, end, booking.get("bookedPeriodStart")?.toMillis?.(),
             booking.get("bookedPeriodEnd")?.toMillis?.()))) {
-        fail("already-exists",
+        fail(
+            "already-exists",
             "That campsite is booked for those dates. Choose another " +
-            "campsite or period.");
+              "campsite or period.",
+        );
       }
       if (request.data.checkOnly === true) {
         return {available: true};

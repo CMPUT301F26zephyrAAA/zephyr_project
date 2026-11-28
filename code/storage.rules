@@ -12,9 +12,13 @@ service firebase.storage {
     }
 
     match /campsites/{campsiteId}/{file} {
+      function activeOwner() {
+        let owner = firestore.get(/databases/(default)/documents/campsite/$(campsiteId)).data.ownerID;
+        return owns(owner) &&
+          !firestore.exists(/databases/(default)/documents/revokedCampsiteOwners/$(owner));
+      }
       allow get: if true;
-      allow write: if admin() ||
-        owns(firestore.get(/databases/(default)/documents/campsite/$(campsiteId)).data.ownerID);
+      allow write: if admin() || activeOwner();
     }
 
     match /profile_images/{accountId}/{file} {

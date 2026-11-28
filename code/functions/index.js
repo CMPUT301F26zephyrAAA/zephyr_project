@@ -2,6 +2,7 @@
 // OpenAI, ChatGPT assisted with entrant eligibility validation,
 // interrupted draw recovery, scheduling, and failure handling.
 // AI usage and citations documented in the GitHub Wiki.
+// Hiral - [AI-10] OpenAI ChatGPT Add admin removal flow
 const {setGlobalOptions} = require("firebase-functions/v2");
 const {onSchedule} = require("firebase-functions/v2/scheduler");
 const logger = require("firebase-functions/logger");
@@ -158,7 +159,8 @@ async function claimLotteryDraw(lotteryId) {
     if (lottery.drawCompleted === true ||
         lottery.drawStatus !== "PENDING" ||
         !Number.isFinite(lottery.registrationEnd) ||
-        lottery.registrationEnd > Date.now()) {
+        lottery.registrationEnd > Date.now() ||
+        await lotteryOwnerRevoked(transaction, lottery)) {
       return null;
     }
 
@@ -173,6 +175,30 @@ async function claimLotteryDraw(lotteryId) {
   });
 }
 
+
+/**
+ * Reads the owner revocation within the draw transaction.
+ * @param {FirebaseFirestore.Transaction} transaction Current draw transaction.
+ * @param {Object} lottery Saved lottery.
+ * @return {Promise<boolean>} Whether this campsite's owner was revoked.
+ */
+async function lotteryOwnerRevoked(transaction, lottery) {
+  const campsiteId = lottery.campsiteId;
+  if (
+    typeof campsiteId !== "string" || !campsiteId || campsiteId.includes("/")
+  ) {
+    return false;
+  }
+  const site = await transaction.get(db.collection("campsite").doc(campsiteId));
+  const ownerId = site.get("ownerID");
+  if (typeof ownerId !== "string" || !ownerId || ownerId.includes("/")) {
+    return false;
+  }
+  const flag = await transaction.get(
+      db.collection("revokedCampsiteOwners").doc(ownerId),
+  );
+  return flag.exists;
+}
 
 /**
  * Releases a lottery claim if the draw fails.
@@ -316,7 +342,8 @@ async function saveLotteryDraw(
     // Check that registration has ended and the winner count is unchanged.
     if (!Number.isFinite(lottery.registrationEnd) ||
         lottery.registrationEnd > Date.now() ||
-        lottery.numberOfWinners !== numberOfWinners) {
+        lottery.numberOfWinners !== numberOfWinners ||
+        await lotteryOwnerRevoked(transaction, lottery)) {
       throw new Error("Lottery settings changed during the draw");
     }
 

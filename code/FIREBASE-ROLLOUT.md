@@ -108,3 +108,20 @@ The Android rating and decline model suites use the demo fixture rules under
 `--project demo-zephyr`, reverse ports 8082, 9099, and 5001, and select the
 `ratingFirestoreEmulator=true` and `reservationFirestoreEmulator=true` runner
 arguments for those suites. The fixture rules are only for integration setup.
+
+### Owner privilege removal
+
+Roll out the updated Firestore and Storage rules, account and notification callables,
+scheduled lottery draw, and Android build together. The app observes the
+server-written revocation flags before displaying entrant listings or enabling owner mode.
+Administrators can review the reason and server timestamp in `ownerRemovalAudit`.
+Campsites, lottery entries and results, and reservations remain available in Firestore.
+
+The booking callable reads `revokedCampsiteOwners/{ownerID}` in the same transaction
+that creates a reservation. Deploy it and the lottery settings callables with the
+revocation callable so that each write path observes the same policy.
+The Firebase integration test for owner removal uses the Auth, Firestore, Functions,
+and Storage emulator configuration above.
+
+OpenAI Codex assisted on 2026-11-28 with the US 03.07.01 admin profile UI,
+owner revocation callable, Firebase rules, and regression tests.

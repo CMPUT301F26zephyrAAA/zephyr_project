@@ -1,15 +1,15 @@
 // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
-// Tests the callables with an in-memory transaction fixture.
+// Exercises production handlers with in-memory Firestore transactions.
 const assert = require("node:assert/strict");
 const {test} = require("node:test");
 const {sharedLotteryHandlers} = require("../sharedLotteries");
 const accountActions = require("../accountActions");
 
-/** Callable error shape used by the Firestore fixture. */
+/** Test stand-in for an error returned by a Firebase callable. */
 class TestHttpsError extends Error {
-  /**
-   * @param {string} code Firebase error code.
-   * @param {string} message Callable error message.
+  /** Creates an error with a callable status code.
+   * @param {string} code Callable status.
+   * @param {string} message Error message.
    */
   constructor(code, message) {
     super(message);
@@ -19,8 +19,8 @@ class TestHttpsError extends Error {
 
 const timestamp = (ms) => ({toMillis: () => ms});
 
-/**
- * @return {Object} Firestore fixture and callable handlers.
+/** Creates an isolated in-memory booking database.
+ * @return {Object} Test records and production callable handlers.
  */
 function fixture() {
   const rows = {
@@ -100,10 +100,8 @@ const settings = {
 };
 const stay = {lotteryId: "shared", campsiteId: "2", start: 30, end: 45};
 
-/**
- * Sets up a shared lottery and draw result.
- * @param {Object} f Firestore fixture.
- * @return {Promise<void>} Completion of fixture setup.
+/** Seeds a completed draw with winners and a backup.
+ * @param {Object} f Booking fixture.
  */
 async function draw(f) {
   await f.saveLotterySettings(request("owner", settings));
@@ -121,7 +119,7 @@ async function draw(f) {
   }
 }
 
-test("owner saves multiple campsites they own", async () => {
+test("shared lottery requires ownership of all linked campsites", async () => {
   const f = fixture();
   await assert.rejects(f.saveLotterySettings(request("owner", {
     ...settings, campsiteIds: ["1", "3"],
@@ -135,7 +133,7 @@ test("owner saves multiple campsites they own", async () => {
   assert.ok(f.rows["lotteryBookingLocks/2"]);
 });
 
-test("create and edit check every linked campsite", async () => {
+test("linked sites conflict with overlapping lotteries", async () => {
   const f = fixture();
   f.rows["lottery/legacy"] = {
     campsiteId: "2", bookingStart: 70, bookingEnd: 80,
@@ -153,27 +151,34 @@ test("create and edit check every linked campsite", async () => {
   assert.equal(f.rows["lottery/shared"].bookingEnd, 60);
 });
 
-test("availability requires a winner, linked site, and dates", async () => {
+test("only a winner can check a site in the lottery period", async () => {
   const f = fixture();
   await draw(f);
-  await assert.rejects(f.confirmLotteryBooking(request("backup", stay)),
+  await assert.rejects(
+      f.confirmLotteryBooking(
+          request("backup", stay),
+      ),
       {code: "permission-denied"});
   await assert.rejects(
-      f.confirmLotteryBooking(request("a", {...stay, campsiteId: "4"})),
+      f.confirmLotteryBooking(
+          request("a", {...stay, campsiteId: "4"}),
+      ),
       {code: "invalid-argument"});
   await assert.rejects(
-      f.confirmLotteryBooking(request("a", {...stay, end: 61})),
+      f.confirmLotteryBooking(
+          request("a", {...stay, end: 61}),
+      ),
       {code: "invalid-argument"});
   const check = await f.confirmLotteryBooking(
       request("a", {...stay, checkOnly: true}),
   );
   assert.deepEqual(check, {available: true});
-  assert.equal(
-      Object.keys(f.rows).some((key) => key.startsWith("reservation/")), false,
-  );
+  const hasBooking = Object.keys(f.rows).some((key) =>
+    key.startsWith("reservation/"));
+  assert.equal(hasBooking, false);
 });
 
-test("one reservation per offer and no overlaps on the same site", async () => {
+test("bookings are unique per offer and cannot overlap", async () => {
   const f = fixture();
   await draw(f);
   const {reservationId} = await f.confirmLotteryBooking(request("a", stay));
@@ -182,40 +187,49 @@ test("one reservation per offer and no overlaps on the same site", async () => {
   assert.equal(saved.lotteryId, "shared");
   assert.equal(saved.status, "confirmed");
   assert.equal(saved.bookedPeriodStart.toMillis(), 30);
-  assert.deepEqual(
-      await f.confirmLotteryBooking(request("a", stay)), {reservationId},
-  );
+  const retry = await f.confirmLotteryBooking(request("a", stay));
+  assert.deepEqual(retry, {reservationId});
   await assert.rejects(
-      f.confirmLotteryBooking(request("a", {...stay, campsiteId: "1"})),
+      f.confirmLotteryBooking(
+          request("a", {...stay, campsiteId: "1"}),
+      ),
       {code: "already-exists"});
   await assert.rejects(
-      f.confirmLotteryBooking(request("b", {...stay, start: 40})),
+      f.confirmLotteryBooking(
+          request("b", {...stay, start: 40}),
+      ),
       {code: "already-exists"});
   await f.confirmLotteryBooking(request("b", {...stay, start: 45, end: 60}));
   await f.confirmLotteryBooking(request("c", {...stay, campsiteId: "1"}));
 });
 
-test("confirmation rechecks dates and ignores cancelled stays", async () => {
+test("confirmation rechecks availability and ignores cancels", async () => {
   const f = fixture();
   await draw(f);
   await f.confirmLotteryBooking(request("a", {...stay, checkOnly: true}));
   const {reservationId} = await f.confirmLotteryBooking(request("b", stay));
   await assert.rejects(
       f.confirmLotteryBooking(request("a", stay)),
-      {code: "already-exists"});
+      {code: "already-exists"},
+  );
   f.rows["reservation/" + reservationId].cancelled = true;
   await f.confirmLotteryBooking(request("a", stay));
   await assert.rejects(
-      f.confirmLotteryBooking(request("b", {...stay, campsiteId: "1"})),
+      f.confirmLotteryBooking(
+          request("b", {...stay, campsiteId: "1"}),
+      ),
       {code: "already-exists"});
 });
 
-test("booking enforces campsite availability and declined offers", async () => {
+test("booking enforces site availability and offer declines", async () => {
   const f = fixture();
   await draw(f);
   f.rows["campsite/2"].bookingPeriodStart = timestamp(35);
   f.rows["campsite/2"].bookingPeriodEnd = timestamp(50);
-  await assert.rejects(f.confirmLotteryBooking(request("a", stay)),
+  await assert.rejects(
+      f.confirmLotteryBooking(
+          request("a", stay),
+      ),
       {code: "failed-precondition"});
   const validStay = {...stay, start: 35, end: 50, checkOnly: true};
   await f.confirmLotteryBooking(request("a", validStay));
@@ -227,7 +241,7 @@ test("booking enforces campsite availability and declined offers", async () => {
       {code: "permission-denied"});
 });
 
-test("past legacy stays do not consume a new winning offer", async () => {
+test("past legacy reservations leave new offers valid", async () => {
   const f = fixture();
   await draw(f);
   f.rows["reservation/old"] = {
@@ -241,7 +255,7 @@ test("past legacy stays do not consume a new winning offer", async () => {
   await f.confirmLotteryBooking(request("a", {...stay, campsiteId: "1"}));
 });
 
-test("overlapping legacy stays consume the offer", async () => {
+test("an overlapping legacy booking consumes the offer", async () => {
   const f = fixture();
   await draw(f);
   f.rows["reservation/legacy"] = {
@@ -252,14 +266,17 @@ test("overlapping legacy stays consume the offer", async () => {
     cancelled: false,
   };
 
-  await assert.rejects(f.confirmLotteryBooking(request("a", stay)),
+  await assert.rejects(
+      f.confirmLotteryBooking(
+          request("a", stay),
+      ),
       {
         code: "already-exists",
         message: "A reservation already exists for this offer.",
       });
 });
 
-test("decline rejects a booking on a secondary campsite", async () => {
+test("a booking on a secondary campsite cannot be declined", async () => {
   const f = fixture();
   await draw(f);
   await f.confirmLotteryBooking(request("a", stay));
@@ -280,7 +297,7 @@ test("decline rejects a booking on a secondary campsite", async () => {
   assert.equal(f.rows["lotteryDrawResults/shared"].declinedIds, undefined);
 });
 
-test("create rejects overlaps on a secondary campsite", async () => {
+test("create rejects overlap with a secondary campsite", async () => {
   const f = fixture();
   const {createLottery} = require("../lotteryActions")(f.db);
   const base = Date.now() + 100000;
@@ -327,7 +344,7 @@ test("edit checks a shared lottery's secondary campsite", async () => {
   assert.deepEqual(f.rows["lottery/shared"].campsiteIds, ["1", "2"]);
 });
 
-test("both edit callables lock dates after registration opens", async () => {
+test("both edit callables enforce the registration cutoff", async () => {
   const f = fixture();
   const {updateLottery} = require("../lotteryActions")(f.db);
   const base = Date.now();
@@ -347,4 +364,32 @@ test("both edit callables lock dates after registration opens", async () => {
   await assert.rejects(f.saveLotterySettings(request("owner", change)),
       {code: "failed-precondition"});
   assert.equal(f.rows["lottery/shared"].registrationEnd, base + 10000);
+});
+
+test("revocation prevents bookings and preserves history", async () => {
+  const f = fixture();
+  await draw(f);
+  const {reservationId} = await f.confirmLotteryBooking(request("a", stay));
+  const saved = f.rows["reservation/" + reservationId];
+  f.rows["revokedCampsiteOwners/auth_owner"] = {revoked: true};
+  const newStay = {...stay, campsiteId: "1"};
+  await assert.rejects(
+      f.confirmLotteryBooking(request("b", {...newStay, checkOnly: true})),
+      {code: "failed-precondition"},
+  );
+  await assert.rejects(
+      f.confirmLotteryBooking(request("b", newStay)),
+      {code: "failed-precondition"},
+  );
+  await assert.rejects(
+      f.saveLotterySettings(request("owner", {...settings, create: false})),
+      {code: "permission-denied"},
+  );
+  const retry = await f.confirmLotteryBooking(request("a", stay));
+  assert.deepEqual(retry, {reservationId});
+  assert.deepEqual(f.rows["reservation/" + reservationId], saved);
+  const reservations = Object.keys(f.rows).filter((key) =>
+    key.startsWith("reservation/"),
+  );
+  assert.equal(reservations.length, 1);
 });
