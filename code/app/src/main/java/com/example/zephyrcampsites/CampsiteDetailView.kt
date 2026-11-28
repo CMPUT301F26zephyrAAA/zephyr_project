@@ -1,4 +1,8 @@
 package com.example.zephyrcampsites
+// AI Citation [AI-26]
+// OpenAI, ChatGPT assisted with reservation offer
+// status display and decline confirmation UI.
+// AI usage and citation documented in the GitHub Wiki.
 
 import android.content.Intent
 import androidx.compose.foundation.Image
@@ -92,12 +96,14 @@ class CampsiteDetailView {
         onEdit: ((Int) -> Unit)?,
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
+        reservationOfferController: ReservationOfferController? = null,
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
         onRemoved: () -> Unit = onBack,
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
         onReservationMessages: (() -> Unit)? = null,
+        adminRatingGateway: AdminRatingGateway? = null,
     ) {
         var removing by remember(campsiteId) { mutableStateOf(false) }
         var removalError by remember(campsiteId) { mutableStateOf<String?>(null) }
@@ -131,11 +137,11 @@ class CampsiteDetailView {
                 )
             }
             if (ownerId.isNotBlank()) {
-                accountsController.findAccount(
-                    deviceId = ownerId,
-                    onResult = { owner ->
+                accountsController.findCampsiteOwnerName(
+                    campsiteId = campsiteId.toString(),
+                    onResult = { name ->
                         if (active) {
-                            ownerName = owner?.name
+                            ownerName = name
                         }
                     },
                     onError = {
@@ -156,6 +162,7 @@ class CampsiteDetailView {
             showOwnerView = showOwnerView,
             showEntrantActions = showEntrantActions,
             showAdminActions = showAdminActions,
+            adminRatingGateway = adminRatingGateway,
             imageUrl = imageUrl,
             ownerName = ownerName,
             isLoading = model.isLoading,
@@ -170,6 +177,7 @@ class CampsiteDetailView {
             onReservationMessages = onReservationMessages,
             lottery = lottery,
             waitingListController = waitingListController,
+            reservationOfferController = reservationOfferController,
             ratingController = ratingController,
             onRateCampsite = onRateCampsite,
             removing = removing,
@@ -235,6 +243,7 @@ class CampsiteDetailView {
         onManageLottery: ((String) -> Unit)? = null,
         lottery: Lottery? = null,
         waitingListController: WaitingListController? = null,
+        reservationOfferController: ReservationOfferController? = null,
         previewOwnerMode: Boolean = false,
         ratingController: RatingController? = null,
         onRateCampsite: ((String) -> Unit)? = null,
@@ -244,9 +253,70 @@ class CampsiteDetailView {
         showEntrantActions: Boolean = false,
         showAdminActions: Boolean = false,
         onReservationMessages: (() -> Unit)? = null,
+        adminRatingGateway: AdminRatingGateway? = null,
     ) {
 
         val canRemoveCampsite = showAdminActions && account?.userType?.contains("admin") == true
+        val moderationAccountId = account?.id?.takeIf { canRemoveCampsite && it.isNotBlank() }
+        val ratingsCampsiteId = campsite?.id?.takeIf {
+            moderationAccountId != null && it.isNotBlank() && '/' !in it
+        }
+        // Hiral - [AI-03] OpenAI, ChatGPT, US-03.09.01
+        val moderationModel = remember(ratingsCampsiteId, moderationAccountId) {
+            if (ratingsCampsiteId != null) adminRatingGateway ?: RatingModel() else null
+        }
+
+        var ratingRows by remember(ratingsCampsiteId, moderationAccountId) {
+            mutableStateOf<List<CampsiteRating>?>(null)
+        }
+        var ratingLoadError by remember(ratingsCampsiteId, moderationAccountId) {
+            mutableStateOf<String?>(null)
+        }
+        var showingRatings by remember(ratingsCampsiteId, moderationAccountId) {
+            mutableStateOf(false)
+        }
+
+        DisposableEffect(ratingsCampsiteId, moderationModel) {
+            val stop = if (ratingsCampsiteId != null && moderationModel != null) {
+                moderationModel.observeAdminRatings(
+                    campsiteId = ratingsCampsiteId,
+                    onRatings = { rows ->
+                        ratingLoadError = null
+                        ratingRows = rows
+                    },
+                    onError = { message ->
+                        ratingRows = null
+                        ratingLoadError = message
+                    },
+                )
+            } else {
+                null
+            }
+
+            onDispose { stop?.invoke() }
+        }
+
+        if (showingRatings && campsite != null && ratingsCampsiteId != null && moderationModel != null) {
+            AdminRatingsScreen(
+                campsiteName = campsite.name,
+                ratings = ratingRows.orEmpty(),
+                loadError = ratingLoadError,
+                removeRating = { selected, onResult, onError ->
+                    moderationModel.removeAdminRating(
+                        campsiteId = ratingsCampsiteId,
+                        adminAccountId = requireNotNull(moderationAccountId),
+                        selected = selected,
+                        onResult = { removed ->
+                            if (removed) ratingRows = ratingRows?.filterNot { it == selected }
+                            onResult(removed)
+                        },
+                        onError = onError,
+                    )
+                },
+                onBack = { showingRatings = false },
+            )
+            return
+        }
         var showRemoveConfirmation by remember(campsite?.id) { mutableStateOf(false) }
         BackHandler(enabled = removing) {}
 
@@ -281,6 +351,13 @@ class CampsiteDetailView {
         var leaving by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var showLeaveConfirmation by remember(lottery?.id, accountId) { mutableStateOf(false) }
         var joinError by remember(lottery?.id, accountId) { mutableStateOf("") }
+        var entrantDrawStatus by remember(lottery?.id, accountId) { mutableStateOf<String?>(null) }
+        var checkingDrawStatus by remember(lottery?.id, accountId) { mutableStateOf(true) }
+        var drawStatusError by remember(lottery?.id, accountId) { mutableStateOf("") }
+        var checkingReservations by remember(lottery?.id, accountId) { mutableStateOf(true) }
+        var hasExistingReservation by remember(lottery?.id, accountId) { mutableStateOf(false) }
+        var reservationCheckError by remember(lottery?.id, accountId) { mutableStateOf("") }
+        val reservationsModel = remember { ReservationsModel() }
 
         LaunchedEffect(showEntrantActions, lottery?.id, accountId, waitingListController) {
             joinError = ""
@@ -303,6 +380,62 @@ class CampsiteDetailView {
                         joinError = error
                         membershipError = true
                         checkingMembership = false
+                    }
+                )
+            }
+        }
+        LaunchedEffect(
+            showEntrantActions,
+            lottery?.id,
+            accountId,
+            reservationOfferController
+        ) {
+            entrantDrawStatus = null
+            drawStatusError = ""
+            checkingReservations = true
+            hasExistingReservation = false
+            reservationCheckError = ""
+
+            if (
+                !showEntrantActions ||
+                lottery == null ||
+                accountId.isNullOrBlank() ||
+                reservationOfferController == null
+            ) {
+                checkingDrawStatus = false
+                checkingReservations = false
+            } else {
+                checkingDrawStatus = true
+
+                reservationOfferController.getEntrantDrawStatus(
+                    lotteryId = lottery.id,
+                    accountId = accountId,
+                    onResult = { status ->
+                        entrantDrawStatus = status
+                        checkingDrawStatus = false
+                        if (status == "WINNER") {
+                            reservationsModel.getEntrantReservations(
+                                accountId = accountId,
+                                onSuccess = { existing ->
+                                    hasExistingReservation = existing.any {
+                                        it.campsiteId == lottery.campsiteId && !it.cancelled
+                                    }
+                                    checkingReservations = false
+                                },
+                                onError = { error ->
+                                    reservationCheckError = error.message
+                                        ?: "Could not verify existing reservations"
+                                    checkingReservations = false
+                                }
+                            )
+                        } else {
+                            checkingReservations = false
+                        }
+                    },
+                    onError = { error ->
+                        drawStatusError = error
+                        checkingDrawStatus = false
+                        checkingReservations = false
                     }
                 )
             }
@@ -411,15 +544,6 @@ class CampsiteDetailView {
                         modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        if (showEntrantActions && account != null && ratingController != null && onRateCampsite != null) {
-                            RatingView().RatingEntry(
-                                campsite.id,
-                                account,
-                                ratingController,
-                                onRateCampsite
-                            )
-                        }
-
                         // Entrant lottery registration
                         if (showEntrantActions &&
                             account != null &&
@@ -471,10 +595,106 @@ class CampsiteDetailView {
                                 )
                             }
 
+                            if (joined && !checkingDrawStatus) {
+                                when (entrantDrawStatus) {
+                                    "WINNER" -> {
+                                        Text(
+                                            text = "Congratulations! You won the lottery.",
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+
+                                    "BACKUP" -> {
+                                        Text("You are on the lottery backup list.")
+                                    }
+
+                                    "DECLINED" -> {
+                                        Text("You have declined this reservation opportunity.")
+                                    }
+                                }
+                            }
+
+                            if (drawStatusError.isNotEmpty()) {
+                                Text(
+                                    text = drawStatusError,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            // Offer decline is distinct from cancelling an existing reservation.
+                            // Never expose the action until the reservation check has finished.
+                            if (joined && entrantDrawStatus == "WINNER") {
+                                if (checkingReservations) {
+                                    Text("Checking reservation status...")
+                                } else if (reservationCheckError.isNotEmpty()) {
+                                    Text(
+                                        text = reservationCheckError,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                } else if (hasExistingReservation) {
+                                    Text("Reservation already created. Use Cancel Reservation in My Trips.")
+                                } else if (reservationOfferController != null) {
+                                    var showDeclineConfirmation by remember(lottery.id, accountId) {
+                                        mutableStateOf(false)
+                                    }
+                                    var declining by remember(lottery.id, accountId) {
+                                        mutableStateOf(false)
+                                    }
+                                    Button(
+                                        onClick = { showDeclineConfirmation = true },
+                                        enabled = !declining,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Decline Reservation")
+                                    }
+                                    if (showDeclineConfirmation) {
+                                        AlertDialog(
+                                            onDismissRequest = {
+                                                if (!declining) showDeclineConfirmation = false
+                                            },
+                                            title = { Text("Decline reservation?") },
+                                            text = {
+                                                Text("You will not be able to reclaim this reservation opportunity.")
+                                            },
+                                            confirmButton = {
+                                                TextButton(
+                                                    enabled = !declining,
+                                                    onClick = {
+                                                        declining = true
+                                                        drawStatusError = ""
+                                                        reservationOfferController.declineReservationOffer(
+                                                            lotteryId = lottery.id,
+                                                            accountId = accountId,
+                                                            onSuccess = {
+                                                                entrantDrawStatus = "DECLINED"
+                                                                declining = false
+                                                                showDeclineConfirmation = false
+                                                            },
+                                                            onError = { error ->
+                                                                drawStatusError = error
+                                                                declining = false
+                                                                showDeclineConfirmation = false
+                                                            }
+                                                        )
+                                                    }
+                                                ) {
+                                                    Text(if (declining) "Declining..." else "Yes, Decline")
+                                                }
+                                            },
+                                            dismissButton = {
+                                                TextButton(
+                                                    onClick = { showDeclineConfirmation = false },
+                                                    enabled = !declining
+                                                ) { Text("Cancel") }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             if (joined) {
                                 val canLeave = !lottery.drawCompleted &&
                                         lottery.drawStatus == "PENDING"
-
                                 Spacer(modifier = Modifier.size(8.dp))
 
                                 OutlinedButton(
@@ -546,8 +766,36 @@ class CampsiteDetailView {
 
                         }
 
+                        if (showEntrantActions && account != null && ratingController != null && onRateCampsite != null) {
+                            RatingView().RatingEntry(campsite.id, account, ratingController, onRateCampsite)
+                        }
+
                         if (canRemoveCampsite) {
                             removalError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            when {
+                                ratingsCampsiteId == null || ratingLoadError != null -> Text(
+                                    ratingLoadError ?: "Unable to load campsite ratings.",
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+
+                                ratingRows == null -> Text(
+                                    "Loading ratings…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+
+                                ratingRows.orEmpty().isEmpty() -> Text(
+                                    "No ratings available for this campsite.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+
+                                else -> OutlinedButton(
+                                    onClick = { showingRatings = true },
+                                    enabled = !removing,
+                                    modifier = Modifier.fillMaxWidth().testTag("ViewCampsiteRatings"),
+                                ) {
+                                    Text("View Ratings")
+                                }
+                            }
                             Button(
                                 onClick = { showRemoveConfirmation = true },
                                 enabled = !removing,

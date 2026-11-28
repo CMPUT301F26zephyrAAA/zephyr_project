@@ -40,6 +40,18 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.zephyrcampsites.ui.theme.ProfileMenuGreen
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.compose.foundation.Image
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.asImageBitmap
 
 /**
  * View class for displaying and editing entrant account details
@@ -63,8 +75,20 @@ class AccountsView {
         onPolicy: () -> Unit,
         onSettings: () -> Unit,
         onBack: () -> Unit,
-        onDelete: () -> Unit
+        onDelete: () -> Unit,
+        onImageSelected: (Uri) -> Unit = {},
+        onRemoveImage: () -> Unit = {},
+        isImageUpdating: Boolean = false,
+        imageError: String = "",
+        canManageImage: Boolean = false
     ){
+        val imagePicker = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri: Uri? ->
+            if (uri != null && canManageImage && !isImageUpdating) {
+                onImageSelected(uri)
+            }
+        }
         Column(modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
@@ -78,6 +102,17 @@ class AccountsView {
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            ProfileImageSection(
+                imagePath = account.imagePath,
+                compressedImage = account.compressedImage,
+                isImageUpdating = isImageUpdating,
+                imageError = imageError,
+                canManageImage = canManageImage,
+                onSelectImage = {
+                    imagePicker.launch("image/*")
+                },
+                onRemoveImage = onRemoveImage
+            )
             Text(
                 text = if (account.name.isBlank()){
                     "FULL NAME"
@@ -88,7 +123,7 @@ class AccountsView {
             )
 
             Text(
-                text = "Device ID Number",
+                text = "Account ID",
                 style = MaterialTheme.typography.bodySmall
             )
             Text(
@@ -137,6 +172,180 @@ class AccountsView {
                     contentColor = Color.White)
             ) {
                 Text("BACK")
+            }
+        }
+    }
+
+    /**
+     * Displays a compressed profile image and image management options.
+     *
+     * @param imagePath Legacy profile image reference.
+     * @param compressedImage Base64-encoded compressed profile image.
+     * @param isImageUpdating Whether an image operation is in progress.
+     * @param imageError Error message from an image operation.
+     * @param canManageImage Whether the user can manage the image.
+     * @param onSelectImage Opens the device image picker.
+     * @param onRemoveImage Removes the current profile image.
+     */
+    @Composable
+    private fun ProfileImageSection(
+        imagePath: String,
+        compressedImage: String,
+        isImageUpdating: Boolean,
+        imageError: String,
+        canManageImage: Boolean,
+        onSelectImage: () -> Unit,
+        onRemoveImage: () -> Unit
+    ) {
+        val hasProfileImage =
+            compressedImage.isNotBlank() || imagePath.isNotBlank()
+
+        var resolvedImageUrl by remember(imagePath) {
+            mutableStateOf<String?>(null)
+        }
+
+        LaunchedEffect(imagePath, compressedImage) {
+            resolvedImageUrl = null
+
+            if (compressedImage.isBlank() &&
+                imagePath.isNotBlank()
+            ) {
+                FirebaseConnector("accounts").resourceGetter(
+                    path = imagePath,
+                    result = { url ->
+                        resolvedImageUrl = url
+                    },
+                    onError = {
+                        resolvedImageUrl = null
+                    }
+                )
+            }
+        }
+
+        val profileBitmap = remember(compressedImage) {
+            if (compressedImage.isNotBlank()) {
+                try {
+                    val imageBytes = Base64.decode(
+                        compressedImage,
+                        Base64.DEFAULT
+                    )
+
+                    BitmapFactory.decodeByteArray(
+                        imageBytes,
+                        0,
+                        imageBytes.size
+                    )?.asImageBitmap()
+
+                } catch (exception: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .size(120.dp)
+                    .clip(CircleShape)
+                    .testTag("profileImage"),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    when {
+                        profileBitmap != null -> {
+                            Image(
+                                bitmap = profileBitmap,
+                                contentDescription = "Profile image",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        resolvedImageUrl != null -> {
+                            AsyncImage(
+                                model = resolvedImageUrl,
+                                contentDescription = "Profile image",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+
+                        else -> {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = "Default profile icon",
+                                modifier = Modifier.size(70.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (isImageUpdating) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            if (canManageImage) {
+                OutlinedButton(
+                    onClick = onSelectImage,
+                    enabled = !isImageUpdating,
+                    modifier = Modifier.testTag(
+                        "selectProfileImageButton"
+                    )
+                ) {
+                    Text(
+                        if (hasProfileImage) {
+                            "Change Profile Image"
+                        } else {
+                            "Add Profile Image"
+                        }
+                    )
+                }
+
+                if (hasProfileImage) {
+                    TextButton(
+                        onClick = onRemoveImage,
+                        enabled = !isImageUpdating,
+                        modifier = Modifier.testTag(
+                            "removeProfileImageButton"
+                        )
+                    ) {
+                        Text(
+                            text = "Remove Profile Image",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            if (imageError.isNotBlank()) {
+                Text(
+                    text = imageError,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("profileImageError")
+                )
+            }
+
+            if (compressedImage.isNotBlank() &&
+                profileBitmap == null
+            ) {
+                Text(
+                    text = "Unable to display profile image.",
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
     }

@@ -1,3 +1,4 @@
+// Shows an owner's eligible bookings and opens the selected reservation conversation.
 package com.example.zephyrcampsites
 
 import androidx.activity.compose.BackHandler
@@ -15,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import java.text.DateFormat
+import java.util.Date
 
 /** Opens a conversation from a confirmed reservation at one owned campsite. */
 @Composable
@@ -27,7 +29,7 @@ internal fun OwnerReservationReplies(
 ) {
     val chatModel = remember { ReservationChatModel() }
     var selectedId by rememberSaveable(owner.id, campsite.id) { mutableStateOf<String?>(null) }
-    var reservations by remember(owner.id, campsite.id) { mutableStateOf<List<ReservedUser>?>(null) }
+    var bookings by remember(owner.id, campsite.id) { mutableStateOf<List<OwnerReservation>?>(null) }
     var loadFailed by remember(owner.id, campsite.id) { mutableStateOf(false) }
     var retry by remember(owner.id, campsite.id) { mutableIntStateOf(0) }
 
@@ -37,12 +39,24 @@ internal fun OwnerReservationReplies(
         reservationsController.getCampsiteReservations(
             owner = owner,
             campsiteId = campsite.id,
-            onSuccess = { if (active) { reservations = it } },
+            onSuccess = { if (active) { bookings = it } },
             onError = { if (active) { loadFailed = true } }
         )
         onDispose { active = false }
     }
 
+    val reservations = remember(bookings, campsite.id) {
+        bookings?.map { booking ->
+            ReservedUser(
+                id = booking.id,
+                accountId = booking.entrantAccountId,
+                campsiteId = campsite.id,
+                bookedPeriodStart = Date(booking.startMillis),
+                bookedPeriodEnd = Date(booking.endMillis),
+                cancelled = booking.cancelled
+            )
+        }
+    }
     val selected = reservations?.firstOrNull { it.id == selectedId }
     BackHandler(enabled = selected != null) { selectedId = null }
     if (selected != null) {
@@ -52,7 +66,8 @@ internal fun OwnerReservationReplies(
             accountsController = accountsController,
             chatModel = chatModel,
             onBack = { selectedId = null },
-            ownerReply = true
+            ownerReply = true,
+            entrantName = bookings?.firstOrNull { it.id == selectedId }?.entrantName
         )
     } else {
         ReservationReplyList(

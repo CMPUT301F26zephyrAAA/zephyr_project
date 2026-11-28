@@ -1,3 +1,4 @@
+// Builds the role selector and the available actions for each app mode.
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.Composable
@@ -40,6 +41,7 @@ internal fun RoleHomeMenu(
         ENTRANT -> listOf(
             "Browse Campsites" to roleRoute(ENTRANT, CampsiteScreens.SummaryView.route),
             "My Trips" to GeneralScreen.Trips.route,
+            "Notifications" to GeneralScreen.LotteryNotifications.route,
             "Scan QR Code" to GeneralScreen.QRScan.route,
             "My Profile" to roleRoute(ENTRANT, GeneralScreen.Profile.route)
         )
@@ -49,6 +51,7 @@ internal fun RoleHomeMenu(
             "Register Campsite" to GeneralScreen.RegisterCampsite.route,
             "View Lotteries" to "$OWNER/allLotteries",
             "View Reservations" to GeneralScreen.ViewReservations.route,
+            "Sent Notifications" to GeneralScreen.SentNotifications.route,
             "My Profile" to roleRoute(OWNER, GeneralScreen.Profile.route)
         )
 

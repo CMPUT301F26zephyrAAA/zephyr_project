@@ -1,3 +1,4 @@
+// Displays a reservation conversation and coordinates its message and read state.
 package com.example.zephyrcampsites
 
 import androidx.compose.foundation.background
@@ -38,10 +39,11 @@ import java.util.Locale
  * Loads the other participant and connects to the conversation for the selected booking.
  * @param reservation Reservation opened from My Trips.
  * @param campsite Campsite associated with the reservation, if available.
- * @param accountsController Reads the other participant's account from Firebase.
+ * @param accountsController Resolves the campsite owner's display name.
  * @param chatModel Chat model shared with the reservation list.
  * @param onBack Returns to the previous reservation screen.
  * @param ownerReply Opens the conversation for the owner to reply to the entrant.
+ * @param entrantName The entrant's display name from the verified owner reservation list.
  */
 @Composable
 internal fun ReservationChatScreen(
@@ -50,12 +52,12 @@ internal fun ReservationChatScreen(
     accountsController: AccountsController,
     chatModel: ReservationChatModel,
     onBack: () -> Unit,
-    ownerReply: Boolean = false
+    ownerReply: Boolean = false,
+    entrantName: String? = null
 ) {
     val ownerId = campsite?.ownerID.orEmpty()
-    val participantId = if (ownerReply) reservation.accountId else ownerId
     val participantLabel = if (ownerReply) "Entrant" else "Campsite Owner"
-    var participantName by remember(participantId) { mutableStateOf<String?>(null) }
+    var ownerName by remember(reservation.campsiteId, ownerId) { mutableStateOf<String?>(null) }
     var session by remember(reservation.id, ownerId) { mutableStateOf<ReservationChatSession?>(null) }
     var messages by remember(reservation.id, ownerId) { mutableStateOf(emptyList<ReservationMessage>()) }
     var chatStatus by remember(reservation.id, ownerId) { mutableStateOf("") }
@@ -64,14 +66,14 @@ internal fun ReservationChatScreen(
     var sendError by remember(reservation.id, ownerId) { mutableStateOf<String?>(null) }
     var newMessageId by remember(reservation.id, ownerId) { mutableStateOf<String?>(null) }
 
-    DisposableEffect(participantId, accountsController) {
+    DisposableEffect(reservation.campsiteId, ownerId, ownerReply, accountsController) {
         var active = true
-        if (participantId.isNotBlank()) {
-            accountsController.findAccount(
-                deviceId = participantId,
-                onResult = { participant ->
+        if (!ownerReply && ownerId.isNotBlank()) {
+            accountsController.findCampsiteOwnerName(
+                campsiteId = reservation.campsiteId,
+                onResult = { name ->
                     if (active) {
-                        participantName = participant?.name
+                        ownerName = name
                     }
                 },
                 onError = {}
@@ -88,10 +90,9 @@ internal fun ReservationChatScreen(
             chatStatus = "Loading messages…"
             chatModel.open(reservation, ownerId, ownerReply)
                 .addOnSuccessListener { if (active) { session = it } }
-                .addOnFailureListener { error ->
+                .addOnFailureListener {
                     if (active) {
-                        chatStatus = (error as? ReservationChatLinkRequired)?.message
-                            ?: "Unable to open this conversation."
+                        chatStatus = "Unable to open this conversation."
                     }
                 }
         }
@@ -141,7 +142,7 @@ internal fun ReservationChatScreen(
     ReservationChatView(
         reservation = reservation,
         campsiteName = campsite?.name.orEmpty(),
-        participantName = participantName,
+        participantName = if (ownerReply) entrantName else ownerName,
         participantLabel = participantLabel,
         status = chatStatus.ifBlank {
             if (canReply) "" else "Waiting for the entrant's first message."

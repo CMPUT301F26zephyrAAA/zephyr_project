@@ -62,11 +62,6 @@ internal fun LotteryListItem(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-internal fun ReservationsScreen(onBack: () -> Unit) {
-    FeaturePage("View Reservations", onBack)
-}
-
-@Composable
 internal fun NotificationLogsScreen(onBack: () -> Unit) {
     FeaturePage("Notification Logs", onBack)
 }

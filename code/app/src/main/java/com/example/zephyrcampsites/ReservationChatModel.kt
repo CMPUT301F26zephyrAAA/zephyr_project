@@ -1,3 +1,4 @@
+// Persists reservation conversations, messages, and read receipts for signed-in participants.
 package com.example.zephyrcampsites
 
 import com.google.android.gms.tasks.Task
@@ -8,41 +9,40 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentReference
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Query
-import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 
 internal const val MAX_RESERVATION_MESSAGE_LENGTH = 2_000
 
+/** A message saved under one reservation conversation. */
 internal data class ReservationMessage(
     val id: String, val senderUid: String, val text: String, val senderAccountId: String? = null,
     val sentAt: Timestamp? = null
 ) {
+    /** Checks the sender account, using the Auth UID for older messages without a sender account. */
     fun from(accountId: String?, uid: String?): Boolean =
         if (senderAccountId == null) senderUid == uid else senderAccountId == accountId
 }
 
+/** An open conversation and the authenticated participant sending messages in it. */
 internal data class ReservationChatSession(
     val document: DocumentReference, val userUid: String, val userAccountId: String
 )
 
-internal class ReservationChatLinkRequired(accountId: String, uid: String) :
-    IllegalStateException("Chat account setup required. Device ID: $accountId. Firebase UID: $uid.")
-
+// AI Citation [AI-43] (Bhav Saluja)
+// OpenAI, Codex, November 27, 2026. Reused the app's Firebase Auth identity for chat.
+// See the team AI Documentation Google Doc.
 /**
- * Reads and writes messages for a reservation using its Firestore participant record.
+ * Reads and writes messages scoped to a saved reservation and its verified participants.
  * @param firestore Database that holds the conversations.
- * @param auth Firebase identity for the current installation.
+ * @param auth Firebase Auth session established when the app loads the current profile.
  */
 internal class ReservationChatModel(
     private val firestore: FirebaseFirestore = Firebase.firestore,
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 ) {
-    private var signingIn: Task<String>? = null
-
     /**
      * Opens or creates the conversation after Firestore verifies the signed-in participant.
      * @param reservation Reservation selected by the entrant or owner.
@@ -59,63 +59,39 @@ internal class ReservationChatModel(
             "entrantAccountId" to reservation.accountId, "ownerAccountId" to ownerAccountId,
             "campsiteId" to reservation.campsiteId
         )
-        return verifiedSession(reservation, ownerAccountId, ownerReply).onSuccessTask { session ->
-            firestore.runTransaction { transaction ->
-                val existing = transaction.get(session.document)
-                if (existing.exists()) {
-                    check(participants.all { (field, value) -> existing.get(field) == value }) {
-                        "Reservation chat unavailable."
-                    }
-                } else {
-                    transaction.set(session.document, participants)
+        val session = signedInSession(reservation, ownerAccountId, ownerReply)
+            ?: return Tasks.forException(IllegalStateException("Reservation chat unavailable."))
+        return firestore.runTransaction { transaction ->
+            val existing = transaction.get(session.document)
+            if (existing.exists()) {
+                check(participants.all { (field, value) -> existing.get(field) == value }) {
+                    "Reservation chat unavailable."
                 }
-                session
+            } else {
+                transaction.set(session.document, participants)
             }
+            session
         }
     }
 
-    private fun verifiedSession(
-        reservation: ReservedUser, ownerAccountId: String, ownerReply: Boolean
-    ): Task<ReservationChatSession> {
-        if (reservation.cancelled ||
-            !listOf(reservation.id, reservation.accountId, ownerAccountId, reservation.campsiteId).all(::validId)
-        ) {
-            return Tasks.forException(IllegalArgumentException("Reservation chat unavailable."))
-        }
+    private fun signedInSession(
+        reservation: ReservedUser,
+        ownerAccountId: String,
+        ownerReply: Boolean
+    ): ReservationChatSession? {
+        val uid = auth.currentUser?.uid ?: return null
         val accountId = if (ownerReply) ownerAccountId else reservation.accountId
-        val document = firestore.collection("reservationChat").document(reservation.id)
-        return authenticate().onSuccessTask { uid ->
-            verifyAccountLink(accountId, uid).onSuccessTask {
-                Tasks.forResult(ReservationChatSession(document, uid, accountId))
-            }
+        if (reservation.cancelled || accountId != "auth_$uid" || !validId(reservation.id) ||
+            !validId(ownerAccountId) || !validId(reservation.accountId) || !validId(reservation.campsiteId)
+        ) {
+            return null
         }
+        val document = firestore.collection("reservationChat").document(reservation.id)
+        return ReservationChatSession(document, uid, accountId)
     }
 
-    @Synchronized
-    private fun authenticate(): Task<String> {
-        auth.currentUser?.uid?.let { return Tasks.forResult(it) }
-        signingIn?.takeUnless { it.isComplete }?.let { return it }
-        return auth.signInAnonymously().onSuccessTask { signIn ->
-            Tasks.forResult(checkNotNull(signIn.user).uid)
-        }.also { signingIn = it }
-    }
-
-    private fun verifyAccountLink(accountId: String, uid: String): Task<Unit> {
-        return firestore.collection("chatAccountLinks").document(accountId).get(Source.SERVER)
-            .continueWithTask { result ->
-                val error = result.exception
-                when {
-                    error is FirebaseFirestoreException &&
-                        error.code == FirebaseFirestoreException.Code.PERMISSION_DENIED ->
-                        Tasks.forException(ReservationChatLinkRequired(accountId, uid))
-                    error != null -> Tasks.forException(error)
-                    result.result.get("uid") == uid -> Tasks.forResult(Unit)
-                    else -> Tasks.forException(ReservationChatLinkRequired(accountId, uid))
-                }
-            }
-    }
-
-    private fun validId(id: String): Boolean = id.isNotBlank() && !id.contains("/") && id != "." && id != ".."
+    private fun validId(id: String): Boolean =
+        id.length <= 128 && id.isNotBlank() && !id.contains("/") && id != "." && id != ".."
 
     /**
      * Listens for confirmed messages in server timestamp order.
@@ -156,11 +132,17 @@ internal class ReservationChatModel(
      * @return Registration to remove when the reservation row leaves the screen.
      */
     fun observeUnread(
-        reservation: ReservedUser, ownerAccountId: String, ownerReply: Boolean,
+        reservation: ReservedUser,
+        ownerAccountId: String,
+        ownerReply: Boolean,
         onUnread: (Boolean) -> Unit
     ): ListenerRegistration {
+        val session = signedInSession(reservation, ownerAccountId, ownerReply)
+        if (session == null) {
+            onUnread(false)
+            return ListenerRegistration {}
+        }
         var active = true
-        var conversation: ListenerRegistration? = null
         var latestMessage: ListenerRegistration? = null
         var readReceipt: ListenerRegistration? = null
         var incomingAt: Timestamp? = null
@@ -173,48 +155,53 @@ internal class ReservationChatModel(
             }
         }
 
-        verifiedSession(reservation, ownerAccountId, ownerReply).addOnSuccessListener { session ->
-            if (!active) return@addOnSuccessListener
-            conversation = session.document.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
-                if (error != null) {
-                    receiptLoaded = false
-                    latestMessage?.remove()
-                    readReceipt?.remove()
-                    if (active) onUnread(false)
-                } else if (snapshot != null && !snapshot.metadata.isFromCache && snapshot.exists() &&
-                    latestMessage == null && active
-                ) {
-                    val sender = if (ownerReply) reservation.accountId else ownerAccountId
-                    latestMessage = session.document.collection("messages").whereEqualTo("senderAccountId", sender)
-                        .orderBy("sentAt", Query.Direction.DESCENDING).limit(1)
-                        .addSnapshotListener(MetadataChanges.INCLUDE) { messages, messageError ->
-                            if (messageError != null || messages?.metadata?.isFromCache == false) {
-                                incomingAt = messages?.documents?.firstOrNull()?.getTimestamp("sentAt")
-                                reportUnread()
-                            }
-                        }
-                    readReceipt = receipt(session).addSnapshotListener(MetadataChanges.INCLUDE) { read, readError ->
-                        if (readError != null) {
-                            if (active) onUnread(false)
-                        } else if (read != null && !read.metadata.isFromCache) {
-                            readAt = read.getTimestamp("readAt")
-                            receiptLoaded = true
+        val conversation = session.document.addSnapshotListener(MetadataChanges.INCLUDE) { snapshot, error ->
+            if (error != null) {
+                receiptLoaded = false
+                latestMessage?.remove()
+                readReceipt?.remove()
+                if (active) {
+                    onUnread(false)
+                }
+            } else if (snapshot != null && !snapshot.metadata.isFromCache && snapshot.exists() &&
+                latestMessage == null && active
+            ) {
+                val sender = if (ownerReply) reservation.accountId else ownerAccountId
+                latestMessage = session.document.collection("messages")
+                    .whereEqualTo("senderAccountId", sender)
+                    .orderBy("sentAt", Query.Direction.DESCENDING).limit(1)
+                    .addSnapshotListener(MetadataChanges.INCLUDE) { messages, messageError ->
+                        if (messageError != null || messages?.metadata?.isFromCache == false) {
+                            incomingAt = messages?.documents?.firstOrNull()?.getTimestamp("sentAt")
                             reportUnread()
                         }
                     }
+                readReceipt = receipt(session).addSnapshotListener(MetadataChanges.INCLUDE) { read, readError ->
+                    if (readError != null && active) {
+                        onUnread(false)
+                    } else if (read != null && !read.metadata.isFromCache) {
+                        readAt = read.getTimestamp("readAt")
+                        receiptLoaded = true
+                        reportUnread()
+                    }
                 }
             }
-        }.addOnFailureListener { if (active) onUnread(false) }
+        }
 
         return ListenerRegistration {
             active = false
-            conversation?.remove()
+            conversation.remove()
             latestMessage?.remove()
             readReceipt?.remove()
         }
     }
 
-    /** Records the latest incoming message timestamp that this participant has seen. */
+    /**
+     * Records the latest incoming message seen, preserving a newer receipt if one already exists.
+     * @param session Open reservation conversation.
+     * @param seenAt Server timestamp of the newest incoming message displayed.
+     * @return The server write result.
+     */
     fun markRead(session: ReservationChatSession, seenAt: Timestamp): Task<Unit> {
         val receipt = receipt(session)
         return firestore.runTransaction { transaction ->

@@ -1,3 +1,4 @@
+// Exercises production chat rules against Auth and Firestore emulators.
 package com.example.zephyrcampsites
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -10,6 +11,8 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.Source
 import java.net.HttpURLConnection
 import java.net.URI
 import java.util.Date
@@ -27,18 +30,41 @@ import org.junit.runner.RunWith
 
 /**
  * Tests two-way chat and participant isolation with the chat rules in a local emulator.
- * Requires chatFirestoreEmulator=true and adb reverse for Firestore (8097) and Auth (9097).
+ * Requires chatFirestoreEmulator=true and adb reverse for Firestore (8082) and Auth (9099).
  */
+// AI Citation [AI-43] (Bhav Saluja)
+// OpenAI, Codex, November 27, 2026. Verified chat with Auth profiles and canonical bookings.
+// See the team AI Documentation Google Doc.
 @RunWith(AndroidJUnit4::class)
 class ReservationChatModelTest {
     private val apps = mutableListOf<FirebaseApp>()
-    private val projectId = "demo-zephyr-reservation-chat"
-    private val reservation = ReservedUser(UUID.randomUUID().toString(), "entrant-${UUID.randomUUID()}", "1")
-    private val ownerId = "owner-${UUID.randomUUID()}"
+    private val projectId = "demo-zephyr-notifications"
+    private lateinit var reservation: ReservedUser
+    private lateinit var entrantModel: ReservationChatModel
+    private lateinit var ownerModel: ReservationChatModel
+    private lateinit var entrantUid: String
+    private lateinit var ownerUid: String
+    private val ownerId get() = "auth_$ownerUid"
 
     @Before
-    fun requireEmulator() {
+    fun createParticipants() {
         assumeTrue(InstrumentationRegistry.getArguments().getString("chatFirestoreEmulator") == "true")
+        val (entrant, signedInEntrant) = connect()
+        val (owner, signedInOwner) = connect()
+        entrantModel = entrant
+        ownerModel = owner
+        entrantUid = signedInEntrant
+        ownerUid = signedInOwner
+        reservation = ReservedUser(
+            id = UUID.randomUUID().toString(),
+            accountId = "auth_$entrantUid",
+            campsiteId = "chat-site-${UUID.randomUUID()}",
+            bookedPeriodStart = Date(1_750_003_200_000L),
+            bookedPeriodEnd = Date(1_750_176_000_000L)
+        )
+        val ownerFirestore = FirebaseFirestore.getInstance(apps.last())
+        await(ownerFirestore.collection("campsite").document(reservation.campsiteId)
+            .set(mapOf("ownerID" to ownerId, "name" to "Pinewood Lakeside")))
     }
 
     @After
@@ -51,10 +77,7 @@ class ReservationChatModelTest {
 
     @Test
     fun participantsExchangeMessagesInOrderAndOtherAccountsCannotOpenChat() {
-        val (entrantModel, entrantUid) = connect()
-        val (ownerModel, ownerUid) = connect()
-        val otherModel = connect().first
-        approveReservation(entrantUid, ownerUid)
+        writeReservation(reservation)
 
         val entrantChat = await(entrantModel.open(reservation, ownerId))
         val ownerChat = await(ownerModel.open(reservation, ownerId, ownerReply = true))
@@ -82,7 +105,6 @@ class ReservationChatModelTest {
             assertEquals(listOf("What time is check-in?", "Check-in is at 2."), messages.map { it.text })
             assertEquals(listOf(entrantUid, ownerUid), messages.map { it.senderUid })
             assertTrue(runCatching { await(entrantModel.open(reservation, ownerId, ownerReply = true)) }.isFailure)
-            assertTrue(runCatching { await(otherModel.open(reservation, ownerId)) }.isFailure)
         } finally {
             ownerListener.remove()
             listener.remove()
@@ -91,11 +113,9 @@ class ReservationChatModelTest {
 
     @Test
     fun reopeningChatReadsOnlyMessagesFromTheSelectedReservation() {
-        val (entrantModel, entrantUid) = connect()
-        val (ownerModel, ownerUid) = connect()
         val otherReservation = reservation.copy(id = UUID.randomUUID().toString())
-        approveReservation(entrantUid, ownerUid)
-        approveReservation(entrantUid, ownerUid, otherReservation)
+        writeReservation(reservation)
+        writeReservation(otherReservation)
 
         val first = await(entrantModel.open(reservation, ownerId))
         val second = await(entrantModel.open(otherReservation, ownerId))
@@ -110,8 +130,7 @@ class ReservationChatModelTest {
 
     @Test
     fun invalidMessageTextDoesNotCreateMessages() {
-        val (entrantModel, entrantUid) = connect()
-        approveReservation(entrantUid, connect().second)
+        writeReservation(reservation)
         val chat = await(entrantModel.open(reservation, ownerId))
         val invalid = listOf("", " \t\n", "x".repeat(MAX_RESERVATION_MESSAGE_LENGTH + 1))
         for (text in invalid) {
@@ -122,55 +141,65 @@ class ReservationChatModelTest {
     }
 
     @Test
-    fun opensOnlyVerifiedReservationsAndRevokesAnOldUidWhenRelinked() {
-        val (entrantModel, entrantUid) = connect()
-        val (_, ownerUid) = connect()
-        assertTrue(runCatching { await(entrantModel.open(reservation, ownerId)) }.isFailure)
+    fun serverRequiresSavedBookingAndCurrentParticipants() {
+        assertPermissionDenied(entrantModel.open(reservation, ownerId))
 
-        approveReservation(entrantUid, ownerUid)
-        assertTrue(runCatching { await(entrantModel.open(reservation, "wrong-owner")) }.isFailure)
-        val first = await(entrantModel.open(reservation, ownerId))
-        await(entrantModel.send(first, "Original message"))
+        val (outsiderModel, outsiderUid) = connect()
+        val outsiderAccountId = "auth_$outsiderUid"
+        val outsiderDb = FirebaseFirestore.getInstance(apps.last())
+        val outsideConversation = outsiderDb.collection("reservationChat").document(reservation.id)
+        writeReservation(reservation)
 
-        val (relinkedModel, newUid) = connect()
-        writeDocument("chatAccountLinks/${reservation.accountId}", mapOf("uid" to newUid))
-        assertTrue(runCatching { await(entrantModel.open(reservation, ownerId)) }.isFailure)
-        assertTrue(runCatching { await(entrantModel.send(first, "Old identity")) }.isFailure)
+        assertPermissionDenied(entrantModel.open(reservation, outsiderAccountId))
+        assertPermissionDenied(outsiderModel.open(reservation.copy(accountId = outsiderAccountId), ownerId))
+        val chat = await(entrantModel.open(reservation, ownerId))
+        await(entrantModel.send(chat, "A private message"))
+        assertPermissionDenied(outsideConversation.get(Source.SERVER))
+        assertPermissionDenied(outsideConversation.collection("messages").get(Source.SERVER))
+    }
 
-        val reopened = await(relinkedModel.open(reservation, ownerId))
-        val message = readMessages(relinkedModel, reopened).single()
-        assertEquals("Original message", message.text)
-        assertTrue(message.from(reservation.accountId, newUid))
+    @Test
+    fun aCampsiteOwnershipChangeDoesNotExposeExistingChatHistory() {
+        writeReservation(reservation)
+        val chat = await(entrantModel.open(reservation, ownerId))
+        await(entrantModel.send(chat, "A private message"))
+
+        val (newOwner, newUid) = connect()
+        val newOwnerId = "auth_$newUid"
+        writeDocument("campsite/${reservation.campsiteId}", mapOf("ownerID" to newOwnerId))
+
+        assertPermissionDenied(newOwner.open(reservation, newOwnerId, ownerReply = true))
+        assertPermissionDenied(ownerModel.open(reservation, ownerId, ownerReply = true))
+        assertPermissionDenied(entrantModel.send(chat, "An old conversation"))
     }
 
     @Test
     fun completedReservationCanChatUntilItIsCancelled() {
-        val (entrantModel, entrantUid) = connect()
-        val (ownerModel, ownerUid) = connect()
-        approveReservation(entrantUid, ownerUid)
+        writeReservation(reservation)
         val first = await(entrantModel.open(reservation, ownerId))
         val second = await(ownerModel.open(reservation, ownerId, ownerReply = true))
         await(entrantModel.send(first, "Thanks for the stay."))
         await(ownerModel.send(second, "You are welcome."))
 
         writeReservation(reservation, cancelled = true)
-        assertTrue(runCatching { await(entrantModel.send(first, "Cancelled")) }.isFailure)
-        assertTrue(runCatching { await(ownerModel.send(second, "Cancelled")) }.isFailure)
-        assertTrue(runCatching { await(entrantModel.open(reservation, ownerId)) }.isFailure)
-        assertTrue(runCatching { await(ownerModel.open(reservation, ownerId, ownerReply = true)) }.isFailure)
+        assertPermissionDenied(entrantModel.send(first, "Cancelled"))
+        assertPermissionDenied(ownerModel.send(second, "Cancelled"))
+        assertPermissionDenied(entrantModel.open(reservation, ownerId))
+        assertPermissionDenied(ownerModel.open(reservation, ownerId, ownerReply = true))
     }
 
     @Test
     fun unreadUpdatesOutsideChatAndClearsWhenTheRecipientReadsIt() {
-        val (entrantModel, entrantUid) = connect()
-        val (ownerModel, ownerUid) = connect()
-        approveReservation(entrantUid, ownerUid)
+        writeReservation(reservation)
 
         val unread = TaskCompletionSource<Boolean>()
         val cleared = TaskCompletionSource<Boolean>()
         val listener = ownerModel.observeUnread(reservation, ownerId, ownerReply = true) { hasUnread ->
-            if (hasUnread) unread.trySetResult(true)
-            else if (unread.task.isComplete) cleared.trySetResult(true)
+            if (hasUnread) {
+                unread.trySetResult(true)
+            } else if (unread.task.isComplete) {
+                cleared.trySetResult(true)
+            }
         }
         try {
             val entrant = await(entrantModel.open(reservation, ownerId))
@@ -204,32 +233,37 @@ class ReservationChatModelTest {
         val app = FirebaseApp.initializeApp(context, options, clientName)
         apps.add(app)
         val firestore = FirebaseFirestore.getInstance(app)
-        firestore.useEmulator("127.0.0.1", 8097)
+        firestore.useEmulator("127.0.0.1", 8082)
         val auth = FirebaseAuth.getInstance(app)
-        auth.useEmulator("127.0.0.1", 9097)
+        auth.useEmulator("127.0.0.1", 9099)
         val uid = checkNotNull(await(auth.signInAnonymously()).user).uid
+        val accountId = "auth_$uid"
+        await(firestore.collection("accounts").document(accountId).set(mapOf(
+            "id" to accountId,
+            "userType" to listOf("entrant", "owner"),
+            "notificationsEnabled" to true
+        )))
         return ReservationChatModel(firestore, auth) to uid
     }
 
-    private fun approveReservation(entrantUid: String, ownerUid: String, booking: ReservedUser = reservation) {
-        writeDocument("chatAccountLinks/${booking.accountId}", mapOf("uid" to entrantUid))
-        writeDocument("chatAccountLinks/$ownerId", mapOf("uid" to ownerUid))
-        writeDocument("reservationChatAccess/${booking.id}", mapOf(
-            "entrantAccountId" to booking.accountId, "ownerAccountId" to ownerId, "campsiteId" to booking.campsiteId
-        ))
-        writeReservation(booking, cancelled = false)
+    private fun assertPermissionDenied(task: Task<*>) {
+        val failure = runCatching { await(task) }.exceptionOrNull()
+        assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, (failure?.cause as? FirebaseFirestoreException)?.code)
     }
 
-    private fun writeReservation(booking: ReservedUser, cancelled: Boolean) {
+    private fun writeReservation(booking: ReservedUser, cancelled: Boolean = false) {
         writeDocument("reservation/${booking.id}", mapOf(
-            "accountId" to booking.accountId, "campsiteId" to booking.campsiteId, "cancelled" to cancelled,
-            "bookedPeriodStart" to Timestamp(Date(1_000)), "bookedPeriodEnd" to Timestamp(Date(2_000))
+            "accountId" to booking.accountId,
+            "campsiteId" to booking.campsiteId,
+            "cancelled" to cancelled,
+            "bookedPeriodStart" to Timestamp(checkNotNull(booking.bookedPeriodStart)),
+            "bookedPeriodEnd" to Timestamp(checkNotNull(booking.bookedPeriodEnd))
         ))
     }
 
     private fun writeDocument(document: String, values: Map<String, Any>) {
         val path = "projects/$projectId/databases/(default)/documents"
-        val connection = URI("http://127.0.0.1:8097/v1/$path:commit").toURL().openConnection() as HttpURLConnection
+        val connection = URI("http://127.0.0.1:8082/v1/$path:commit").toURL().openConnection() as HttpURLConnection
         val fields = JSONObject()
         for ((field, value) in values) {
             val encoded = when (value) {
