@@ -1,9 +1,29 @@
 package com.example.zephyrcampsites
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import com.google.firebase.functions.FirebaseFunctions
+
+/** A confirmed campsite stay that makes its occupied dates unavailable. */
+data class BookedReservationPeriod(
+    val startMillis: Long,
+    val endMillis: Long
+)
+
+/**
+ * The date range and occupied stays that a winning entrant may use to book.
+ *
+ * @property bookingStartMillis Inclusive start of the usable booking period.
+ * @property bookingEndMillis Exclusive end of the usable booking period.
+ * @property bookedPeriods Confirmed, non-cancelled stays at the campsite.
+ */
+data class LotteryBookingAvailability(
+    val bookingStartMillis: Long,
+    val bookingEndMillis: Long,
+    val bookedPeriods: List<BookedReservationPeriod>
+)
 // **AI Citation** [AI-23], [AI-29], [AI-33]
 // OpenAI, ChatGPT assisted with Firestore reservation
 // offer transactions, backup promotion, and validation.
@@ -22,6 +42,87 @@ class ReservationOfferModel(
     private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
 ) {
     private val waitingList = firestore.collection("waitingList")
+
+    /**
+     * Loads the selected campsite's usable period and booked stays for a winner.
+     *
+     * The callable verifies the winner before returning only date-range data, so
+     * other entrants' reservation details are never exposed to the client.
+     *
+     * @param lotteryId Lottery that produced the winning offer.
+     * @param campsiteId Campsite whose dates are being displayed.
+     * @param onSuccess Receives the current availability projection.
+     * @param onError Receives a user-visible failure message.
+     */
+    fun getBookingAvailability(
+        lotteryId: String,
+        campsiteId: String,
+        onSuccess: (LotteryBookingAvailability) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (lotteryId.isBlank() || campsiteId.isBlank()) {
+            onError("Lottery or campsite ID is missing.")
+            return
+        }
+
+        functions.getHttpsCallable("listLotteryBookingAvailability")
+            .call(mapOf("lotteryId" to lotteryId, "campsiteId" to campsiteId))
+            .addOnSuccessListener { response ->
+                try {
+                    val data = response.data as Map<*, *>
+                    val bookingStart = (data["bookingStart"] as? Number)?.toLong()
+                        ?: error("Availability start is missing.")
+                    val bookingEnd = (data["bookingEnd"] as? Number)?.toLong()
+                        ?: error("Availability end is missing.")
+                    val bookedPeriods = (data["bookedPeriods"] as? List<*>)
+                        .orEmpty()
+                        .mapNotNull { value ->
+                            val period = value as? Map<*, *> ?: return@mapNotNull null
+                            val start = (period["start"] as? Number)?.toLong()
+                            val end = (period["end"] as? Number)?.toLong()
+                            if (start != null && end != null && start < end) {
+                                BookedReservationPeriod(start, end)
+                            } else {
+                                null
+                            }
+                        }
+                    onSuccess(LotteryBookingAvailability(bookingStart, bookingEnd, bookedPeriods))
+                } catch (exception: Exception) {
+                    onError(exception.message ?: "Could not read campsite availability.")
+                }
+            }
+            .addOnFailureListener { error ->
+                onError(error.message ?: "Could not read campsite availability.")
+            }
+    }
+
+    /**
+     * Listens for reservation confirmations that change a lottery's availability.
+     *
+     * @param lotteryId Lottery whose availability version is observed.
+     * @param onChanged Invoked when Firebase reports an availability change.
+     * @param onError Receives listener failures.
+     * @return A registration that callers must remove when the screen closes.
+     */
+    fun listenForBookingAvailabilityChanges(
+        lotteryId: String,
+        onChanged: () -> Unit,
+        onError: (String) -> Unit
+    ): ListenerRegistration? {
+        if (lotteryId.isBlank()) {
+            onError("Lottery ID is missing.")
+            return null
+        }
+
+        return firestore.collection("lottery").document(lotteryId)
+            .addSnapshotListener { _, exception ->
+                if (exception == null) {
+                    onChanged()
+                } else {
+                    onError(exception.message ?: "Could not watch campsite availability.")
+                }
+            }
+    }
 
     // Hiral - [AI-08] OpenAI ChatGPT Implement US-02.04.02
     /**

@@ -650,21 +650,20 @@ class CampsiteDetailView {
                                 } else if (hasExistingReservation) {
                                     Text("This lottery offer has already been used. See My Trips.")
                                 } else if (reservationOfferController != null) {
-                                    if (System.currentTimeMillis() < lottery.bookingEnd) {
-                                        LotteryBookingPicker(
-                                            lottery = lottery,
-                                            campsiteNames = lotteryCampsiteNames +
-                                                (campsite.id to campsite.name),
-                                            initialCampsiteId = campsite.id,
-                                            controller = reservationOfferController,
-                                            onConfirmed = { justConfirmed = true }
-                                        )
-                                    }
                                     var showDeclineConfirmation by remember(lottery.id, accountId) {
                                         mutableStateOf(false)
                                     }
                                     var declining by remember(lottery.id, accountId) {
                                         mutableStateOf(false)
+                                    }
+                                    if (System.currentTimeMillis() < lottery.bookingEnd) {
+                                        LotteryBookingPicker(
+                                            lottery = lottery,
+                                            campsite = campsite,
+                                            controller = reservationOfferController,
+                                            onConfirmed = { justConfirmed = true },
+                                            onDecline = { showDeclineConfirmation = true }
+                                        )
                                     }
                                     Button(
                                         onClick = { showDeclineConfirmation = true },
