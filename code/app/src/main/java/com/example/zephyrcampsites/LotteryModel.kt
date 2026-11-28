@@ -1,20 +1,55 @@
-
+// Creates, edits, and listens to campsite lotteries in Firestore.
+// Outstanding: the Android SDK cannot query inside a transaction, so the booking overlap
+// recheck can miss a lottery for the same campsite created between the query and the commit.
 package com.example.zephyrcampsites
 
 import androidx.compose.runtime.mutableStateListOf
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Transaction
+import com.google.firebase.firestore.firestore
 import java.util.UUID
 
+// AI Citation [AI-40]
+// Anthropic, Claude Code assisted with making the Firestore
+// instance injectable for emulator tests and stopping the listener.
+// AI usage and citation documented in the team AI Documentation.
 /**
  * Manages campsite lotteries and connects them to Firebase.
+ *
+ * @param firestore Database used for lotteries. Tests pass a local emulator instance.
+ * @property lotteries Local copy of the lottery collection, updated by a snapshot listener.
  */
-class LotteryModel : ObservableModel<LotteryModel>() {
+class LotteryModel(
+    private val firestore: FirebaseFirestore = Firebase.firestore
+) : ObservableModel<LotteryModel>() {
 
     val lotteries = mutableStateListOf<Lottery>()
 
-    private val connector = FirebaseConnector("lottery")
+    private val connector = FirebaseConnector("lottery", firestore)
+
+    private var lotteryListener: ListenerRegistration? = null
 
     /**
      * Creates a lottery for a campsite.
+     *
+     * Dates are epoch milliseconds. The booking overlap is checked against the local list
+     * first, then rechecked against the saved lotteries for the campsite in the save transaction.
+     *
+     * @param lotteryName Name shown for the lottery.
+     * @param campsiteId ID of the campsite in the lottery.
+     * @param registrationStart Start of registration.
+     * @param registrationEnd End of registration.
+     * @param bookingStart Start of the booking period.
+     * @param bookingEnd End of the booking period.
+     * @param numberOfWinners Number of winners to draw.
+     * @param waitlistCapacity Maximum entrants, or null for no limit.
+     * @param onSuccess Called with the lottery ID after Firebase saves it.
+     * @param onFailure Called if the save fails, including an overlap found in the transaction.
+     * @return ID of the new lottery.
+     * @throws IllegalArgumentException If the input is invalid or overlaps a known lottery.
      */
     fun createLottery(
         lotteryName: String,
@@ -97,15 +132,35 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         // No draw has started for this lottery yet.
         lottery.drawStartedAt = 0L
 
-        // Save the lottery and confirm the result.
-        connector.addWithCallback(
-            value = lottery,
-            onSuccess = {
-                onSuccess(lottery.id)
+        val lotteryRef = firestore.collection("lottery").document(lottery.id)
+
+        // AI Citation [AI-40]
+        // Anthropic, Claude Code assisted with saving the new lottery
+        // in a transaction that rechecks saved booking periods.
+        // AI usage and citation documented in the team AI Documentation.
+        // Recheck the saved booking periods while saving the lottery.
+        loadOtherCampsiteLotteries(
+            campsiteId = campsiteId,
+            excludedLotteryId = lottery.id,
+            onSuccess = { otherLotteries ->
+                firestore.runTransaction { transaction ->
+                    requireNoSavedBookingOverlap(
+                        transaction,
+                        otherLotteries,
+                        bookingStart,
+                        bookingEnd
+                    )
+                    transaction.set(lotteryRef, lottery)
+                    true
+                }
+                    .addOnSuccessListener {
+                        onSuccess(lottery.id)
+                    }
+                    .addOnFailureListener { exception ->
+                        onFailure(exception)
+                    }
             },
-            onFailure = { exception ->
-                onFailure(exception)
-            }
+            onFailure = onFailure
         )
         return lottery.id
     }
@@ -151,7 +206,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.registrationEnd = newEnd
 
         // Save the updated registration dates to Firebase.
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        firestore
             .collection("lottery")
             .document(lotteryId)
             .update(
@@ -163,7 +218,15 @@ class LotteryModel : ObservableModel<LotteryModel>() {
     }
 
     /**
-     * Updates the booking period before booking starts.
+     * Updates the booking period before registration starts.
+     *
+     * No screen calls this. The Edit Lottery screen uses [updateLottery].
+     *
+     * @param lotteryId ID of the lottery to update.
+     * @param newStart New booking start in epoch milliseconds.
+     * @param newEnd New booking end in epoch milliseconds.
+     * @throws IllegalArgumentException If the lottery is missing, registration has started,
+     * or the new period is invalid or overlaps a known lottery for the campsite.
      */
     fun updateBookingPeriod(
         lotteryId: String,
@@ -208,7 +271,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.bookingStart = newStart
         lottery.bookingEnd = newEnd
 
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        firestore
             .collection("lottery")
             .document(lotteryId)
             .update(
@@ -238,7 +301,7 @@ class LotteryModel : ObservableModel<LotteryModel>() {
         lottery.numberOfWinners = newCount
 
         // Save the updated value to Firebase.
-        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+        firestore
             .collection("lottery")
             .document(lotteryId)
             .update("numberOfWinners", newCount)
@@ -249,9 +312,6 @@ class LotteryModel : ObservableModel<LotteryModel>() {
     fun updateWaitlistCapacity(lotteryId: String, newCapacity: Int?) {
         val lottery = lotteries.find { it.id == lotteryId }
             ?: throw IllegalArgumentException("Lottery not found.")
-
-        val firestore =
-            com.google.firebase.firestore.FirebaseFirestore.getInstance()
 
         val lotteryRef = firestore.collection("lottery").document(lotteryId)
 
@@ -302,6 +362,25 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             }
     }
 
+    /**
+     * Updates a lottery's settings from the Edit Lottery screen.
+     *
+     * Dates are epoch milliseconds. Dates are locked once registration starts. The lock and
+     * the booking overlap are rechecked against saved data in the save transaction.
+     *
+     * @param lotteryId ID of the lottery to update.
+     * @param lotteryName New lottery name.
+     * @param registrationStart Registration start.
+     * @param registrationEnd Registration end.
+     * @param bookingStart Booking period start.
+     * @param bookingEnd Booking period end.
+     * @param numberOfWinners Number of winners to draw.
+     * @param waitlistCapacity Maximum entrants, or null for no limit.
+     * @param onSuccess Called after Firebase saves the changes.
+     * @param onFailure Called if the save fails, including a lock or overlap found in the transaction.
+     * @throws IllegalArgumentException If the input is invalid, dates changed after registration
+     * started, or the booking period overlaps a known lottery for the campsite.
+     */
     fun updateLottery(
         lotteryId: String,
         lotteryName: String,
@@ -400,9 +479,62 @@ class LotteryModel : ObservableModel<LotteryModel>() {
 
 
         // Save lottery settings using the latest data from Firebase.
-        val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
         val lotteryRef = firestore.collection("lottery").document(lotteryId)
 
+        loadOtherCampsiteLotteries(
+            campsiteId = lottery.campsiteId,
+            excludedLotteryId = lotteryId,
+            onSuccess = { otherLotteries ->
+                saveLotteryUpdate(
+                    lotteryRef,
+                    otherLotteries,
+                    lotteryName,
+                    registrationStart,
+                    registrationEnd,
+                    bookingStart,
+                    bookingEnd,
+                    numberOfWinners,
+                    waitlistCapacity,
+                    onSuccess,
+                    onFailure
+                )
+            },
+            onFailure = onFailure
+        )
+    }
+
+    // AI Citation [AI-40]
+    // Anthropic, Claude Code assisted with moving the update transaction
+    // into this function and adding the booking overlap recheck.
+    // AI usage and citation documented in the team AI Documentation.
+    /**
+     * Saves validated lottery settings in a transaction against the latest saved data.
+     *
+     * @param lotteryRef Lottery document to update.
+     * @param otherLotteries Other lotteries for the same campsite, from [loadOtherCampsiteLotteries].
+     * @param lotteryName New lottery name.
+     * @param registrationStart Registration start.
+     * @param registrationEnd Registration end.
+     * @param bookingStart Booking period start.
+     * @param bookingEnd Booking period end.
+     * @param numberOfWinners Number of winners to draw.
+     * @param waitlistCapacity Maximum entrants, or null for no limit.
+     * @param onSuccess Called after Firebase saves the changes.
+     * @param onFailure Called if the transaction fails.
+     */
+    private fun saveLotteryUpdate(
+        lotteryRef: DocumentReference,
+        otherLotteries: List<DocumentReference>,
+        lotteryName: String,
+        registrationStart: Long,
+        registrationEnd: Long,
+        bookingStart: Long,
+        bookingEnd: Long,
+        numberOfWinners: Int,
+        waitlistCapacity: Int?,
+        onSuccess: () -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
         firestore.runTransaction { transaction ->
             val document = transaction.get(lotteryRef)
 
@@ -451,6 +583,14 @@ class LotteryModel : ObservableModel<LotteryModel>() {
                 )
             }
 
+            // Recheck the saved booking periods for this campsite.
+            requireNoSavedBookingOverlap(
+                transaction,
+                otherLotteries,
+                bookingStart,
+                bookingEnd
+            )
+
             // Save settings without overwriting the entrant count.
             transaction.update(
                 lotteryRef,
@@ -473,14 +613,85 @@ class LotteryModel : ObservableModel<LotteryModel>() {
             .addOnFailureListener { exception ->
                 onFailure(exception)
             }
-
     }
 
+    // AI Citation [AI-40]
+    // Anthropic, Claude Code assisted with loading the campsite's other
+    // lotteries and rechecking their booking periods inside a transaction.
+    // AI usage and citation documented in the team AI Documentation.
+    /**
+     * Finds the other saved lotteries for a campsite so a transaction can re-read them.
+     *
+     * Android transactions cannot run queries, so this query runs just before the transaction.
+     *
+     * @param campsiteId Campsite whose lotteries are loaded.
+     * @param excludedLotteryId Lottery being saved, left out of the result.
+     * @param onSuccess Called with references to the other lotteries.
+     * @param onFailure Called if the query fails.
+     */
+    private fun loadOtherCampsiteLotteries(
+        campsiteId: String,
+        excludedLotteryId: String,
+        onSuccess: (List<DocumentReference>) -> Unit,
+        onFailure: (Exception) -> Unit
+    ) {
+        firestore.collection("lottery")
+            .whereEqualTo("campsiteId", campsiteId)
+            .get()
+            .addOnSuccessListener { snapshot ->
+                onSuccess(
+                    snapshot.documents
+                        .filter { it.id != excludedLotteryId }
+                        .map { it.reference }
+                )
+            }
+            .addOnFailureListener { exception ->
+                onFailure(exception)
+            }
+    }
 
+    /**
+     * Rereads other lotteries in a transaction and rejects an overlapping booking period.
+     *
+     * @param transaction Transaction saving the lottery. Must run before any write in it.
+     * @param otherLotteries Other lotteries for the same campsite.
+     * @param bookingStart Booking period start being saved.
+     * @param bookingEnd Booking period end being saved.
+     * @throws IllegalArgumentException If a saved booking period overlaps.
+     */
+    private fun requireNoSavedBookingOverlap(
+        transaction: Transaction,
+        otherLotteries: List<DocumentReference>,
+        bookingStart: Long,
+        bookingEnd: Long
+    ) {
+        otherLotteries.forEach { reference ->
+            val other = transaction.get(reference)
+            val otherStart = other.getLong("bookingStart")
+            val otherEnd = other.getLong("bookingEnd")
 
+            // A deleted lottery or an older record without booking dates does not block these dates.
+            if (other.exists() && otherStart != null && otherEnd != null) {
+                LotteryValidator().validateNoBookingOverlap(
+                    bookingStart,
+                    bookingEnd,
+                    otherStart,
+                    otherEnd
+                )
+            }
+        }
+    }
+
+    /**
+     * Stops the lottery snapshot listener.
+     */
+    fun stopListening() {
+        lotteryListener?.remove()
+        lotteryListener = null
+    }
 
     init {
-        connector.initializeListener(
+        lotteryListener = connector.initializeListener(
             localList = lotteries,
             type = Lottery::class.java,
             onError = { error ->
