@@ -3,6 +3,8 @@ package com.example.zephyrcampsites
 
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -101,8 +103,7 @@ class OwnerReservationChatNavigationTest {
 
         await(auth.signInWithEmailAndPassword(entrantEmail, TEST_PASSWORD))
         ActivityScenario.launch(MainActivity::class.java).use {
-            waitFor("Entrant")
-            compose.onNodeWithText("Entrant").performClick()
+            openRole("Entrant")
             waitFor("My Trips")
             compose.onNodeWithText("My Trips").performClick()
             waitFor("New message")
@@ -157,13 +158,20 @@ class OwnerReservationChatNavigationTest {
     }
 
     private fun openOwnerBooking(campsiteName: String) {
-        waitFor("Owner")
-        compose.onNodeWithText("Owner").performClick()
+        openRole("Owner")
         waitFor("View Reservations")
         compose.onNodeWithText("View Reservations").performClick()
         waitFor(campsiteName)
         compose.onNodeWithText(campsiteName).performClick()
         waitFor("Reservation Details")
+    }
+
+    private fun openRole(role: String) {
+        val enabledRole = hasText(role) and isEnabled()
+        compose.waitUntil(conditionDescription = "$role role enabled", timeoutMillis = 15_000) {
+            compose.onAllNodes(enabledRole).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNode(enabledRole).performClick()
     }
 
     private fun sendMessage(message: String) {
