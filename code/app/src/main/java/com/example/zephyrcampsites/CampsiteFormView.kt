@@ -1,5 +1,7 @@
 package com.example.zephyrcampsites
 
+// Collects the owner's campsite details and coordinates before passing them to the controller.
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,12 +20,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import com.google.firebase.firestore.GeoPoint
 
 @Composable
 private fun FormFields(
@@ -70,6 +74,12 @@ fun CampsiteFormView(
     var feedback by remember { mutableStateOf<String?>(null) }
     var registered by remember { mutableStateOf(false) }
     var step by remember { mutableStateOf(1) } //Step 1 (Owner Based on UI)
+    // AI Citation [AI-44]
+    // OpenAI, Codex, November 27, 2026. Preserved the selected map location across form steps.
+    // See Bhav Saluja's entry in the team's AI Documentation Google Doc.
+    var mapLocation by rememberSaveable(campsite?.id, stateSaver = CampsiteGeoPointSaver) {
+        mutableStateOf(campsite?.geolocation?.takeUnless { it == GeoPoint(0.0, 0.0) })
+    }
     val context = LocalContext.current
 
     if (step == 1) {
@@ -192,6 +202,9 @@ fun CampsiteFormView(
     } else {
         CampsiteLocationView(
             campsite = campsite,
+            mapLocation = mapLocation,
+            onLocationSelected = { mapLocation = it },
+            saving = registered,
             onPublish = { geoPoint, startDate, endDate, selectedImages ->
                 val input = CampsiteFormInput(
                     name,
@@ -251,14 +264,8 @@ fun CampsiteFormView(
                     )
                 }
             },
-            onBack = { step = 1 }
+            onBack = { step = 1 },
+            feedback = feedback
         )
-
-        if (feedback != null){
-            Text(
-                text = feedback ?: "",
-                color = MaterialTheme.colorScheme.error
-            )
-        }
     }
 }
