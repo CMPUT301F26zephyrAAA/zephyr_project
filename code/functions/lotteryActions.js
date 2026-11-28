@@ -25,7 +25,8 @@ module.exports = (db) => {
    */
   function participatingSites(lottery) {
     const linked = lottery.get("campsiteIds");
-    return Array.isArray(linked) && linked.length ? linked : [lottery.get("campsiteId")];
+    return Array.isArray(linked) && linked.length ?
+      linked : [lottery.get("campsiteId")];
   }
 
   /**
@@ -136,7 +137,7 @@ module.exports = (db) => {
   /**
    * Rejects a booking period that overlaps another lottery for the campsite.
    *
-   * The per-site locks match shared lottery publishing. Touching periods conflict.
+   * Uses the shared publishing locks. Touching periods conflict.
    *
    * @param {FirebaseFirestore.Transaction} transaction Save transaction.
    * @param {string[]} campsiteIds Campsites in the lottery.
@@ -146,7 +147,8 @@ module.exports = (db) => {
    */
   async function requireNoOverlap(
       transaction, campsiteIds, lotteryId, bookingStart, bookingEnd) {
-    const locks = [...new Set(campsiteIds)].sort().map((id) => bookingLocks.doc(id));
+    const locks = [...new Set(campsiteIds)].sort()
+        .map((id) => bookingLocks.doc(id));
     await transaction.getAll(...locks);
     const others = await transaction.get(
         lotteries.where("bookingEnd", ">=", bookingStart),
