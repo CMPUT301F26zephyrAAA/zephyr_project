@@ -61,6 +61,26 @@ class ReservationsController(
     }
 
     /**
+     * Filters the owner-scoped reservations returned by the callable to completed stays.
+     *
+     * @param reservations Reservations already scoped to the signed-in owner's campsites.
+     * @param currentTimeMillis Server-aligned current time in milliseconds.
+     * @return Non-cancelled reservations whose checkout has passed, newest first.
+     */
+    internal fun filterPastOwnerReservations(
+        reservations: List<OwnerReservation>,
+        currentTimeMillis: Long
+    ): List<OwnerReservation> {
+        return reservations
+            .filter { reservation ->
+                !reservation.cancelled &&
+                    reservation.startMillis < reservation.endMillis &&
+                    reservation.endMillis <= currentTimeMillis
+            }
+            .sortedByDescending { it.endMillis }
+    }
+
+    /**
      * Retrieves all reservations for an entrant in a single request.
      * The caller can then classify active and past reservations
      * using the same cutoff time.

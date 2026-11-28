@@ -19,6 +19,11 @@ import kotlinx.coroutines.isActive
 private const val OWNER_RESERVATION_REFRESH_INTERVAL_MS = 30_000L
 private const val OWNER_RESERVATION_CLOCK_TICK_MS = 60_000L
 
+internal enum class OwnerReservationTab {
+    ACTIVE,
+    PAST
+}
+
 // AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, generated owner reservation confirmation.
 @Composable
 internal fun OwnerReservationsScreen(
@@ -34,6 +39,7 @@ internal fun OwnerReservationsScreen(
     var errorMessage by remember(owner.id) { mutableStateOf<String?>(null) }
     var selectedReservation by remember(owner.id) { mutableStateOf<OwnerReservation?>(null) }
     var cancellationTarget by remember(owner.id) { mutableStateOf<OwnerReservation?>(null) }
+    var selectedTab by remember(owner.id) { mutableStateOf(OwnerReservationTab.ACTIVE) }
 
     fun serverNow(): Long {
         val currentBookings = bookings ?: return 0L
@@ -82,10 +88,19 @@ internal fun OwnerReservationsScreen(
         reservations = bookings?.reservations.orEmpty(),
         currentTimeMillis = serverNowMillis
     )
+    val pastReservations = controller.filterPastOwnerReservations(
+        reservations = bookings?.reservations.orEmpty(),
+        currentTimeMillis = serverNowMillis
+    )
+    val displayedReservations = if (selectedTab == OwnerReservationTab.ACTIVE) {
+        activeReservations
+    } else {
+        pastReservations
+    }
 
-    LaunchedEffect(activeReservations, selectedReservation?.id) {
+    LaunchedEffect(displayedReservations, selectedReservation?.id) {
         if (selectedReservation != null &&
-            activeReservations.none { it.id == selectedReservation?.id }
+            displayedReservations.none { it.id == selectedReservation?.id }
         ) {
             selectedReservation = null
         }
@@ -97,14 +112,19 @@ internal fun OwnerReservationsScreen(
 
     val reservation = selectedReservation
     if (reservation == null) {
-        OwnerActiveReservationsView(
-            reservations = activeReservations,
+        OwnerReservationsListView(
+            reservations = displayedReservations,
             currentTimeMillis = serverNowMillis,
+            selectedTab = selectedTab,
             isLoading = isLoading,
             isRefreshing = isRefreshing,
             errorMessage = errorMessage?.takeIf { bookings == null },
             onRefresh = ::loadReservations,
             onRetry = ::loadReservations,
+            onSelectTab = { tab ->
+                selectedTab = tab
+                selectedReservation = null
+            },
             onViewDetails = { selectedReservation = it },
             onBack = onBack
         )
@@ -112,8 +132,11 @@ internal fun OwnerReservationsScreen(
         OwnerReservationDetailsView(
             reservation = reservation,
             currentTimeMillis = serverNowMillis,
+            isPast = selectedTab == OwnerReservationTab.PAST,
             errorMessage = errorMessage,
-            onCancel = if (reservation.startMillis > serverNowMillis) {
+            onCancel = if (selectedTab == OwnerReservationTab.ACTIVE &&
+                reservation.startMillis > serverNowMillis
+            ) {
                 { cancellationTarget = reservation }
             } else {
                 null
