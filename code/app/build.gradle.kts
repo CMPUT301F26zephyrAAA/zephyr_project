@@ -69,5 +69,6 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.4.0")
     implementation("com.google.firebase:firebase-storage")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("org.maplibre.gl:android-sdk:13.5.4")
 
 }
