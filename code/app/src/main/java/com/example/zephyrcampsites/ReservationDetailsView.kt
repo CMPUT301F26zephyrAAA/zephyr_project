@@ -211,20 +211,8 @@ fun ReservationDetailsView(
                         Text("VIEW MAP", fontSize = 13.sp)
                     }
 
-                    Button(
-                        onClick = onMessageOwner,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(50.dp)
-                            .testTag("messageReservationOwnerButton"),
-                        shape = RoundedCornerShape(5.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ReservationGreen,
-                            contentColor = Color.White
-                        ),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text("MESSAGE OWNER", fontSize = 12.sp)
+                    if (!reservation.cancelled) {
+                        MessageOwnerButton(onMessageOwner, Modifier.weight(1f))
                     }
                 }
 
@@ -245,6 +233,7 @@ fun ReservationDetailsView(
                     )
                 }
             } else if (!reservation.cancelled) {
+                MessageOwnerButton(onMessageOwner)
                 Button(
                     onClick = onRateCampsite,
                     modifier = Modifier
@@ -281,5 +270,18 @@ fun ReservationDetailsView(
                 Text("BACK", fontSize = 13.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun MessageOwnerButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(50.dp).testTag("messageReservationOwnerButton"),
+        shape = RoundedCornerShape(5.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = ReservationGreen, contentColor = Color.White),
+        contentPadding = PaddingValues(horizontal = 4.dp)
+    ) {
+        Text("MESSAGE OWNER", fontSize = 12.sp)
     }
 }

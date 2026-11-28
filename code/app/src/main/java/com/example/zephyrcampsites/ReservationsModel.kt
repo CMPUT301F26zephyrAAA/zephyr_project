@@ -16,7 +16,8 @@ internal data class OwnerReservation(
     val entrantName: String,
     val startMillis: Long,
     val endMillis: Long,
-    val cancelled: Boolean
+    val cancelled: Boolean,
+    val entrantAccountId: String = ""
 )
 
 internal data class OwnerReservationList(val serverMillis: Long, val reservations: List<OwnerReservation>)
@@ -28,9 +29,22 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
     private val reservations = firestore.collection("reservation")
 
     // AI Citation [AI-39] (Bhav Saluja). OpenAI, Codex, owner reservations and server-time cancellation.
-    /** Loads the current owner's bookings and the server time used by the owner screen. */
-    internal fun getOwnerReservations(onSuccess: (OwnerReservationList) -> Unit, onError: (Exception) -> Unit) {
-        FirebaseFunctions.getInstance().getHttpsCallable("listOwnerReservations").call()
+    // AI Citation [AI-43] (Bhav Saluja)
+    // OpenAI, Codex, November 27, 2026. Added owner-scoped reservation loading for chat.
+    // See the team AI Documentation Google Doc.
+    /**
+     * Loads owned bookings and the server time used by the owner screen.
+     * @param onSuccess Receives the bookings and current server time.
+     * @param onError Called when the server cannot load the bookings.
+     * @param campsiteId Limits the request to one campsite for reservation chat when supplied.
+     */
+    internal fun getOwnerReservations(
+        onSuccess: (OwnerReservationList) -> Unit,
+        onError: (Exception) -> Unit,
+        campsiteId: String? = null
+    ) {
+        val request = campsiteId?.let { mapOf("campsiteId" to it) }
+        FirebaseFunctions.getInstance().getHttpsCallable("listOwnerReservations").call(request)
             .addOnSuccessListener { response ->
                 try {
                     val data = response.data as Map<*, *>
@@ -42,7 +56,8 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
                             row["entrantName"] as? String ?: "",
                             (row["startMillis"] as Number).toLong(),
                             (row["endMillis"] as Number).toLong(),
-                            row["cancelled"] as Boolean
+                            row["cancelled"] as Boolean,
+                            row["entrantAccountId"] as? String ?: ""
                         )
                     }
                     onSuccess(OwnerReservationList((data["serverMillis"] as Number).toLong(), rows))
@@ -116,7 +131,7 @@ class ReservationsModel(private val firestore: FirebaseFirestore = Firebase.fire
 
     /**
      * Retrieve reservations belonging to specified entrant
-     * @param accountId Current entrant's device linked accountID
+     * @param accountId Current entrant's Firebase Auth profile ID.
      * @param onSuccess called with the entrants reservations
      * @param onError called if retrieval or data validation fails
      */

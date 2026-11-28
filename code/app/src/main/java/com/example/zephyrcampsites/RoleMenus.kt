@@ -51,6 +51,7 @@ internal fun RoleHomeMenu(
             "Register Campsite" to GeneralScreen.RegisterCampsite.route,
             "View Lotteries" to "$OWNER/allLotteries",
             "View Reservations" to GeneralScreen.ViewReservations.route,
+            "Sent Notifications" to GeneralScreen.SentNotifications.route,
             "My Profile" to roleRoute(OWNER, GeneralScreen.Profile.route)
         )
 

@@ -10,7 +10,15 @@ sealed class GeneralScreen(val route: String) {
     data object AdminMenu : GeneralScreen("GeneralScreen/AdminMenu")
     data object Trips : GeneralScreen("entrant/trips")
     data object LotteryNotifications : GeneralScreen("entrant/lottery-notifications")
+    data object SentNotifications : GeneralScreen("owner/sent-notifications")
+    data object SentNotificationDetails : GeneralScreen("owner/sent-notifications/{notificationId}")
     data object ViewReservations : GeneralScreen("owner/reservations")
+    data object OwnerBookingCalendar : GeneralScreen("owner/booking-calendar/{campsiteId}") {
+        fun createRoute(campsiteId: String) = "owner/booking-calendar/${Uri.encode(campsiteId)}"
+    }
+    data object ReservationReplies : GeneralScreen("owner/reservation-replies/{campsiteId}") {
+        fun createRoute(campsiteId: String) = "owner/reservation-replies/${Uri.encode(campsiteId)}"
+    }
     data object NotificationLogs : GeneralScreen("admin/notification-logs")
     data object MessageLogs : GeneralScreen("admin/message-logs")
     data object MakeAdmin : GeneralScreen("admin/make-admin")

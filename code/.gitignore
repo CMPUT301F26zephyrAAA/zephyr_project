@@ -1,5 +1,6 @@
 *.iml
 .gradle
+/.kotlin/
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -13,6 +14,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+<<<<<<< HEAD
 /AGENTS.md
 *.log
 hs_err_pid*
+=======
+AGENTS.md
+>>>>>>> 376b9f0707a4e1babcd6bd29f727dc756b8d06dc

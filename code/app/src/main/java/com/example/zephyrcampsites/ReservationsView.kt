@@ -32,6 +32,7 @@ import java.util.Locale
  * @param campsiteForId Returns an already loaded campsite for a campsite ID.
  * @param onViewDetails Called when the entrant selects VIEW DETAILS.
  * @param onLotteriesClick Called when the entrant selects the Lotteries tab.
+ * @param unreadIndicator Displays unread message status for a reservation and its campsite owner.
  * @param imageContent Composable used to display an existing campsite image.
  */
 // AI Citation [AI-18], [AI-19]
@@ -46,6 +47,7 @@ import java.util.Locale
     campsiteForId: (String) -> Campsite?,
     onViewDetails: (ReservedUser) -> Unit,
     onLotteriesClick: () -> Unit,
+    unreadIndicator: @Composable (ReservedUser, String) -> Unit = { _, _ -> },
     imageContent: @Composable (Campsite) -> Unit = {
         Box(
             modifier = Modifier
@@ -168,12 +170,12 @@ import java.util.Locale
                     items = reservations,
                     key = { it.id }
                 ) { reservation ->
+                    val campsite = campsiteForId(reservation.campsiteId)
                     ReservationCard(
                         reservation = reservation,
-                        campsite = campsiteForId(
-                            reservation.campsiteId
-                        ),
+                        campsite = campsite,
                         imageContent = imageContent,
+                        unreadIndicator = { unreadIndicator(reservation, campsite?.ownerID.orEmpty()) },
                         onViewDetails = {
                             onViewDetails(reservation)
                         }
@@ -190,12 +192,14 @@ import java.util.Locale
  * @param campsite Campsite details, or null if unavailable.
  * @param imageContent Composable used to display the campsite image.
  * @param onViewDetails Called when VIEW DETAILS is selected.
+ * @param unreadIndicator Displays unread status above the reservation information.
  */
 @Composable
 private fun ReservationCard(
     reservation: ReservedUser,
     campsite: Campsite?,
     imageContent: @Composable (Campsite) -> Unit,
+    unreadIndicator: @Composable () -> Unit,
     onViewDetails: () -> Unit
 ) {
     val dateFormat = remember {
@@ -287,6 +291,7 @@ private fun ReservationCard(
                         "reservationStatus_${reservation.id}"
                     )
                 )
+                unreadIndicator()
             }
 
             HorizontalDivider(
