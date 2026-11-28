@@ -127,6 +127,45 @@ class ReservationsController(
     }
 
     /**
+     * Loads the confirmed bookings for one campsite's owner calendar.
+     *
+     * The callable verifies ownership on the server. Cancelled and malformed
+     * records are excluded so calendar availability is never blocked by an
+     * inactive booking.
+     *
+     * @param owner Current owner account.
+     * @param campsiteId The campsite selected in owner mode.
+     * @param onSuccess Receives confirmed bookings in check-in order.
+     * @param onError Called when booking information cannot be loaded.
+     */
+    internal fun getCampsiteBookingCalendar(
+        owner: Account,
+        campsiteId: String,
+        onSuccess: (List<OwnerReservation>) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        if (OWNER !in owner.userType || owner.id.isBlank() || campsiteId.isBlank()) {
+            onError(IllegalArgumentException("Only the campsite owner can open this booking calendar."))
+            return
+        }
+
+        model.getOwnerReservations(
+            onSuccess = { bookings ->
+                onSuccess(
+                    bookings.reservations
+                        .filter { reservation ->
+                            !reservation.cancelled &&
+                                reservation.startMillis < reservation.endMillis
+                        }
+                        .sortedBy { it.startMillis }
+                )
+            },
+            onError = onError,
+            campsiteId = campsiteId
+        )
+    }
+
+    /**
      * Retrieves the entrant's active and upcoming reservations.
      *
      * A reservation is active or upcoming if it has not been cancelled,
