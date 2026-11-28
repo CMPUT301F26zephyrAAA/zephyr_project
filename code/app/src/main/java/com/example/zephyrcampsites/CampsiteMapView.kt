@@ -11,6 +11,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,8 +46,19 @@ private const val TILE_LOAD_TIMEOUT_MS = 8_000L
 private const val OSM_EMBED_ORIGIN = "https://www.openstreetmap.org"
 private val tilePath = Regex("""/\d+/\d+/\d+\.png""")
 
-/** Displays the saved campsite location on an interactive map. Map tiles require a network connection. */
-class CampsiteMapView {
+// AI Citation [AI-48]
+// OpenAI, Codex, November 27, 2026. Added a request fixture hook before the first WebView load.
+// See Bhav Saluja's entry in the team's AI Documentation Google Doc.
+/**
+ * Displays the saved campsite location on an interactive map. Map tiles require a network connection.
+ *
+ * @param interceptResource Optional test fixture that serves WebView responses before navigation.
+ */
+class CampsiteMapView @VisibleForTesting internal constructor(
+    private val interceptResource: ((WebResourceRequest) -> WebResourceResponse?)?
+) {
+    constructor() : this(null)
+
     // AI Citation [AI-45]
     // OpenAI, Codex, November 27, 2026. Added retry and distinguished embed failures from tile errors.
     // See Bhav Saluja's entry in the team's AI Documentation Google Doc.
@@ -126,6 +138,13 @@ class CampsiteMapView {
                                     }
                                 }
                                 webViewClient = object : WebViewClient() {
+                                    override fun shouldInterceptRequest(
+                                        view: WebView,
+                                        request: WebResourceRequest
+                                    ): WebResourceResponse? {
+                                        return interceptResource?.invoke(request)
+                                    }
+
                                     override fun onReceivedError(
                                         view: WebView,
                                         request: WebResourceRequest,

@@ -2,12 +2,10 @@ package com.example.zephyrcampsites
 
 import android.view.View
 import android.graphics.Bitmap
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertHeightIsEqualTo
@@ -36,6 +34,7 @@ import androidx.webkit.WebViewFeature
 import com.example.zephyrcampsites.ui.theme.ZephyrCampsitesTheme
 import com.google.firebase.firestore.GeoPoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
@@ -53,6 +52,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 class CampsiteMapViewTest {
     @get:Rule
     val composeTestRule = createComposeRule()
+    private val fixtureLocation = GeoPoint(52.86, -118.11)
+    private val savedMapUrl = checkNotNull(
+        CampsiteMapLocation.embedUrl(fixtureLocation.latitude, fixtureLocation.longitude)
+    )
 
     @Test
     fun missingCoordinatesShowFallbackWithoutCreatingABrowser() {
@@ -255,9 +258,8 @@ class CampsiteMapViewTest {
 
         val connected = AtomicBoolean(true)
         val tileError = CountDownLatch(1)
-        val savedUrl = checkNotNull(CampsiteMapLocation.embedUrl(52.86, -118.11))
         val png = mapTileImage()
-        val browser = loadMapFixture("$savedUrl&viewport-test", intercept = { request ->
+        val browser = loadMapFixture(intercept = { request ->
             if (request.url.host == "tile.openstreetmap.org") {
                 tileResponse(connected.get(), png)
             } else {
@@ -288,12 +290,16 @@ class CampsiteMapViewTest {
             composeTestRule.onAllNodesWithText("Retry map").fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithText("Unable to load map. Check your connection.").assertIsDisplayed()
+        connected.set(true)
         composeTestRule.onNodeWithText("Retry map").performClick()
-        onView(isAssignableFrom(WebView::class.java)).check { view, exception ->
-            if (exception != null) {
-                throw exception
-            }
-            assertEquals(savedUrl, (view as WebView).url)
+        val retriedBrowser = mapBrowser()
+        assertNotSame(browser, retriedBrowser)
+        composeTestRule.waitUntil(30_000) {
+            readMap(retriedBrowser, "window.zephyrHasVisibleTiles?.() === true && " +
+                "document.querySelector('.maplibregl-marker')?.getBoundingClientRect().width > 0") == "true"
+        }
+        composeTestRule.runOnIdle {
+            assertEquals(savedMapUrl, retriedBrowser.url)
         }
     }
 
@@ -301,7 +307,6 @@ class CampsiteMapViewTest {
     private fun loadMapWithTileResponses(workingTile: Boolean): CountDownLatch {
         val tileError = "https://tile.openstreetmap.org/1/0/0.png"
         val tileOther = "https://tile.openstreetmap.org/1/1/0.png"
-        val fixtureUrl = "https://www.openstreetmap.org/export/embed.html?tile-test"
         val html = """
             <!doctype html><html><body>
             <script>fetch('$tileError'); fetch('$tileOther');</script>
@@ -309,9 +314,9 @@ class CampsiteMapViewTest {
         """.trimIndent()
         val png = mapTileImage()
         val httpErrors = CountDownLatch(if (workingTile) 1 else 2)
-        loadMapFixture(fixtureUrl, intercept = { request ->
+        loadMapFixture(intercept = { request ->
             when (request.url.toString()) {
-                fixtureUrl -> WebResourceResponse("text/html", "UTF-8", html.byteInputStream())
+                savedMapUrl -> WebResourceResponse("text/html", "UTF-8", html.byteInputStream())
                 tileOther -> tileResponse(workingTile, png)
                 tileError -> tileResponse(false, png)
                 else -> null
@@ -343,55 +348,39 @@ class CampsiteMapViewTest {
         }
     }
 
-    /** Intercepts fixture responses while leaving the production WebView error handling active. */
+    // AI Citation [AI-48]
+    // OpenAI, Codex, November 27, 2026. Installed fixture responses before loading and checked the retried marker.
+    // See Bhav Saluja's entry in the team's AI Documentation Google Doc.
+    /** Installs responses before the original embed starts, using the same client on retry. */
     private fun loadMapFixture(
-        fixtureUrl: String,
         intercept: (WebResourceRequest) -> WebResourceResponse?,
         onTileError: () -> Unit
     ): WebView {
+        val mapView = CampsiteMapView { request ->
+            val response = intercept(request)
+            if (!request.isForMainFrame && response?.statusCode == 503 &&
+                request.url.host == "tile.openstreetmap.org"
+            ) {
+                onTileError()
+            }
+            response
+        }
         composeTestRule.setContent {
             ZephyrCampsitesTheme {
-                CampsiteMapView().MapView(GeoPoint(52.86, -118.11), "Pine Lake Campground")
+                mapView.MapView(fixtureLocation, "Pine Lake Campground")
             }
         }
+        return mapBrowser()
+    }
 
+    private fun mapBrowser(): WebView {
         lateinit var fixtureBrowser: WebView
-        onView(isAssignableFrom(WebView::class.java)).perform(object : ViewAction {
-            override fun getConstraints(): Matcher<View> = isAssignableFrom(WebView::class.java)
-            override fun getDescription(): String = "Load the embed and controlled tile HTTP responses"
-            override fun perform(uiController: UiController, view: View) {
-                val browser = view as WebView
-                fixtureBrowser = browser
-                browser.stopLoading()
-                val client = browser.webViewClient
-                browser.webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(
-                        view: WebView,
-                        request: WebResourceRequest
-                    ): WebResourceResponse? {
-                        return intercept(request)
-                    }
-
-                    override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                        client.onReceivedError(view, request, error)
-                    }
-
-                    override fun onReceivedHttpError(
-                        view: WebView,
-                        request: WebResourceRequest,
-                        response: WebResourceResponse
-                    ) {
-                        client.onReceivedHttpError(view, request, response)
-                        if (!request.isForMainFrame && response.statusCode == 503 &&
-                            request.url.host == "tile.openstreetmap.org"
-                        ) {
-                            onTileError()
-                        }
-                    }
-                }
-                browser.loadUrl(fixtureUrl)
+        onView(isAssignableFrom(WebView::class.java)).check { view, exception ->
+            if (exception != null) {
+                throw exception
             }
-        })
+            fixtureBrowser = view as WebView
+        }
         return fixtureBrowser
     }
 }
