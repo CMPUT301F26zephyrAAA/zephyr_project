@@ -62,7 +62,7 @@ internal fun OwnerReservationsScreen(
                 isRefreshing = false
             },
             onError = {
-                errorMessage = "Unable to load your active reservations."
+                errorMessage = "Unable to load reservations."
                 isLoading = false
                 isRefreshing = false
             }
@@ -118,7 +118,7 @@ internal fun OwnerReservationsScreen(
             selectedTab = selectedTab,
             isLoading = isLoading,
             isRefreshing = isRefreshing,
-            errorMessage = errorMessage?.takeIf { bookings == null },
+            errorMessage = errorMessage,
             onRefresh = ::loadReservations,
             onRetry = ::loadReservations,
             onSelectTab = { tab ->

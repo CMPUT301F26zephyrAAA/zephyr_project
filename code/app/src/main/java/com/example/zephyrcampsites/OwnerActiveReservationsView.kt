@@ -90,6 +90,14 @@ internal fun OwnerReservationsListView(
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        if (errorMessage != null && !isLoading && reservations.isNotEmpty()) {
+            Text(
+                text = errorMessage,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
         when {
             isLoading -> {
                 Box(
@@ -100,7 +108,7 @@ internal fun OwnerReservationsListView(
                 }
             }
 
-            errorMessage != null -> {
+            errorMessage != null && reservations.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
