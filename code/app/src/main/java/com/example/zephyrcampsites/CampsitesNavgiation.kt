@@ -351,6 +351,15 @@ internal fun CampsitesNavigation(
             } else {
                 null
             },
+            onBookingCalendar = if (canManage) {
+                {
+                    navHostController.navigate(
+                        GeneralScreen.OwnerBookingCalendar.createRoute(campsiteId.toString())
+                    )
+                }
+            } else {
+                null
+            },
             lottery = campsiteLottery,
             waitingListController = waitingListController,
             reservationOfferController = reservationOfferController,
@@ -616,6 +625,32 @@ internal fun CampsitesNavigation(
                                     )
                                 } else {
                                     FeaturePage("Only the campsite owner can open these reservations.", onBack)
+                                }
+                            }
+                        }
+
+                        composable(
+                            route = GeneralScreen.OwnerBookingCalendar.route,
+                            arguments = listOf(navArgument("campsiteId") { type = NavType.StringType })
+                        ) { entry ->
+                            val campsiteId = entry.arguments?.getString("campsiteId")
+                                ?: return@composable
+                            AccountContent { owner ->
+                                val campsite = campsiteModel.campsites.firstOrNull {
+                                    it.id == campsiteId && it.ownerID == owner.id
+                                }
+                                if (campsite != null && OWNER in owner.userType) {
+                                    OwnerBookingCalendarScreen(
+                                        campsite = campsite,
+                                        owner = owner,
+                                        controller = reservationsController,
+                                        onBack = onBack
+                                    )
+                                } else {
+                                    FeaturePage(
+                                        "Only the campsite owner can open this booking calendar.",
+                                        onBack
+                                    )
                                 }
                             }
                         }
