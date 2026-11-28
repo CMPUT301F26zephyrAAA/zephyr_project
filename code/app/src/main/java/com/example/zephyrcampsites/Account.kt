@@ -22,6 +22,10 @@ data class Account(
     var compressedImage: String = ""
 ) : DataHolder(id)
 
+/** Returns a signed-in profile with admin access derived from its verified Auth claim. */
+internal fun Account.withVerifiedAdminRole(isAdmin: Boolean): Account =
+    copy(userType = accountRoles(if (isAdmin) "admin" else null))
+
 internal fun accountRoles(storedValue: Any?): List<String> {
     val hasAdminGrant = when (storedValue) {
         "admin" -> true

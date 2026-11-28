@@ -46,6 +46,7 @@ internal fun CampsitesNavigation(
     currentAccount: MutableState<Account?>,
     accountLoading: State<Boolean>,
     profileDeletionInProgress: MutableState<Boolean>,
+    adminRefreshInProgress: State<Boolean>,
     onRetryAccount: () -> Unit,
     onFinishActivity: () -> Unit
 ) {
@@ -94,6 +95,13 @@ internal fun CampsitesNavigation(
     val account = currentAccount.value
     val isLoading = accountLoading.value
     val isAdmin = !isLoading && account?.userType?.contains(ADMIN) == true
+
+    fun updateCurrentProfile(updated: Account) {
+        val latestAccount = currentAccount.value ?: return
+        if (latestAccount.id == updated.id) {
+            currentAccount.value = updated.copy(userType = latestAccount.userType)
+        }
+    }
 
     fun ownsCampsite(campsiteId: String?): Boolean {
         val owner = currentAccount.value ?: return false
@@ -328,6 +336,7 @@ internal fun CampsitesNavigation(
             showOwnerView = role == OWNER,
             showEntrantActions = role == ENTRANT,
             showAdminActions = role == ADMIN,
+            ratingRemovalEnabled = !adminRefreshInProgress.value,
             codeGenerator = { type, id -> qrHandler.qRGenerate(type, id) },
             onBack = onBack,
             onEdit = if (canManage) {
@@ -466,9 +475,7 @@ internal fun CampsitesNavigation(
                             AccountsView().ProfileView(
                                 account = profileAccount,
                                 accountsController = accountsController,
-                                onSaved = { updated ->
-                                    currentAccount.value = updated
-                                },
+                                onSaved = ::updateCurrentProfile,
                                 onBack = onBack
                             )
                         }
@@ -543,7 +550,7 @@ internal fun CampsitesNavigation(
                         }
 
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 owner navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(
                             route = "$OWNER/notifyEntrants/{lotteryId}",
                             arguments = listOf(navArgument("lotteryId") { type = NavType.StringType })
@@ -761,7 +768,7 @@ internal fun CampsitesNavigation(
                         }
                     } else {
                         // AI Citation [AI-39]
-                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See README.md.
+                        // OpenAI, Codex, US 02.10.01 entrant navigation, 2026-11-27. See the team AI Documentation Google Doc.
                         composable(GeneralScreen.LotteryNotifications.route) {
                             AccountContent { entrant ->
                                 LotteryNotificationsScreen(entrant, notificationController, onBack)
@@ -1025,7 +1032,7 @@ internal fun CampsitesNavigation(
                             AccountsView().ProfileView(
                                 account = profileAccount,
                                 accountsController = accountsController,
-                                onSaved = { updated -> currentAccount.value = updated },
+                                onSaved = ::updateCurrentProfile,
                                 onBack = onBack
                             )
                         }
